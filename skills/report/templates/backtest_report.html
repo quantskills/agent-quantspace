@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ title or "Backtest Report" }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #222; }
+  h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
+  h2 { margin-top: 2em; color: #4f81bd; }
+  table { border-collapse: collapse; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: .4em .8em; text-align: right; }
+  th { background: #f4f4f4; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .meta { color: #666; font-size: .9em; }
+  .chart { margin: 1em 0; }
+  .chart img { max-width: 100%; height: auto; }
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1em; margin: 1em 0; }
+  .metric { background: #f4f7fb; border-left: 3px solid #4f81bd; padding: .6em .8em; }
+  .metric .label { font-size: .85em; color: #666; }
+  .metric .value { font-size: 1.3em; font-weight: 600; color: #333; }
+</style>
+</head>
+<body>
+<h1>{{ title or "Backtest Report" }}</h1>
+<p class="meta">Strategy: <code>{{ strategy }}</code> &middot; Period: {{ period or "—" }} &middot; Generated: {{ as_of }}</p>
+
+{% if metrics %}
+<h2>Performance Summary</h2>
+<div class="metric-grid">
+  {% for label, value in metrics.items() %}
+  <div class="metric">
+    <div class="label">{{ label }}</div>
+    <div class="value">{{ value }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if equity_chart %}
+<h2>Equity Curve</h2>
+<div class="chart"><img src="{{ equity_chart | png_data_uri }}" alt="equity curve"></div>
+{% endif %}
+
+{% if drawdown_chart %}
+<h2>Drawdown</h2>
+<div class="chart"><img src="{{ drawdown_chart | png_data_uri }}" alt="drawdown"></div>
+{% endif %}
+
+{% if regime_chart %}
+<h2>Regime Overlay</h2>
+<div class="chart"><img src="{{ regime_chart | png_data_uri }}" alt="regime states"></div>
+{% endif %}
+
+{% if trades_html %}
+<h2>Trades</h2>
+{{ trades_html | safe }}
+{% endif %}
+
+{% if notes %}
+<h2>Notes</h2>
+<p>{{ notes }}</p>
+{% endif %}
+</body>
+</html>

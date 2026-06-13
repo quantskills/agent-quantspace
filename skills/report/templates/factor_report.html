@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ title or "Factor Screening Report" }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #222; }
+  h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
+  h2 { margin-top: 2em; color: #4f81bd; }
+  table { border-collapse: collapse; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: .4em .8em; text-align: right; }
+  th { background: #f4f4f4; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .meta { color: #666; font-size: .9em; }
+  .chart { margin: 1em 0; }
+  .chart img { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>{{ title or "Factor Screening Report" }}</h1>
+<p class="meta">Pool: <code>{{ pool }}</code> &middot; Holding: {{ n }} days &middot; Generated: {{ as_of }}</p>
+
+{% if ranking_chart %}
+<h2>Top Factor Ranking</h2>
+<div class="chart"><img src="{{ ranking_chart | png_data_uri }}" alt="ranking"></div>
+{% endif %}
+
+{% if ic_heatmap %}
+<h2>IC Heatmap</h2>
+<div class="chart"><img src="{{ ic_heatmap | png_data_uri }}" alt="ic heatmap"></div>
+{% endif %}
+
+<h2>Ranking Table</h2>
+{% if ranking_html %}
+{{ ranking_html | safe }}
+{% else %}
+<p>No ranking data.</p>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ title or "Signal Digest" }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #222; }
+  h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
+  h2 { margin-top: 2em; color: #4f81bd; }
+  table { border-collapse: collapse; margin: 1em 0; width: 100%; max-width: 960px; }
+  th, td { border: 1px solid #ccc; padding: .4em .8em; text-align: right; }
+  th { background: #f4f4f4; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .meta { color: #666; font-size: .9em; }
+  .long { color: #1a7f37; font-weight: 600; }
+  .short { color: #b91c1c; font-weight: 600; }
+  .flat { color: #888; }
+</style>
+</head>
+<body>
+<h1>{{ title or "Signal Digest" }}</h1>
+<p class="meta">Domain: <code>{{ domain }}</code> &middot; As of: {{ as_of }} &middot; Count: {{ signals | length }}</p>
+
+<h2>Active Signals</h2>
+{% if signals %}
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Direction</th>
+      <th>Weight</th>
+      <th>Confidence</th>
+      <th>Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in signals %}
+    <tr>
+      <td>{{ s.symbol }}</td>
+      <td class="{% if s.direction > 0 %}long{% elif s.direction < 0 %}short{% else %}flat{% endif %}">
+        {% if s.direction > 0 %}LONG{% elif s.direction < 0 %}SHORT{% else %}FLAT{% endif %}
+      </td>
+      <td>{{ "%.4f" | format(s.weight) }}</td>
+      <td>{{ "%.2f" | format(s.confidence) }}</td>
+      <td>{{ s.source }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No active signals.</p>
+{% endif %}
+
+{% if changes_html %}
+<h2>Position Changes vs Previous Run</h2>
+{{ changes_html | safe }}
+{% endif %}
+
+{% if notes %}
+<h2>Notes</h2>
+<p>{{ notes }}</p>
+{% endif %}
+</body>
+</html>
