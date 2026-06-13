@@ -1,0 +1,1 @@
+"""Construct skill tests."""
