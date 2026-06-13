@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# uv
+.uv/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type checkers / linters
+.mypy_cache/
+.rpy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+
+# Local / secrets (adjust if you commit templates only)
+.env
+.env.*
+!.env.example
+user.json
+
+# Local temp and output
+tmp/
+output/
+
+# Editor configs
+.cursor/
+*.code-workspace
+
+# Large local data (market data, computed artifacts — not committed)
+data/*
+!data/README.md
+!data/README-zh.md
+!data/pools/
+!data/pools/*.json
+!data/sample/
+!data/sample/*.csv
+!data/sample/*.parquet
+
+# Generated research caches and bulky raw logs
+reports/**/cache/
+*.pkl
+reports/**/*stdout.txt
+reports/**/*stderr.txt
+*.parquet.before_repair

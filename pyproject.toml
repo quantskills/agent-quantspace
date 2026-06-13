@@ -1,0 +1,86 @@
+[project]
+name = "quantspace"
+version = "0.1.0"
+description = "PandaData-first conversational quantitative research workbench"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scipy",
+    "scikit-learn",
+    "statsmodels",
+    "pyarrow",
+    "seaborn",
+    "xgboost>=3.2.0",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+query = [
+    "duckdb",
+]
+ml = [
+    "xgboost>=3.2.0",
+    "pycaret>=3.1.0",
+]
+ts = ["tsfresh", "joblib"]
+panda_data = ["panda_data>=0.0.9", "requests>=2.32.0"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused imports, etc.)
+    "I",   # isort (import order)
+    "UP",  # pyupgrade (modern Python idioms)
+    "B",   # flake8-bugbear (common bugs)
+    "C4",  # flake8-comprehensions (cleaner list/dict comprehensions)
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",    # line too long (ruff format handles this)
+    "B008",    # do not perform function calls in default arguments
+    "B905",    # zip() strict= — too pedantic for research code
+    "SIM102",  # collapsible-if — style preference
+    "SIM105",  # contextlib.suppress — style preference
+    "SIM108",  # ternary vs if-else — style preference
+    "SIM201",  # negated equal — style preference
+    "B028",    # warning stacklevel — not critical here
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["skills", "strategies"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# Agent skill tests (tests/test_agent_skills.py) call the real codex CLI.
+# Skipped by default; opt in with:  RUN_AGENT_TESTS=1 uv run pytest -m agent
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "agent: live codex CLI skill checks — opt-in via RUN_AGENT_TESTS=1 (requires codex in PATH and OPENAI_API_KEY)",
+    "unit: deterministic unit tests for public modules",
+    "integration: offline public workflow tests",
+    "contract: public API and data-shape contract tests",
+    "regression: deterministic behavior pins",
+    "docs: documentation/example consistency tests",
+    "policy: repository and test-layout policy tests",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.7",
+]
