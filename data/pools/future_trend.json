@@ -1,0 +1,22 @@
+{
+  "pool_id": "future_trend",
+  "description": "PandaData dominant futures pool for public trend examples",
+  "frequency": "1d",
+  "symbols": [
+    "INE.SC99",
+    "SHFE.AU99",
+    "SHFE.AG99",
+    "SHFE.CU99",
+    "SHFE.RB99",
+    "SHFE.AL99",
+    "DCE.I99",
+    "DCE.M99",
+    "DCE.Y99",
+    "CZCE.TA99",
+    "CZCE.MA99",
+    "CZCE.CF99",
+    "CFFEX.IF99",
+    "CFFEX.IC99",
+    "CFFEX.IM99"
+  ]
+}

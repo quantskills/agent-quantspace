@@ -1,0 +1,15 @@
+{
+  "pool_id": "index_rotation",
+  "description": "PandaData broad China index pool for public strategy examples",
+  "frequency": "1d",
+  "symbols": [
+    "SHSE.000001",
+    "SHSE.000016",
+    "SHSE.000300",
+    "SHSE.000905",
+    "SHSE.000852",
+    "SZSE.399001",
+    "SZSE.399006",
+    "SZSE.399005"
+  ]
+}

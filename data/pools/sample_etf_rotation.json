@@ -1,0 +1,11 @@
+{
+  "pool_id": "sample_etf_rotation",
+  "description": "ETF-style pool for public examples",
+  "frequency": "1d",
+  "symbols": [
+    "SHSE.510300",
+    "SHSE.510500",
+    "SZSE.159915",
+    "SHSE.513100"
+  ]
+}
