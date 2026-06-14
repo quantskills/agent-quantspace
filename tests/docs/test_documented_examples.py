@@ -11,8 +11,6 @@ def test_documentation_mentions_current_backtest_api() -> None:
         for path in [
             ROOT / "README.md",
             ROOT / "README-zh.md",
-            ROOT / "docs/architecture.md",
-            ROOT / "docs/examples.md",
             ROOT / "strategies/README.md",
             ROOT / "scripts/README.md",
         ]

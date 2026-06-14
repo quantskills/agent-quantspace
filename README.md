@@ -2,59 +2,70 @@
 
 [中文说明](README-zh.md)
 
-QuantSpace is a PandaData-first quantitative research workbench. It keeps
-the core small, exposes reusable research skills, and provides two public
-strategy domains that can be composed by a coding agent or used directly from
-Python scripts.
+QuantSpace is an AI-native quantitative research framework for turning a market
+idea into working strategy research without leaving the project directory.
+Describe a hypothesis, universe, factor, label, rule, model, backtest constraint,
+or report you want; an AI coding agent can then build on the repository's
+structure to produce runnable, tested, reviewable code.
 
-The repository is intended as a clean open-source core for research workflows:
-data ingestion, local Parquet storage, feature and label generation, factor
-analysis, portfolio construction, reporting, and demo backtests.
+PandaData is the default market data provider, so real daily bars can be used
+immediately. Data flows in through `skills.ingest`, where external symbols and
+raw frames are normalized into QuantSpace conventions. Other vendors and local
+datasets can plug into the same contracts, allowing the rest of the workflow to
+stay unchanged.
 
-## What Is Included
-
-- PandaData/PandaAI data access through `skills.ingest`.
-- Local file and artifact management through `skills.store.data_manager.DataManager`.
-- Generic OHLCV indicators, math utilities, time-series features, and public
-  label generators.
-- Generic factor examples for cross-sectional and time-series research.
-- Analysis, construction, research-screening, model, and report skills.
-- Two public strategy domains:
-  - `strategies.cross_sectional`: ETF-style cross-sectional rotation demo.
-  - `strategies.time_series`: single-instrument ML demo using triple-barrier labels.
-- A deterministic fixture-data generator for smoke tests and runnable demo scripts.
-
-## What Is Not Included
-
-- Private strategy research, proprietary alpha logic, private notebooks, or
-  generated research reports.
-- Private market data, credentials, or local absolute paths.
-- Non-PandaData vendor adapters or remote execution tools.
-- Production trading, brokerage integration, or live order management.
-- Private label experiments.
+The framework packages the full research loop as reusable skills: data
+ingestion, local Parquet storage with optional DuckDB queries, factor
+calculation and analysis, rule-based and machine-learning strategy development,
+portfolio construction, vectorized backtesting, and performance report
+management. `AGENTS.md` and the per-skill `SKILL.md` files teach AI agents how
+to reuse these modules instead of scattering research logic across one-off
+scripts.
 
 ## Project Layout
+
+The repository layout is part of the product: it gives both humans and AI agents
+clear places to put data access, reusable capabilities, strategy logic, scripts,
+reports, and tests.
 
 ```text
 quantspace/
   skills/                 reusable capabilities
-    ingest/               PandaData client and symbol conversion
-    store/                local Parquet storage and artifact management
-    compute/              indicators, features, labels, factor examples
+    ingest/               data ingestion: default PandaData client and symbol conversion
+    store/                local Parquet storage, DuckDB queries, artifact management
+    compute/              indicators, labels, utilities, factor examples
     analyze/              factor analysis, metrics, attribution, tearsheets
     construct/            weighting, filters, strategy combination
     model/                ML helpers and optional model engines
     research/             factor screening, parameter sweeps, comparisons
     report/               HTML/Markdown report rendering and charts
   strategies/
-    cross_sectional/      generic cross-sectional rotation
-    time_series/          single-instrument ML workflow
+    cross_sectional/      cross-sectional strategy
+    time_series/          time-series strategy
   scripts/                sample data, demos, PandaData import helper
   data/                   local data root; only sample pools are committed
   reports/                local generated report output
-  docs/                   architecture, data layout, examples, scope notes
+  docs/                   architecture, data layout, examples, ingest notes
   tests/                  public pytest suite
 ```
+
+## Public Skills
+
+Skills are the reusable building blocks that an AI agent should reach for before
+writing new research code.
+
+| Skill | Main import | Purpose |
+|---|---|---|
+| `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion |
+| `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
+| `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
+| `analyze` | `from skills.analyze.backtest import VectorBacktester` | Vectorized backtests, IC, grouped returns, metrics, tearsheets |
+| `construct` | `from skills.construct.weighting import WEIGHT_METHODS` | Weighting methods and portfolio filters |
+| `model` | `from skills.model.ml_engine import MLEngine` | Optional ML helpers |
+| `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
+| `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
+
+Each skill directory contains a `SKILL.md` guide.
 
 ## Quick Start
 
@@ -63,10 +74,11 @@ Requirements:
 - Python `>=3.10`
 - `uv`
 
-Install the default environment. For a self-contained smoke test, generate the
-small fixture dataset first, then run the demos:
+Install the default environment, generate a small deterministic fixture dataset,
+and run the demos:
 
 ```bash
+cp .env.example .env # set PANDA_DATA_USERNAME and PANDA_DATA_PASSWORD
 uv sync
 uv run python scripts/generate_sample_data.py
 uv run python scripts/run_cross_sectional_demo.py
@@ -74,36 +86,38 @@ uv run python scripts/run_time_series_demo.py
 uv run python -m pytest tests/
 ```
 
-The fixture data is synthetic and deterministic. It is written under
-`data/market/` and can be regenerated at any time. For real research runs,
-replace it with real daily Parquet files or import data through PandaData.
+The fixture data is synthetic and deterministic, so the demos are reproducible
+and safe to rerun. It is written under `data/market/`; for real research, replace
+it with daily Parquet files from PandaData or another adapter that follows the
+same data model.
 
 Optional extras:
 
 ```bash
 uv sync --extra panda_data  # PandaData SDK
 uv sync --extra ml          # optional PyCaret-based ML helpers
-uv sync --extra ts          # optional time-series feature dependencies
 uv sync --extra query       # optional DuckDB querying
 ```
 
 ## PandaData Setup
 
-Install the optional PandaData SDK dependency:
+PandaData is optional at install time and becomes active once the SDK and
+credentials are available:
 
 ```bash
 uv sync --extra panda_data
 cp .env.example .env
 ```
 
-Set credentials in `.env`:
+Set credentials in `.env`. `PandaDataClient` only reads `PANDA_DATA_*`
+credential names:
 
 ```bash
 PANDA_DATA_USERNAME=86xxxxxxxxxxx
 PANDA_DATA_PASSWORD=your-password
 ```
 
-Run the import demo:
+Then try a small import:
 
 ```bash
 uv run python scripts/import_panda_data_demo.py \
@@ -112,8 +126,8 @@ uv run python scripts/import_panda_data_demo.py \
   --end-date 20231231
 ```
 
-QuantSpace symbol format is `EXCHANGE.CODE`, such as `SHSE.510300`.
-PandaData-style symbols are converted through:
+QuantSpace uses `EXCHANGE.CODE` symbols, such as `SHSE.510300`. PandaData-style
+symbols are converted through:
 
 ```python
 from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
@@ -124,7 +138,8 @@ to_quantspace_symbol("510300.SH")    # "SHSE.510300"
 
 ## Data Model
 
-Market data is stored as one Parquet file per symbol:
+The data model stays intentionally simple so generated strategy code can depend
+on it. Market data is stored as one Parquet file per symbol:
 
 ```text
 data/market/{frequency}/{symbol}.parquet
@@ -150,9 +165,13 @@ Pools are JSON files under `data/pools/`:
 `DataManager.load_pool_data(pool_id)` returns a panel indexed by
 `(symbol, eob)`.
 
-Set `QUANTSPACE_DATA_ROOT` if you want data outside the repository.
+Set `QUANTSPACE_DATA_ROOT` when you want the same code to use a data directory
+outside the repository.
 
 ## Strategy Demos
+
+The demos show the intended shape of strategy work: scripts orchestrate, skills
+provide shared machinery, and `strategies/` holds domain logic.
 
 ### Cross-Sectional Rotation
 
@@ -168,8 +187,8 @@ Run:
 uv run python scripts/run_cross_sectional_demo.py
 ```
 
-The demo combines simple momentum and low-volatility factors through
-`strategies.cross_sectional.ModularBacktester` using existing
+This demo combines simple momentum and low-volatility factors through
+`strategies.cross_sectional.ModularBacktester`, using existing
 `data/market/1d/` Parquet files for the configured sample pool.
 
 ### Time-Series ML
@@ -186,7 +205,7 @@ Run:
 uv run python scripts/run_time_series_demo.py
 ```
 
-The demo uses `strategies.time_series.features.make_price_volume_features`,
+This demo uses `strategies.time_series.features.make_price_volume_features`,
 `TripleBarrierLabelMaker`, a small scikit-learn classifier, a date x symbol
 weight matrix, and `skills.analyze.backtest.VectorBacktester` on an existing
 single-symbol daily Parquet file.
@@ -199,52 +218,34 @@ uv run python scripts/run_strategy_reports.py
 
 This thin orchestration script reads existing PandaData daily Parquet files from
 `data/market/1d/` and writes four public strategy reports plus performance PNGs
-to `reports/strategy_examples/`. For both cross-sectional and time-series
-domains, one example is rule-based and the other uses XGBoost. Strategy logic
-lives under `strategies/`; storage, backtest metrics, weighting, and report
-helpers live under `skills/`.
-
-## Public Skills
-
-| Skill | Main import | Purpose |
-|---|---|---|
-| `ingest` | `from skills.ingest import PandaDataClient` | PandaData access and symbol conversion |
-| `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
-| `compute` | `from skills.compute.indicators import trend_score` | Indicators, features, labels, generic factor examples |
-| `analyze` | `from skills.analyze.backtest import VectorBacktester` | Vectorized backtests, IC, grouped returns, metrics, tearsheets |
-| `construct` | `from skills.construct.weighting import WEIGHT_METHODS` | Weighting methods and portfolio filters |
-| `model` | `from skills.model.ml_engine import MLEngine` | Optional ML helpers |
-| `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
-| `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
-
-Each skill directory contains a `SKILL.md` guide.
+to `reports/strategy_examples/`. Each strategy family has one rule-based example
+and one XGBoost example. Strategy logic lives under `strategies/`; storage,
+backtest metrics, weighting, and report helpers live under `skills/`.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Data layout](docs/data_layout.md)
-- [Examples](docs/examples.md)
+Use these notes when you need the details behind the README:
+
 - [PandaData ingest](docs/panda_data_ingest.md)
-- [Open-source scope](docs/open_source_scope.md)
-- [Private extension pattern](docs/private_extension_pattern.md)
 
 ## Development
 
-Run the public tests:
+Run the public test suite before handing work back:
 
 ```bash
 uv run python -m pytest tests/
 ```
 
-Before publishing, run the test suite and your release safety scan for private
-paths, credentials, private strategy names, and removed research-only modules.
-
-Generated data and reports should stay local. The committed repository should
-only include code, docs, tests, sample pool definitions, and small templates.
+Before publishing, also run a release safety scan for private paths,
+credentials, private strategy names, and removed research-only modules.
+Generated data and private research reports should stay local; the sanitized
+public examples under `reports/strategy_examples/` are the intended report
+artifacts in the open repository.
 
 ## Private Extension Pattern
 
-Keep private research in a separate repository:
+For proprietary research, keep a sibling private repository and promote only
+generic improvements back into QuantSpace:
 
 ```text
 workspace/
@@ -252,9 +253,8 @@ workspace/
   quantspace-private/
 ```
 
-Promote generic improvements back to this repository. Keep proprietary strategy
-domains, private data adapters, alpha research, notebooks, and generated reports
-out of the open-source repo.
+Keep proprietary strategy domains, private data adapters, alpha research,
+notebooks, and non-public generated reports out of the open-source repo.
 
 ## License
 

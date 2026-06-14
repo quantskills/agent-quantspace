@@ -52,15 +52,6 @@ def _load_dotenv_if_present(path: Path | None = None) -> None:
             os.environ[key] = value
 
 
-def _env_first(*names: str) -> str:
-    """Return the first non-empty environment variable value."""
-    for name in names:
-        value = os.environ.get(name, "")
-        if value:
-            return value
-    return ""
-
-
 class PandaDataClient:
     """panda_data market data client.
 
@@ -84,8 +75,8 @@ class PandaDataClient:
         auto_convert_symbols: bool = True,
     ):
         _load_dotenv_if_present()
-        self._username = username or _env_first("PANDA_DATA_USERNAME", "PANDAAI_USERNAME")
-        self._password = password or _env_first("PANDA_DATA_PASSWORD", "PANDAAI_PASSWORD")
+        self._username = username or os.environ.get("PANDA_DATA_USERNAME", "")
+        self._password = password or os.environ.get("PANDA_DATA_PASSWORD", "")
         self.auto_convert_symbols = auto_convert_symbols
         self._token_ready = False
 

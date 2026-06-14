@@ -1,6 +1,6 @@
 ---
 name: compute
-description: Universal OHLCV indicators, math utilities, generic factor examples, and label makers. Strategy-specific alpha expressions and feature engineering live in their strategy domain.
+description: Use when tasks need strategy-agnostic OHLCV indicators, math utilities, generic factor examples, cost helpers, regime slicing, resampling, or label makers.
 ---
 
 ## Description
@@ -10,7 +10,7 @@ Compute derived values from OHLCV data. This skill is organized in reusable, str
 | Layer | Module | Contents |
 |-------|--------|----------|
 | **Utils** | `skills.compute.utils` | Math primitives: `safe_divide`, `rolling_zscore`, `calculate_atr`, `clip_outliers`, etc. |
-| **Indicators** | `skills.compute.indicators` | 47 universal technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
+| **Indicators** | `skills.compute.indicators` | 41 public technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
 
 Also: label makers (`label_maker.py`), compact generic factor examples, and the `Factor` wrapper.
 
@@ -41,7 +41,7 @@ Shared market-structure helpers used by strategy domains:
 from skills.compute.utils import safe_divide, rolling_zscore, calculate_atr, clip_outliers, round_away_from_zero
 ```
 
-9 functions: `safe_divide`, `rolling_zscore`, `rolling_regression_vectorized`, `calculate_atr`, `clip_outliers`, `round_away_from_zero`, plus private helpers `_weighted_polyfit_coefficients`, `_rolling_linear_regression`, `_scalar_kalman_smoother`.
+6 public functions: `safe_divide`, `rolling_zscore`, `rolling_regression_vectorized`, `calculate_atr`, `clip_outliers`, `round_away_from_zero`, plus private helpers `_weighted_polyfit_coefficients`, `_rolling_linear_regression`, `_scalar_kalman_smoother`.
 
 ### Universal Indicators (`skills.compute.indicators`)
 
@@ -49,7 +49,7 @@ from skills.compute.utils import safe_divide, rolling_zscore, calculate_atr, cli
 from skills.compute.indicators import trend_score, rsi, er, supertrend
 ```
 
-47 functions organized by category:
+41 public functions organized by category:
 
 - **Price/Momentum**: `roc`, `ma`, `daily_return`, `ma_cross`, `price_above_ma`, `momentum_acceleration`, `momentum_weighted`, `bias_momentum`, `mom_skip`, `high_vol_odds`
 - **Trend**: `rsrs`, `rsrs_v1`–`v3`, `rsrs_norm`, `trend_score`, `trend_score_v2`, `trend_score_v2_skip`, `supertrend`, `donchian_channel`

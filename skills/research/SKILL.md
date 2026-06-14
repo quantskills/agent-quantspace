@@ -1,8 +1,8 @@
 ---
 name: research
 description: >
-  Reusable research pipeline templates: factor screening, parameter sensitivity,
-  strategy comparison. Built on top of compute, analyze, and construct skills.
+  Use when tasks need reusable research pipeline templates, factor screening,
+  parameter sensitivity sweeps, or strategy comparison.
 ---
 
 # Research Templates

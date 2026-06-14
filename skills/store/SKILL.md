@@ -1,6 +1,6 @@
 ---
 name: store
-description: Parquet-based market data, pool, factor, backtest, and model metadata storage.
+description: Use when tasks need local Parquet market data storage, pool management, research artifacts, backtest records, or model metadata.
 ---
 
 # Store

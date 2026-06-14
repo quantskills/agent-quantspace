@@ -6,6 +6,9 @@ This directory contains runnable entrypoints for demos and data import helpers.
 
 Scripts must stay small and compose public `skills/` and `strategies/` modules
 instead of duplicating research logic.
+Small script-local helpers for argument parsing, date chunking, or file
+normalization are acceptable; reusable research behavior belongs in `skills/`
+or `strategies/`.
 
 ## Public Scripts
 

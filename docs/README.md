@@ -2,17 +2,13 @@
 
 [中文说明](README-zh.md)
 
-This directory contains project-level documentation for QuantSpace.
+This directory only keeps project documentation that is not already covered by
+the root README, `AGENTS.md`, module README files, or `skills/*/SKILL.md`.
 
 ## Files
 
-- `architecture.md`: minimal-core architecture and public strategy pipelines.
-- `data_layout.md`: local data layout and pool schema.
-- `examples.md`: runnable demo commands.
-- `panda_data_ingest.md`: PandaData setup, symbol conversion, and import usage.
-- `open_source_scope.md`: what belongs in the open-source repository.
-- `private_extension_pattern.md`: recommended private-repository extension model.
-- `project-skills.md`: public skill registry.
+- `panda_data_ingest.md`: stable link target for the PandaData ingest guide.
 
-Keep docs aligned with the current public boundary. Do not document private
-strategy names, private data paths, removed modules, or unreleased adapters.
+Detailed skill usage lives in each `skills/<name>/SKILL.md`. Architecture,
+data layout, strategy examples, and script usage are documented in the root
+README, `AGENTS.md`, `strategies/`, and `scripts/`.

@@ -1,7 +1,8 @@
 # AGENTS.md - QuantSpace
 
-QuantSpace is a PandaData-first quantitative research workbench.
-It combines a small core, reusable skills, and example strategy domains.
+QuantSpace is an AI-native quantitative research framework.
+It combines reusable skills, strategy domains, and thin orchestration scripts so
+AI agents can turn research ideas into tested strategy code inside the project.
 
 ## Agent Protocol
 
@@ -13,7 +14,7 @@ It combines a small core, reusable skills, and example strategy domains.
 6. New quant code must reuse existing `skills/` and `strategies/` modules first.
 7. Put reusable storage, compute, analysis, construction, modeling, and reporting code in `skills/`.
 8. Put strategy-specific rules, features, labels-to-weights, and domain workflows in `strategies/`.
-9. Keep `scripts/` as thin orchestration only; do not duplicate reusable research logic there.
+9. Keep `scripts/` as thin orchestration only; small script-local parsing/date/file helpers are acceptable, but reusable research logic belongs in `skills/` or `strategies/`.
 10. When adding reusable modules, update the relevant `SKILL.md`, README/docs, and tests in the same change.
 11. Refactors do not need compatibility wrappers, old imports, or fallback behavior unless the user explicitly asks for them.
 12. Put tests under the matching source boundary: `tests/skills/<skill>/`, `tests/strategies/<domain>/`, `tests/scripts/`, `tests/integration/`, `tests/contracts/`, `tests/regression/`, `tests/docs/`, or `tests/policy/`.
@@ -27,17 +28,17 @@ It combines a small core, reusable skills, and example strategy domains.
 | `strategies/` | Public example strategy domains |
 | `scripts/` | Thin demo, report, and import entrypoints |
 | `data/` | Local data root; only sample pools are committed |
-| `reports/` | Local generated research outputs; report artifacts are not committed |
+| `reports/` | Local generated research outputs; `strategy_examples/` is the public report exception |
 | `tests/` | Public pytest suite |
-| `docs/` | Architecture, data layout, examples, and extension notes |
+| `docs/` | Minimal supplemental docs; avoid duplicating README, AGENTS, or SKILL.md |
 
 ## Skill Registry
 
 | Skill | Import | Purpose |
 |-------|--------|---------|
-| ingest | `from skills.ingest import PandaDataClient` | PandaData/PandaAI data access and symbol conversion |
+| ingest | `from skills.ingest import PandaDataClient` | PandaData data access and symbol conversion |
 | store | `from skills.store.data_manager import DataManager` | Parquet data and research artifact storage |
-| compute | `from skills.compute.indicators import trend_score` | Indicators, features, labels, utilities |
+| compute | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
 | analyze | `from skills.analyze.backtest import VectorBacktester` | Vectorized backtests, IC, grouped returns, metrics, tearsheets |
 | construct | `from skills.construct.weighting import WEIGHT_METHODS` | Portfolio weighting and filters |
 | model | `from skills.model.ml_engine import MLEngine` | Optional ML model training and registry helpers |
@@ -64,7 +65,7 @@ It combines a small core, reusable skills, and example strategy domains.
 - `scripts/run_strategy_reports.py` reads existing PandaData daily Parquet files from `data/market/1d/`.
 - Reports are written to `reports/strategy_examples/` as Markdown plus PNG performance charts.
 - The four public examples are: time-series rule, time-series XGBoost triple-barrier ML, cross-sectional rule, and cross-sectional XGBoost rank ML.
-- Strategy report scripts should call `DataManager.read_symbols`, strategy modules, `VectorBacktester`, and `skills.report.strategy_markdown`; do not add private helper implementations to scripts.
+- Strategy report scripts should call `DataManager.read_symbols`, strategy modules, `VectorBacktester`, and `skills.report.strategy_markdown`; do not add reusable research implementations to scripts.
 
 ## Python Environment
 
@@ -74,5 +75,7 @@ It combines a small core, reusable skills, and example strategy domains.
 
 ## Open Source Boundary
 
-This repository does not include private strategy research, generated reports,
-private data, or vendor-specific execution adapters outside PandaData.
+This repository does not include private strategy research, non-public generated reports,
+private data, or vendor-specific execution adapters outside PandaData. The
+sanitized Markdown and PNG files under `reports/strategy_examples/` are the
+only generated report artifacts intended for source control.

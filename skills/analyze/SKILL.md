@@ -1,6 +1,6 @@
 ---
 name: analyze
-description: Factor diagnostics (IC, layered returns, winsorization, full_stat) and exit/risk filter A/B evaluation with event studies and plots.
+description: Use when tasks need vectorized backtests, factor diagnostics, return metrics, overlay metrics, exit/risk-filter A/B analysis, or time-series distribution checks.
 ---
 
 ## Description
@@ -78,7 +78,7 @@ from skills.analyze.exit_analysis import (
 )
 ```
 
-- `evaluate_exit_factor(data, factor_configs, exit_filter, top_pct=0.2, commission=0.0002, slippage_bp=None, signal_lag=1, start_date=None, end_date=None, baseline_exits=None, forward_windows=None, exposure_policy="keep_cash") -> dict`  
+- `evaluate_exit_factor(data, factor_configs, exit_filter, *, top_pct=0.2, commission=0.0002, slippage_bp, signal_lag=1, start_date=None, end_date=None, baseline_exits=None, forward_windows=None, exposure_policy="keep_cash") -> dict`  
   Keys include `ab_comparison`, `trigger_stats`, `event_analysis`, `baseline_result_df`, `variant_result_df`, `trigger_mask`.
 - `plot_exit_evaluation(eval_result, figsize=(16, 10))`
 - `print_ab_comparison`, `print_event_analysis`
@@ -125,6 +125,7 @@ result = evaluate_exit_factor(
     exit_filter,
     top_pct=0.2,
     commission=0.0002,
+    slippage_bp=2.0,
     start_date="2020-01-01",
     forward_windows=[1, 3, 5, 10],
     exposure_policy="keep_cash",

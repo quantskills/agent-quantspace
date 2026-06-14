@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: PandaData/PandaAI market and reference data access for QuantSpace.
+description: Use when tasks need PandaData/PandaAI market data, reference data, adjustment factors, futures tick downloads, or symbol conversion.
 ---
 
 # PandaData Ingest

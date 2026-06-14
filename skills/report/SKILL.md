@@ -1,3 +1,8 @@
+---
+name: report
+description: Use when tasks need HTML reports, Markdown strategy reports, PNG chart helpers, or report files under the research reports directory.
+---
+
 # Report Skill
 
 Render research outputs into self-contained HTML (optionally PDF) using
@@ -40,8 +45,30 @@ path = renderer.save(html, "macro_pool_2026-05-08.html")
 Strategy Markdown reports:
 
 ```python
+import pandas as pd
+
 from skills.report.strategy_markdown import StrategyReport, write_strategy_report
 
+result_df = pd.DataFrame(
+    {
+        "return": [0.01, -0.02],
+        "cum_return": [0.01, -0.0102],
+        "drawdown": [0.0, -0.02],
+        "turnover": [1.0, 0.0],
+    },
+    index=pd.date_range("2024-01-01", periods=2, name="eob"),
+)
+report = StrategyReport(
+    slug="demo",
+    title="Demo Strategy",
+    domain="time_series",
+    strategy_type="Rule-based",
+    label="none",
+    description="Demo description.",
+    metrics={"sharpe_ratio": 1.5, "total_return": -0.0102},
+    result_df=result_df,
+    notes=["Uses date x symbol vector weights."],
+)
 path = write_strategy_report(report, "reports/strategy_examples")
 ```
 

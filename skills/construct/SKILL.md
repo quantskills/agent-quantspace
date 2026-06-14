@@ -1,6 +1,6 @@
 ---
 name: construct
-description: Portfolio weighting (equal, risk parity, inverse variance, EPO), portfolio-level risk filters, and multi-strategy return blending.
+description: Use when tasks need portfolio weights, weighting methods, portfolio-level risk filters, volatility targeting, or multi-strategy return blending.
 ---
 
 ## Description

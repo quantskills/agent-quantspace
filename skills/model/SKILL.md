@@ -1,6 +1,6 @@
 ---
 name: model
-description: PyCaret ML factor engine (rolling/fixed training, IC, feature importance) and LASSO index tracking with backtest helpers.
+description: Use when tasks need optional PyCaret model training, ML factor generation, inference wrappers, feature importance, or LASSO index tracking.
 ---
 
 ## Description
