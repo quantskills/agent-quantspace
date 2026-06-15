@@ -1,3 +1,26 @@
+---
+name: agent-quantspace
+description: "AI-native quantitative research framework with reusable skills, strategy domains, and thin orchestration scripts. Use when a coding agent needs to build, test, or review quantitative research workflows, strategy examples, backtests, reports, or reusable quant modules inside QuantSpace."
+quantSkills:
+  organization: QuantSkills
+  organization_url: https://github.com/quantskills
+  repository: quantskills/agent-quantspace
+  repository_url: https://github.com/quantskills/agent-quantspace
+  project_type: agent
+  collection: quant-research-frameworks
+  license: GPL-3.0
+  category: workflow-agent
+  tags: [quant-research, strategy-research, backtesting, pandadata]
+  platforms: [codex, claude-code, openclaw, cursor]
+  language: zh-en
+  status: active
+  validation_level: runnable
+  maintainer_type: official
+  requires: []
+  summary_zh: 面向 AI 编码代理的量化研究框架，组织数据、技能、策略、回测和报告工作流。
+  summary_en: AI-native quantitative research framework for reusable skills, strategy workflows, backtests, and reports.
+---
+
 # AGENTS.md - QuantSpace
 
 QuantSpace is an AI-native quantitative research framework.
