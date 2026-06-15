@@ -11,3 +11,5 @@
 
 具体 skill 用法以各 `skills/<name>/SKILL.md` 为准。架构、数据布局、策略示例和
 脚本用法已经由 root README、`AGENTS.md`、`strategies/` 和 `scripts/` 维护。
+当前公开 skill 集为 `analyze`、`backtest`、`compute`、`ingest`、`ml`、`report`、
+`research` 和 `store`。

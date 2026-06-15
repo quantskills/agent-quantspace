@@ -18,6 +18,22 @@ tests/policy/          测试目录和工作区规则测试
 tests/fixtures/        确定性 fixture builder
 ```
 
+Skill 测试使用当前公开 skill 集：
+
+```text
+tests/skills/analyze/
+tests/skills/backtest/
+tests/skills/compute/
+tests/skills/ingest/
+tests/skills/ml/
+tests/skills/report/
+tests/skills/research/
+tests/skills/store/
+```
+
+当前没有 `tests/skills/construct/` 或 `tests/skills/model/` 目录；组合构建在
+`backtest` 下测试，模型 helper 在 `ml` 下测试。
+
 测试覆盖导入边界、工作区结构、PandaData 符号转换、离线 tick ingest helper、公开标签生成器、本地存储、generic 因子示例，以及两个公开策略路径。
 
 ## 运行

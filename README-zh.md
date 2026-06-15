@@ -10,9 +10,10 @@ AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 l
 
 QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
 并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
-回测，再把绩效图表和 Markdown 报告沉淀下来。`AGENTS.md` 和每个 skill 目录下的
-`SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在一次性的
-脚本里。
+回测，再把绩效图表和 Markdown 报告沉淀下来。组合构建和执行统一归入 `backtest`
+skill，模型训练、ML 因子和稀疏拟合统一归入 `ml` skill。`AGENTS.md` 和每个 skill
+目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在
+一次性的脚本里。
 
 ## 项目结构
 
@@ -50,12 +51,13 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `store` | `from skills.store.data_manager import DataManager` | 市场数据、pool、因子、回测、元数据 |
 | `compute` | `from skills.compute.indicators import trend_score` | 指标、标签、工具、generic 因子示例 |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
-| `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、权重、过滤器、成本、exit A/B 指标 |
-| `ml` | `from skills.ml.ml_engine import MLEngine` | 可选 ML 辅助模块和稀疏拟合 |
+| `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
-每个 skill 目录都有自己的 `SKILL.md` 使用说明。
+每个 skill 目录都有自己的 `SKILL.md` 使用说明。当前没有单独的公开 `construct` 或
+`model` skill：组合构建归入 `backtest`，模型相关 helper 归入 `ml`。
 
 ## 快速开始
 
@@ -199,7 +201,7 @@ uv run python scripts/run_strategy_reports.py
 这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet，并在
 `reports/strategy_examples/` 下写出 4 份公开策略报告和绩效图。横截面和时序两个策略族
 各有一个规则类示例和一个 XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
-权重和报告 helper 放在 `skills/`。
+向量化执行、组合权重、ML helper 和报告渲染放在 `skills/`。
 
 ## 文档索引
 
@@ -219,18 +221,6 @@ uv run python -m pytest tests/
 研究型模块是否误入仓库。生成的数据和私有研究报告应留在本地；开源仓库中只保留代码、
 文档、测试、sample pool 定义、小型模板，以及 `reports/strategy_examples/` 下经过脱敏
 的公开示例报告。
-
-## 私有扩展方式
-
-专有研究建议放在相邻的私有仓库里，通用能力再沉淀回 QuantSpace：
-
-```text
-workspace/
-  quantspace/
-  quantspace-private/
-```
-
-专有策略域、私有数据 adapter、alpha 研究、notebooks 和非公开生成报告不要进入开源仓库。
 
 ## License
 

@@ -9,6 +9,9 @@ instead of duplicating research logic.
 Small script-local helpers for argument parsing, date chunking, or file
 normalization are acceptable; reusable research behavior belongs in `skills/`
 or `strategies/`.
+In the current skill boundary, scripts should call `skills.backtest` for
+portfolio construction, execution, costs, and metrics, and `skills.ml` for
+reusable ML helpers.
 
 ## Public Scripts
 
@@ -20,7 +23,7 @@ or `strategies/`.
   triple-barrier labels on existing `data/market/1d/` Parquet files.
 - `run_strategy_reports.py`: orchestrates two cross-sectional examples and two
   time-series examples from existing daily Parquet files, then writes Markdown
-  reports and PNG charts.
+  reports and PNG charts through `skills.report.strategy_markdown`.
 - `import_panda_data_demo.py`: imports PandaData bars into local
   `DataManager` storage.
 

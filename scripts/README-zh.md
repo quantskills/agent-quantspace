@@ -7,6 +7,8 @@
 脚本必须保持小而清晰，优先组合公开 `skills/` 和 `strategies/` 模块，不要复制研究逻辑。
 参数解析、日期分块、文件规范化这类脚本本地 helper 可以保留；可复用研究行为应放到
 `skills/` 或 `strategies/`。
+在当前 skill 边界下，组合构建、执行、成本和指标应调用 `skills.backtest`，可复用 ML
+能力应调用 `skills.ml`。
 
 ## 公开脚本
 

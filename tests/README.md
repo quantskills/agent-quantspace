@@ -19,6 +19,23 @@ tests/policy/          test layout and workspace policy tests
 tests/fixtures/        deterministic fixture builders
 ```
 
+Skill tests use the current public skill set:
+
+```text
+tests/skills/analyze/
+tests/skills/backtest/
+tests/skills/compute/
+tests/skills/ingest/
+tests/skills/ml/
+tests/skills/report/
+tests/skills/research/
+tests/skills/store/
+```
+
+There are no `tests/skills/construct/` or `tests/skills/model/` directories;
+portfolio construction is covered under `backtest`, and model helpers are
+covered under `ml`.
+
 ## Run
 
 ```bash

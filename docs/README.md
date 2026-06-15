@@ -12,3 +12,5 @@ the root README, `AGENTS.md`, module README files, or `skills/*/SKILL.md`.
 Detailed skill usage lives in each `skills/<name>/SKILL.md`. Architecture,
 data layout, strategy examples, and script usage are documented in the root
 README, `AGENTS.md`, `strategies/`, and `scripts/`.
+The public skill set is `analyze`, `backtest`, `compute`, `ingest`, `ml`,
+`report`, `research`, and `store`.

@@ -20,9 +20,10 @@ The framework packages the full research loop as reusable skills: data
 ingestion, local Parquet storage with optional DuckDB queries, factor
 calculation and analysis, rule-based and machine-learning strategy development,
 portfolio construction, vectorized backtesting, and performance report
-management. `AGENTS.md` and the per-skill `SKILL.md` files teach AI agents how
-to reuse these modules instead of scattering research logic across one-off
-scripts.
+management. Portfolio construction and execution now share the `backtest` skill;
+model training and sparse fitting live under `ml`. `AGENTS.md` and the
+per-skill `SKILL.md` files teach AI agents how to reuse these modules instead of
+scattering research logic across one-off scripts.
 
 ## Project Layout
 
@@ -62,12 +63,14 @@ writing new research code.
 | `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
 | `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, time-series checks |
-| `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, weights, filters, costs, exit A/B metrics |
-| `ml` | `from skills.ml.ml_engine import MLEngine` | Optional ML helpers and sparse fitting |
+| `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
 
-Each skill directory contains a `SKILL.md` guide.
+Each skill directory contains a `SKILL.md` guide. There is no separate public
+`construct` or `model` skill: portfolio construction belongs in `backtest`, and
+model-related helpers belong in `ml`.
 
 ## Quick Start
 
@@ -222,7 +225,8 @@ This thin orchestration script reads existing PandaData daily Parquet files from
 `data/market/1d/` and writes four public strategy reports plus performance PNGs
 to `reports/strategy_examples/`. Each strategy family has one rule-based example
 and one XGBoost example. Strategy logic lives under `strategies/`; storage,
-backtest metrics, weighting, and report helpers live under `skills/`.
+vectorized execution, portfolio weighting, ML helpers, and report rendering live
+under `skills/`.
 
 ## Documentation
 
@@ -243,20 +247,6 @@ credentials, private strategy names, and removed research-only modules.
 Generated data and private research reports should stay local; the sanitized
 public examples under `reports/strategy_examples/` are the intended report
 artifacts in the open repository.
-
-## Private Extension Pattern
-
-For proprietary research, keep a sibling private repository and promote only
-generic improvements back into QuantSpace:
-
-```text
-workspace/
-  quantspace/
-  quantspace-private/
-```
-
-Keep proprietary strategy domains, private data adapters, alpha research,
-notebooks, and non-public generated reports out of the open-source repo.
 
 ## License
 GPL-3.0.
