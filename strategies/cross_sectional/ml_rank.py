@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-from skills.construct.weighting import risk_parity
+from skills.backtest.weighting import risk_parity
 from strategies.cross_sectional.factors import (
     mean_reversion_score,
     momentum_score,
@@ -71,6 +71,17 @@ def rank_scores_to_weights(
     ).fillna(0.0)
 
 
+def _purged_multiindex_train(dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int) -> pd.DataFrame:
+    """Training rows whose forward labels are fully before the split date."""
+    date_values = pd.DatetimeIndex(dataset.index.get_level_values("eob"))
+    train_dates = pd.DatetimeIndex(date_values[date_values < split].unique()).sort_values()
+    if purge_window > 0:
+        train_dates = train_dates[:-purge_window]
+    if len(train_dates) == 0:
+        return dataset.iloc[0:0]
+    return dataset[date_values.isin(train_dates)]
+
+
 def xgboost_rank_weights(
     panel: pd.DataFrame,
     *,
@@ -81,16 +92,16 @@ def xgboost_rank_weights(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """Train a fixed-split XGBoost rank model and return target weights."""
-    features = make_cross_sectional_features(panel)
+    features = make_cross_sectional_features(panel).replace([np.inf, -np.inf], np.nan).dropna()
     labels = cross_sectional_rank_labels(panel, horizon=horizon)
-    dataset = features.join(labels).replace([np.inf, -np.inf], np.nan).dropna()
+    dataset = features.join(labels).dropna()
     split = pd.Timestamp(split_date)
-    train = dataset[dataset.index.get_level_values("eob") < split]
-    test = dataset[dataset.index.get_level_values("eob") >= split]
+    train = _purged_multiindex_train(dataset, split, purge_window=horizon)
+    test = features[pd.DatetimeIndex(features.index.get_level_values("eob")) >= split]
     if train.empty or test.empty:
         raise ValueError("xgboost_rank_weights requires non-empty train and test datasets.")
 
-    feature_cols = [column for column in dataset.columns if column != "rank_label"]
+    feature_cols = list(features.columns)
     model = XGBRegressor(
         n_estimators=80,
         max_depth=2,

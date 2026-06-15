@@ -4,7 +4,7 @@ import pytest
 
 
 def test_ml_engine_lazy_import_error_is_actionable(monkeypatch) -> None:
-    import skills.model.ml_engine as ml_engine
+    import skills.ml.ml_engine as ml_engine
 
     def _raise_import_error(task: str):
         raise ImportError("missing pycaret")

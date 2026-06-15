@@ -18,7 +18,7 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 - `types.py`: default costs, delay, and position mapping.
 - `STRATEGY.md`: domain guide and end-to-end example.
 
-Execution and return accounting live in `skills.analyze.backtest.VectorBacktester`.
+Execution and return accounting live in `skills.backtest.VectorBacktester`.
 
 ## Labeling
 

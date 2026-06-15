@@ -49,6 +49,16 @@ def probability_spread_weights(
     return weights.to_frame(symbol)
 
 
+def _purged_datetime_train(dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int) -> pd.DataFrame:
+    """Training rows whose forward labels are fully before the split date."""
+    train_dates = pd.DatetimeIndex(dataset.index[dataset.index < split].unique()).sort_values()
+    if purge_window > 0:
+        train_dates = train_dates[:-purge_window]
+    if len(train_dates) == 0:
+        return dataset.iloc[0:0]
+    return dataset[dataset.index.isin(train_dates)]
+
+
 def xgboost_triple_barrier_weights(
     bars: pd.DataFrame,
     *,
@@ -69,10 +79,11 @@ def xgboost_triple_barrier_weights(
         pt_sl=label_pt_sl,
         t_limit=label_t_limit,
     ).generate_labels()
+    features = features.replace([np.inf, -np.inf], np.nan).dropna()
     dataset = features.join(labels[["state"]].rename(columns={"state": "label"})).dropna()
     split = pd.Timestamp(split_date)
-    train = dataset[dataset.index < split]
-    test = dataset[dataset.index >= split]
+    train = _purged_datetime_train(dataset, split, purge_window=label_t_limit)
+    test = features[features.index >= split]
     if train.empty or test.empty:
         raise ValueError("xgboost_triple_barrier_weights requires non-empty train and test datasets.")
 
@@ -93,7 +104,7 @@ def xgboost_triple_barrier_weights(
         n_jobs=1,
     )
     model.fit(train.drop(columns=["label"]), encoded_train_label)
-    probabilities = model.predict_proba(test.drop(columns=["label"]))
+    probabilities = model.predict_proba(test)
     return probability_spread_weights(
         probabilities,
         model.classes_,

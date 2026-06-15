@@ -78,7 +78,7 @@ class VectorBacktester:
         slippage_bp: float | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        return_mode: Literal["backward", "forward"] = "backward",
+        return_mode: Literal["backward", "forward"] = "forward",
         enforce_trade_constraints: bool = False,
     ) -> None:
         if commission is None or slippage_bp is None:

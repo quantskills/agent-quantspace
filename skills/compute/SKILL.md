@@ -1,6 +1,6 @@
 ---
 name: compute
-description: Use when tasks need strategy-agnostic OHLCV indicators, math utilities, generic factor examples, cost helpers, regime slicing, resampling, or label makers.
+description: Use when tasks need strategy-agnostic OHLCV indicators, math utilities, generic factor examples, regime slicing, resampling, or label makers.
 ---
 
 ## Description
@@ -17,7 +17,6 @@ Also: label makers (`label_maker.py`), compact generic factor examples, and the 
 Shared market-structure helpers used by strategy domains:
 
 - `skills.compute.resample.resample_to_5m(df_1m)` — A-share 1m eob OHLCV to 5m eob bars without crossing lunch break; keeps `09:31-11:30` and `13:01-15:00`, removes zero-volume rows, and preserves OHLCV aggregation.
-- `skills.compute.cost_model` — trigger-time cost layers (`tight/base/wide/worst/stress`) and `single_T_pnl_bp`.
 - `skills.compute.regime.split_by_regime(df, regimes=None)` — lithium-cycle date slicing for DatetimeIndex or MultiIndex inputs.
 
 **Strategy-specific factors and feature engineering** live in `strategies/`, not here.
@@ -30,7 +29,6 @@ Shared market-structure helpers used by strategy domains:
   - `from skills.compute.utils import safe_divide, calculate_atr`
   - `from skills.compute.wrappers import Factor`
   - `from skills.compute.resample import resample_to_5m`
-  - `from skills.compute.cost_model import cost_bp_for_trigger_time, single_T_pnl_bp`
   - `from skills.compute.regime import split_by_regime`
 
 ## API Reference

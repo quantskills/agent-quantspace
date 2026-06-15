@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from skills.construct.filters import (
+from skills.backtest.filters import (
     apply_index_trend_scale,
     apply_market_breadth_scale,
     calculate_index_trend,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.analyze.overlay_metrics import (
+from skills.backtest.overlay_metrics import (
     max_drawdown,
     overlay_alpha,
     overlay_maxdd,

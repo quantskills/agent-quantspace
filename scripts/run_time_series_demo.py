@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from skills.analyze.backtest import VectorBacktester  # noqa: E402
+from skills.backtest import VectorBacktester  # noqa: E402
 from skills.compute.label_maker import TripleBarrierLabelMaker  # noqa: E402
 from skills.store.data_manager import DataManager  # noqa: E402
 from strategies.time_series.features import make_price_volume_features  # noqa: E402

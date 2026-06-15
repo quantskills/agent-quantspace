@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.construct.weighting import equal_weight, inverse_variance, risk_parity
+from skills.backtest.weighting import equal_weight, inverse_variance, risk_parity
 
 
 def test_equal_weight_normalizes_votes_by_row() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from skills.model.lasso_tracker import lasso_track
+from skills.ml.lasso_tracker import lasso_track
 
 
 def test_lasso_track_returns_weights_with_bounded_row_sums() -> None:

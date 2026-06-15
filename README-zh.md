@@ -2,14 +2,11 @@
 
 [English README](README.md)
 
-QuantSpace 是面向 AI 时代重新设计的量化投研框架。你可以留在项目目录里，直接告诉
-AI 想验证的市场假设、交易品种、因子灵感、机器学习 label、规则条件、回测约束或报告
-要求；AI 会沿着既定工程边界，把想法落成可运行、可测试、可复用的策略研究代码。
+QuantSpace 是面向 AI 时代重新设计的量化投研框架。通过在项目目录里，直接告诉
+AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 label、交易策略、回测约束或报告要求；AI 会沿着既定工程边界，把想法落成可运行、可测试、可复用的策略研究代码。
+该项目兼容 Codex、Claude Code、Cursor 等主流 AI 编程工具。
 
-真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成取数、
-符号转换和基础格式整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要
-接入同一套数据契约，后面的数据管理、因子计算、策略开发、回测和报告流程就可以继续
-复用。
+真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成取数、符号转换和基础格式整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要接入同一套数据契约，后面的数据管理、因子计算、策略开发、回测和报告流程就可以继续复用。
 
 QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
 并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
@@ -29,8 +26,8 @@ quantspace/
     store/                本地 Parquet 存储、DuckDB 查询和产物管理
     compute/              指标、标签、工具、generic 因子示例
     analyze/              因子分析、指标、归因、tearsheet
-    construct/            权重、过滤器、策略组合
-    model/                ML 辅助模块和可选模型引擎
+    backtest/             向量化执行、权重、过滤器、成本
+    ml/                   ML 辅助模块和可选模型引擎
     research/             因子筛选、参数扫描、策略比较
     report/               HTML/Markdown 报告渲染和图表工具
   strategies/
@@ -39,7 +36,7 @@ quantspace/
   scripts/                样本数据、demo、PandaData 导入脚本
   data/                   本地数据根目录；只提交 sample pool
   reports/                本地生成报告目录
-  docs/                   架构、数据布局、示例、接入说明
+  docs/                   最小补充文档，包括 PandaData 接入说明
   tests/                  公开 pytest 测试
 ```
 
@@ -52,9 +49,9 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `ingest` | `from skills.ingest import PandaDataClient` | 获取数据、默认 PandaData 接入、符号转换 |
 | `store` | `from skills.store.data_manager import DataManager` | 市场数据、pool、因子、回测、元数据 |
 | `compute` | `from skills.compute.indicators import trend_score` | 指标、标签、工具、generic 因子示例 |
-| `analyze` | `from skills.analyze.backtest import VectorBacktester` | 向量化回测、IC、分组收益、指标、tearsheet |
-| `construct` | `from skills.construct.weighting import WEIGHT_METHODS` | 权重方法和组合过滤器 |
-| `model` | `from skills.model.ml_engine import MLEngine` | 可选 ML 辅助模块 |
+| `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
+| `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、权重、过滤器、成本、exit A/B 指标 |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | 可选 ML 辅助模块和稀疏拟合 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
@@ -191,7 +188,7 @@ uv run python scripts/run_time_series_demo.py
 
 这个示例使用 `strategies.time_series.features.make_price_volume_features`、
 `TripleBarrierLabelMaker`、一个小型 scikit-learn 分类器、date × symbol 权重矩阵和
-`skills.analyze.backtest.VectorBacktester`，数据来自已有单品种日线 Parquet。
+`skills.backtest.VectorBacktester`，数据来自已有单品种日线 Parquet。
 
 ### 示例策略报告
 
@@ -237,4 +234,4 @@ workspace/
 
 ## License
 
-正式发布到公开代码托管平台或包索引前，请补充项目许可证。
+GPL-3.0。

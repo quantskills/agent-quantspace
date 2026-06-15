@@ -6,9 +6,11 @@ QuantSpace is an AI-native quantitative research framework for turning a market
 idea into working strategy research without leaving the project directory.
 Describe a hypothesis, universe, factor, label, rule, model, backtest constraint,
 or report you want; an AI coding agent can then build on the repository's
-structure to produce runnable, tested, reviewable code.
+structure to produce runnable, tested, reviewable code. The project is
+compatible with mainstream AI coding tools including Codex, Claude Code, and
+Cursor.
 
-PandaData is the default market data provider, so real daily bars can be used
+PandaData is the default market data provider, so real bars can be used
 immediately. Data flows in through `skills.ingest`, where external symbols and
 raw frames are normalized into QuantSpace conventions. Other vendors and local
 datasets can plug into the same contracts, allowing the rest of the workflow to
@@ -35,8 +37,8 @@ quantspace/
     store/                local Parquet storage, DuckDB queries, artifact management
     compute/              indicators, labels, utilities, factor examples
     analyze/              factor analysis, metrics, attribution, tearsheets
-    construct/            weighting, filters, strategy combination
-    model/                ML helpers and optional model engines
+    backtest/             vectorized execution, weighting, filters, costs
+    ml/                   ML helpers and optional model engines
     research/             factor screening, parameter sweeps, comparisons
     report/               HTML/Markdown report rendering and charts
   strategies/
@@ -45,7 +47,7 @@ quantspace/
   scripts/                sample data, demos, PandaData import helper
   data/                   local data root; only sample pools are committed
   reports/                local generated report output
-  docs/                   architecture, data layout, examples, ingest notes
+  docs/                   minimal supplemental notes, including PandaData ingest
   tests/                  public pytest suite
 ```
 
@@ -59,9 +61,9 @@ writing new research code.
 | `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion |
 | `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
 | `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
-| `analyze` | `from skills.analyze.backtest import VectorBacktester` | Vectorized backtests, IC, grouped returns, metrics, tearsheets |
-| `construct` | `from skills.construct.weighting import WEIGHT_METHODS` | Weighting methods and portfolio filters |
-| `model` | `from skills.model.ml_engine import MLEngine` | Optional ML helpers |
+| `analyze` | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, time-series checks |
+| `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, weights, filters, costs, exit A/B metrics |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | Optional ML helpers and sparse fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
 
@@ -207,7 +209,7 @@ uv run python scripts/run_time_series_demo.py
 
 This demo uses `strategies.time_series.features.make_price_volume_features`,
 `TripleBarrierLabelMaker`, a small scikit-learn classifier, a date x symbol
-weight matrix, and `skills.analyze.backtest.VectorBacktester` on an existing
+weight matrix, and `skills.backtest.VectorBacktester` on an existing
 single-symbol daily Parquet file.
 
 ### Example Strategy Reports
@@ -257,5 +259,5 @@ Keep proprietary strategy domains, private data adapters, alpha research,
 notebooks, and non-public generated reports out of the open-source repo.
 
 ## License
-
+GPL-3.0.
 Add the project license before publishing to a public package index or Git host.

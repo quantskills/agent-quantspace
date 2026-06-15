@@ -16,19 +16,19 @@ A single-instrument time-series rule example that holds CFFEX CSI 300 index futu
 
 | Metric | Value |
 |---|---:|
-| `2024_return` | 0.2356 |
-| `2025_return` | 0.3010 |
-| `2026_return` | 0.0462 |
-| `active_day_ratio` | 0.1390 |
-| `ann_return` | 0.2369 |
-| `ann_volatility` | 0.1660 |
-| `avg_daily_turnover` | 0.1390 |
-| `calmar_ratio` | 1.5957 |
+| `2024_return` | 0.2208 |
+| `2025_return` | 0.3632 |
+| `2026_return` | 0.0258 |
+| `active_day_ratio` | 0.1392 |
+| `ann_return` | 0.2449 |
+| `ann_volatility` | 0.1658 |
+| `avg_daily_turnover` | 0.1392 |
+| `calmar_ratio` | 1.6491 |
 | `max_drawdown` | 0.1485 |
-| `month_num` | 29.3355 |
-| `sharpe_ratio` | 1.4269 |
-| `sortino_ratio` | 3.0420 |
-| `total_return` | 0.6817 |
+| `month_num` | 29.3022 |
+| `sharpe_ratio` | 1.4765 |
+| `sortino_ratio` | 3.1570 |
+| `total_return` | 0.7071 |
 | `total_transaction_cost` | 0.0328 |
 | `trade_days` | 82.0000 |
 
@@ -38,14 +38,15 @@ A single-instrument time-series rule example that holds CFFEX CSI 300 index futu
 - Report window starts on 2024-01-01, matching the local IF parameter sweep window.
 - Entry rule: hold IF when close is below MA10.
 - Exit rule: leave the position when close falls below the highest price since entry minus 2.0 times ATR(14).
+- Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.
 - Transaction cost assumptions are commission 2bp plus slippage 2bp.
 
 ## Recent Result Rows
 
 | Date | return | raw_return | cum_return | drawdown | turnover |
 |---|---:|---:|---:|---:|---:|
-| 2026-06-08 | -0.0004 | 0.0000 | 0.6516 | -0.0453 | 1.0000 |
-| 2026-06-09 | 0.0126 | 0.0130 | 0.6725 | -0.0332 | 1.0000 |
-| 2026-06-10 | -0.0047 | -0.0047 | 0.6646 | -0.0377 | 0.0000 |
-| 2026-06-11 | -0.0059 | -0.0059 | 0.6548 | -0.0434 | 0.0000 |
-| 2026-06-12 | 0.0163 | 0.0163 | 0.6817 | -0.0279 | 0.0000 |
+| 2026-06-05 | -0.0004 | 0.0000 | 0.6766 | -0.0453 | 1.0000 |
+| 2026-06-08 | 0.0126 | 0.0130 | 0.6977 | -0.0332 | 1.0000 |
+| 2026-06-09 | -0.0047 | -0.0047 | 0.6898 | -0.0377 | 0.0000 |
+| 2026-06-10 | -0.0059 | -0.0059 | 0.6798 | -0.0434 | 0.0000 |
+| 2026-06-11 | 0.0163 | 0.0163 | 0.7071 | -0.0279 | 0.0000 |

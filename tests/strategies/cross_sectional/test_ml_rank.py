@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+import strategies.cross_sectional.ml_rank as ml_rank
 from strategies.cross_sectional.ml_rank import (
     cross_sectional_rank_labels,
     rank_scores_to_weights,
@@ -60,3 +61,37 @@ def test_cross_sectional_rank_labels_align_to_panel_index() -> None:
 
     assert labels.index.names == ["symbol", "eob"]
     assert labels.dropna().index.isin(panel.index).all()
+
+
+def test_xgboost_rank_weights_purges_forward_label_window_before_split(monkeypatch) -> None:
+    dates = pd.date_range("2024-01-01", periods=12, name="eob")
+    symbols = ["A", "B"]
+    index = pd.MultiIndex.from_product([symbols, dates], names=["symbol", "eob"])
+    features = pd.DataFrame({"feature": range(len(index))}, index=index, dtype=float)
+    labels = pd.Series(0.5, index=index, name="rank_label")
+    captured = {}
+
+    class FakeRegressor:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def fit(self, train_x, train_y) -> None:
+            captured["train_dates"] = train_x.index.get_level_values("eob").unique()
+
+        def predict(self, test_x):
+            captured["test_dates"] = test_x.index.get_level_values("eob").unique()
+            return [0.5] * len(test_x)
+
+    def fake_rank_scores_to_weights(score_df, close, top_n=2, vol_lookback=60):
+        return pd.DataFrame(0.0, index=score_df.index, columns=score_df.columns)
+
+    panel = pd.DataFrame({"close": 1.0}, index=index)
+    monkeypatch.setattr(ml_rank, "make_cross_sectional_features", lambda panel: features)
+    monkeypatch.setattr(ml_rank, "cross_sectional_rank_labels", lambda panel, horizon: labels)
+    monkeypatch.setattr(ml_rank, "XGBRegressor", FakeRegressor)
+    monkeypatch.setattr(ml_rank, "rank_scores_to_weights", fake_rank_scores_to_weights)
+
+    xgboost_rank_weights(panel, split_date="2024-01-09", horizon=3, top_n=1)
+
+    assert captured["train_dates"].max() == pd.Timestamp("2024-01-05")
+    assert captured["test_dates"].min() == pd.Timestamp("2024-01-09")

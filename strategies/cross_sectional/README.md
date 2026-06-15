@@ -20,7 +20,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `exits.py`: reusable exit and risk filters.
 - `types.py`: configuration types.
 
-Execution and return accounting live in `skills.analyze.backtest.VectorBacktester`.
+Execution and return accounting live in `skills.backtest.VectorBacktester`.
 
 ## Demo
 

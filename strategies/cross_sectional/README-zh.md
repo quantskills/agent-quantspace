@@ -19,7 +19,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `exits.py`：可复用退出和风险过滤器。
 - `types.py`：配置类型。
 
-执行和收益核算由 `skills.analyze.backtest.VectorBacktester` 提供。
+执行和收益核算由 `skills.backtest.VectorBacktester` 提供。
 
 ## Demo
 

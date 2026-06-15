@@ -1,8 +1,47 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import pandas as pd
+
+import scripts.run_strategy_reports as report_script
 from scripts.run_strategy_reports import generate_reports
+
+
+def test_report_backtests_use_next_close_execution_for_eod_signals(monkeypatch) -> None:
+    captured_kwargs = {}
+
+    class FakeVectorBacktester:
+        def __init__(self, **kwargs) -> None:
+            captured_kwargs.update(kwargs)
+
+        def run(self, weights):
+            return SimpleNamespace(executed_weights=weights, result_df=pd.DataFrame(), metrics={})
+
+    monkeypatch.setattr(report_script, "VectorBacktester", FakeVectorBacktester)
+    dates = pd.date_range("2024-01-01", periods=3, name="eob")
+    close = pd.Series([100.0, 101.0, 102.0], index=dates)
+    panel = (
+        pd.DataFrame(
+            {
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000.0,
+                "symbol": "AAA",
+            }
+        )
+        .reset_index()
+        .set_index(["symbol", "eob"])
+    )
+    weights = pd.DataFrame({"AAA": [0.0, 1.0, 0.0]}, index=dates)
+
+    report_script._run_vector_backtest(panel, weights, start_date="2024-01-01")
+
+    assert captured_kwargs["signal_lag"] == 0
+    assert captured_kwargs["return_mode"] == "forward"
 
 
 def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 - `types.py`：默认成本、延迟和仓位映射。
 - `STRATEGY.md`：策略域说明和端到端示例。
 
-执行和收益核算由 `skills.analyze.backtest.VectorBacktester` 提供。
+执行和收益核算由 `skills.backtest.VectorBacktester` 提供。
 
 ## 标签
 

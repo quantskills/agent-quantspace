@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.analyze.exit_analysis import (
+from skills.backtest.exit_analysis import (
     _compute_ab_comparison,
     _compute_forward_returns,
     _compute_trigger_mask,

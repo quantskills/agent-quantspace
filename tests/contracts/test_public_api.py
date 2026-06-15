@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import importlib.util
 
+import pytest
+
 PUBLIC_MODULES = [
     "skills.ingest",
     "skills.ingest.panda_data",
@@ -12,9 +14,16 @@ PUBLIC_MODULES = [
     "skills.compute.indicators",
     "skills.compute.cs_factor_examples",
     "skills.compute.ts_factor_examples",
-    "skills.analyze.backtest",
+    "skills.backtest",
+    "skills.backtest.cost_model",
+    "skills.backtest.exit_analysis",
+    "skills.backtest.filters",
+    "skills.backtest.overlay_metrics",
+    "skills.backtest.weighting",
     "skills.analyze.factor_analysis",
-    "skills.construct.weighting",
+    "skills.ml.lasso_tracker",
+    "skills.ml.ml_engine",
+    "skills.ml.ml_factor",
     "skills.research",
     "skills.report",
     "skills.report.strategy_markdown",
@@ -45,3 +54,19 @@ def test_ingest_public_api() -> None:
 def test_compute_time_series_feature_modules_are_not_public() -> None:
     assert importlib.util.find_spec("skills.compute.ts_features") is None
     assert importlib.util.find_spec("skills.compute.ts_features_base") is None
+
+
+def test_removed_skill_boundaries_are_not_importable() -> None:
+    removed_modules = [
+        "skills." + "construct",
+        "skills." + "construct" + ".weighting",
+        "skills." + "model",
+        "skills." + "model" + ".ml_engine",
+        "skills.analyze." + "backtest",
+        "skills.analyze." + "exit_analysis",
+        "skills.analyze." + "overlay_metrics",
+        "skills.compute." + "cost_model",
+    ]
+    for module in removed_modules:
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)

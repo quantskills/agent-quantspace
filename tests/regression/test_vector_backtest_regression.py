@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.analyze.backtest import VectorBacktester
+from skills.backtest import VectorBacktester
 from tests.fixtures.market_data import make_ohlcv
 
 

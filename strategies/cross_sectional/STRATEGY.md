@@ -25,7 +25,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `strategies.cross_sectional.ml_rank`: rank labels, generic features, and XGBoost rank weights.
 - `strategies.cross_sectional.modular_backtester`: high-level orchestration.
 - `strategies.cross_sectional.signals_top_pct`: top-percent signal generation.
-- `skills.analyze.backtest`: shared vectorized execution, costs, and metrics.
+- `skills.backtest`: shared vectorized execution, costs, and metrics.
 - `strategies.cross_sectional.types`: config types.
 - `strategies.cross_sectional.exits`: reusable exit filters.
 

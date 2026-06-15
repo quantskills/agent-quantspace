@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from skills.model.ml_factor import make_precomputed_factor
+from skills.ml.ml_factor import make_precomputed_factor
 
 
 def test_make_precomputed_factor_reads_pivot_value_for_group_dates() -> None:

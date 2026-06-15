@@ -83,7 +83,7 @@ class TopPctStrategy(BaseStrategy):
             row_sums = votes_df.sum(axis=1).replace(0, np.nan)
             return votes_df.div(row_sums, axis=0).fillna(0.0)
 
-        from skills.construct.weighting import WEIGHT_METHODS
+        from skills.backtest.weighting import WEIGHT_METHODS
 
         method_fn = WEIGHT_METHODS.get(context.weight_method)
         if method_fn is None:

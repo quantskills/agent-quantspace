@@ -8,10 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_public_skill_directories_are_exact() -> None:
     expected = {
         "analyze",
+        "backtest",
         "compute",
-        "construct",
         "ingest",
-        "model",
+        "ml",
         "report",
         "research",
         "store",

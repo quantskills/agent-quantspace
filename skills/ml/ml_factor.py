@@ -15,7 +15,7 @@ ML因子排序引擎
 - rolling: 累积训练 (expanding), 每 retrain_freq 天累积所有历史数据重训练
 
 用法:
-    from skills.model.ml_factor import MLFactorEngine, make_precomputed_factor
+    from skills.ml.ml_factor import MLFactorEngine, make_precomputed_factor
     from skills.compute import indicators as I
 
     engine = MLFactorEngine(

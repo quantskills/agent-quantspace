@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from skills.construct.weighting import risk_parity
+from skills.backtest.weighting import risk_parity
 
 
 def ma_gap_reversal_score(close: pd.DataFrame, symbols: list[str], lookback: int) -> pd.DataFrame:

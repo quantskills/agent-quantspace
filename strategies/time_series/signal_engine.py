@@ -8,7 +8,7 @@ from typing import Protocol
 
 import pandas as pd
 
-from skills.model.ml_engine import ModelPredictor
+from skills.ml.ml_engine import ModelPredictor
 from strategies.time_series.types import DEFAULT_POSITION_MAPPING
 
 logger = logging.getLogger(__name__)

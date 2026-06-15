@@ -8,7 +8,7 @@ Evaluate the effectiveness of exit (filter) factors using:
 Reference: jq_ss/etf/exit_factor_evaluation.md
 
 Usage:
-    from skills.analyze.exit_analysis import evaluate_exit_factor, plot_exit_evaluation
+    from skills.backtest.exit_analysis import evaluate_exit_factor, plot_exit_evaluation
 
     result = evaluate_exit_factor(
         data, factor_configs,

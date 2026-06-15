@@ -6,7 +6,7 @@ from typing import Literal
 
 import pandas as pd
 
-from skills.analyze.backtest import VectorBacktester
+from skills.backtest import VectorBacktester
 
 from .factor_frame import FactorFrameBuilder
 from .signals_base import BaseStrategy, StrategyContext

@@ -16,6 +16,6 @@ example workflow that composes reusable skills into a complete research path.
 
 Strategy domains should contain strategy-specific rules, feature sets,
 signal-to-weight mapping, and data contracts. Reusable storage, analysis,
-construction, modeling, and reporting belongs in `skills/`.
+backtesting, ML, and reporting belongs in `skills/`.
 
 Private strategy domains should live in a separate private repository.

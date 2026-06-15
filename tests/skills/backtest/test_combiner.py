@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.construct.combiner import StrategyCombiner
+from skills.backtest.combiner import StrategyCombiner
 
 
 def test_strategy_combiner_equal_method_averages_returns() -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from skills.analyze.backtest import VectorBacktester
+from skills.backtest import VectorBacktester
 from skills.compute.label_maker import TripleBarrierLabelMaker
 
 

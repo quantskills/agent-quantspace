@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from skills.compute.cost_model import (
+from skills.backtest.cost_model import (
     cost_bp_for_trigger_time,
     cost_layer_for_trigger_time,
     single_T_pnl_bp,

@@ -35,7 +35,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 4. Keep changes small and reviewable.
 5. Use `uv run` for Python commands.
 6. New quant code must reuse existing `skills/` and `strategies/` modules first.
-7. Put reusable storage, compute, analysis, construction, modeling, and reporting code in `skills/`.
+7. Put reusable storage, compute, analysis, backtesting, ML, and reporting code in `skills/`.
 8. Put strategy-specific rules, features, labels-to-weights, and domain workflows in `strategies/`.
 9. Keep `scripts/` as thin orchestration only; small script-local parsing/date/file helpers are acceptable, but reusable research logic belongs in `skills/` or `strategies/`.
 10. When adding reusable modules, update the relevant `SKILL.md`, README/docs, and tests in the same change.
@@ -47,7 +47,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Path | Purpose |
 |------|---------|
-| `skills/` | Reusable capabilities: ingest, store, compute, analyze, construct, model, research, report |
+| `skills/` | Reusable capabilities: ingest, store, compute, analyze, backtest, ml, research, report |
 | `strategies/` | Public example strategy domains |
 | `scripts/` | Thin demo, report, and import entrypoints |
 | `data/` | Local data root; only sample pools are committed |
@@ -62,9 +62,9 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | ingest | `from skills.ingest import PandaDataClient` | PandaData data access and symbol conversion |
 | store | `from skills.store.data_manager import DataManager` | Parquet data and research artifact storage |
 | compute | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
-| analyze | `from skills.analyze.backtest import VectorBacktester` | Vectorized backtests, IC, grouped returns, metrics, tearsheets |
-| construct | `from skills.construct.weighting import WEIGHT_METHODS` | Portfolio weighting and filters |
-| model | `from skills.model.ml_engine import MLEngine` | Optional ML model training and registry helpers |
+| analyze | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, and time-series checks |
+| backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
+| ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | research | `from skills.research import screen_all_indicators` | Screening, parameter sweeps, strategy comparison |
 | report | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
 

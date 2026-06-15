@@ -29,10 +29,10 @@ def test_required_test_directories_exist() -> None:
 def test_source_package_tests_have_matching_directories() -> None:
     expected = [
         "tests/skills/analyze",
+        "tests/skills/backtest",
         "tests/skills/compute",
-        "tests/skills/construct",
         "tests/skills/ingest",
-        "tests/skills/model",
+        "tests/skills/ml",
         "tests/skills/report",
         "tests/skills/research",
         "tests/skills/store",
