@@ -10,7 +10,7 @@ def test_documentation_mentions_current_backtest_api() -> None:
         path.read_text(encoding="utf-8")
         for path in [
             ROOT / "README.md",
-            ROOT / "README-zh.md",
+            ROOT / "README.en.md",
             ROOT / "strategies/README.md",
             ROOT / "scripts/README.md",
         ]

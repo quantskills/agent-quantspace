@@ -1,89 +1,75 @@
 # QuantSpace
 
-[中文说明](README-zh.md)
+**简体中文** | [English](README.en.md)
 
-QuantSpace is an AI-native quantitative research framework for turning a market
-idea into working strategy research without leaving the project directory.
-Describe a hypothesis, universe, factor, label, rule, model, backtest constraint,
-or report you want; an AI coding agent can then build on the repository's
-structure to produce runnable, tested, reviewable code. The project is
-compatible with mainstream AI coding tools including Codex, Claude Code, and
-Cursor.
+QuantSpace 是面向 AI 时代重新设计的量化投研框架。通过在项目目录里，直接告诉
+AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 label、交易策略、回测约束或报告要求；AI 会沿着既定工程边界，把想法落成可运行、可测试、可复用的策略研究代码。
+该项目兼容 Codex、Claude Code、Cursor 等主流 AI 编程工具。
 
-PandaData is the default market data provider, so real bars can be used
-immediately. Data flows in through `skills.ingest`, where external symbols and
-raw frames are normalized into QuantSpace conventions. Other vendors and local
-datasets can plug into the same contracts, allowing the rest of the workflow to
-stay unchanged.
+真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成取数、符号转换和基础格式整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要接入同一套数据契约，后面的数据管理、因子计算、策略开发、回测和报告流程就可以继续复用。
 
-The framework packages the full research loop as reusable skills: data
-ingestion, local Parquet storage with optional DuckDB queries, factor
-calculation and analysis, rule-based and machine-learning strategy development,
-portfolio construction, vectorized backtesting, and performance report
-management. Portfolio construction and execution now share the `backtest` skill;
-model training and sparse fitting live under `ml`. `AGENTS.md` and the
-per-skill `SKILL.md` files teach AI agents how to reuse these modules instead of
-scattering research logic across one-off scripts.
+QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
+并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
+回测，再把绩效图表和 Markdown 报告沉淀下来。组合构建和执行统一归入 `backtest`
+skill，模型训练、ML 因子和稀疏拟合统一归入 `ml` skill。`AGENTS.md` 和每个 skill
+目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在
+一次性的脚本里。
 
-## Project Layout
+## 项目结构
 
-The repository layout is part of the product: it gives both humans and AI agents
-clear places to put data access, reusable capabilities, strategy logic, scripts,
-reports, and tests.
+目录结构本身就是框架的一部分：AI 和研究员都能清楚知道，数据接入、通用能力、
+策略逻辑、脚本、报告和测试应该分别放在哪里。
 
 ```text
 quantspace/
-  skills/                 reusable capabilities
-    ingest/               data ingestion: default PandaData client and symbol conversion
-    store/                local Parquet storage, DuckDB queries, artifact management
-    compute/              indicators, labels, utilities, factor examples
-    analyze/              factor analysis, metrics, attribution, tearsheets
-    backtest/             vectorized execution, weighting, filters, costs
-    ml/                   ML helpers and optional model engines
-    research/             factor screening, parameter sweeps, comparisons
-    report/               HTML/Markdown report rendering and charts
+  skills/                 可复用能力
+    ingest/               获取数据：默认 PandaData 客户端和符号转换
+    store/                本地 Parquet 存储、DuckDB 查询和产物管理
+    compute/              指标、标签、工具、generic 因子示例
+    analyze/              因子分析、指标、归因、tearsheet
+    backtest/             向量化执行、权重、过滤器、成本
+    ml/                   ML 辅助模块和可选模型引擎
+    research/             因子筛选、参数扫描、策略比较
+    report/               HTML/Markdown 报告渲染和图表工具
   strategies/
-    cross_sectional/      cross-sectional strategy
-    time_series/          time-series strategy
-  scripts/                sample data, demos, PandaData import helper
-  data/                   local data root; only sample pools are committed
-  reports/                local generated report output
-  docs/                   minimal supplemental notes, including PandaData ingest
-  tests/                  public pytest suite
+    cross_sectional/      横截面策略
+    time_series/          单品种时间序列策略
+  scripts/                样本数据、demo、PandaData 导入脚本
+  data/                   本地数据根目录；只提交 sample pool
+  reports/                本地生成报告目录
+  docs/                   最小补充文档，包括 PandaData 接入说明
+  tests/                  公开 pytest 测试
 ```
 
-## Public Skills
+## 公开 Skills
 
-Skills are the reusable building blocks that an AI agent should reach for before
-writing new research code.
+Skills 是 AI 开发策略前应该优先调用的公共能力。
 
-| Skill | Main import | Purpose |
+| Skill | 主要导入 | 用途 |
 |---|---|---|
-| `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion |
-| `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
-| `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
-| `analyze` | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, time-series checks |
-| `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
-| `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
-| `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
-| `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
+| `ingest` | `from skills.ingest import PandaDataClient` | 获取数据、默认 PandaData 接入、符号转换 |
+| `store` | `from skills.store.data_manager import DataManager` | 市场数据、pool、因子、回测、元数据 |
+| `compute` | `from skills.compute.indicators import trend_score` | 指标、标签、工具、generic 因子示例 |
+| `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
+| `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
+| `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
+| `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
-Each skill directory contains a `SKILL.md` guide. There is no separate public
-`construct` or `model` skill: portfolio construction belongs in `backtest`, and
-model-related helpers belong in `ml`.
+每个 skill 目录都有自己的 `SKILL.md` 使用说明。当前没有单独的公开 `construct` 或
+`model` skill：组合构建归入 `backtest`，模型相关 helper 归入 `ml`。
 
-## Quick Start
+## 快速开始
 
-Requirements:
+环境要求：
 
 - Python `>=3.10`
 - `uv`
 
-Install the default environment, generate a small deterministic fixture dataset,
-and run the demos:
+安装默认环境，生成一份确定性 fixture 数据，然后运行 demo：
 
 ```bash
-cp .env.example .env # set PANDA_DATA_USERNAME and PANDA_DATA_PASSWORD
+cp .env.example .env # 设置 PANDA_DATA_USERNAME 和 PANDA_DATA_PASSWORD
 uv sync
 uv run python scripts/generate_sample_data.py
 uv run python scripts/run_cross_sectional_demo.py
@@ -91,38 +77,34 @@ uv run python scripts/run_time_series_demo.py
 uv run python -m pytest tests/
 ```
 
-The fixture data is synthetic and deterministic, so the demos are reproducible
-and safe to rerun. It is written under `data/market/`; for real research, replace
-it with daily Parquet files from PandaData or another adapter that follows the
-same data model.
+fixture 数据是合成 OHLCV，结果可复现，也可以随时重新生成。它会写入 `data/market/`；
+真实研究时，用 PandaData 或其他遵循同一数据模型的 adapter 导入日线 Parquet 即可。
 
-Optional extras:
+可选 extras：
 
 ```bash
 uv sync --extra panda_data  # PandaData SDK
-uv sync --extra ml          # optional PyCaret-based ML helpers
-uv sync --extra query       # optional DuckDB querying
+uv sync --extra ml          # 可选 PyCaret ML 辅助模块
+uv sync --extra query       # 可选 DuckDB 查询能力
 ```
 
-## PandaData Setup
+## PandaData 设置
 
-PandaData is optional at install time and becomes active once the SDK and
-credentials are available:
+PandaData 是可选依赖；安装 SDK 并配置凭据后即可取真实行情：
 
 ```bash
 uv sync --extra panda_data
 cp .env.example .env
 ```
 
-Set credentials in `.env`. `PandaDataClient` only reads `PANDA_DATA_*`
-credential names:
+在 `.env` 中填写凭据。`PandaDataClient` 只读取 `PANDA_DATA_*` 凭据变量：
 
 ```bash
 PANDA_DATA_USERNAME=86xxxxxxxxxxx
 PANDA_DATA_PASSWORD=your-password
 ```
 
-Then try a small import:
+然后试一次小规模导入：
 
 ```bash
 uv run python scripts/import_panda_data_demo.py \
@@ -131,8 +113,8 @@ uv run python scripts/import_panda_data_demo.py \
   --end-date 20231231
 ```
 
-QuantSpace uses `EXCHANGE.CODE` symbols, such as `SHSE.510300`. PandaData-style
-symbols are converted through:
+QuantSpace 使用 `EXCHANGE.CODE` 符号格式，例如 `SHSE.510300`。PandaData 格式可以
+通过 helper 转换：
 
 ```python
 from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
@@ -141,22 +123,22 @@ to_panda_data_symbol("SHSE.510300")  # "510300.SH"
 to_quantspace_symbol("510300.SH")    # "SHSE.510300"
 ```
 
-## Data Model
+## 数据模型
 
-The data model stays intentionally simple so generated strategy code can depend
-on it. Market data is stored as one Parquet file per symbol:
+数据模型保持简单明确，方便 AI 生成的策略代码稳定复用。市场数据按单 symbol 存成
+Parquet：
 
 ```text
 data/market/{frequency}/{symbol}.parquet
 ```
 
-Each OHLCV frame is indexed by `eob` and uses:
+每个 OHLCV frame 以 `eob` 为索引，列为：
 
 ```text
 open, high, low, close, volume
 ```
 
-Pools are JSON files under `data/pools/`:
+Pool 定义放在 `data/pools/`：
 
 ```json
 {
@@ -167,87 +149,100 @@ Pools are JSON files under `data/pools/`:
 }
 ```
 
-`DataManager.load_pool_data(pool_id)` returns a panel indexed by
-`(symbol, eob)`.
+`DataManager.load_pool_data(pool_id)` 会返回 MultiIndex 为 `(symbol, eob)` 的 panel。
 
-Set `QUANTSPACE_DATA_ROOT` when you want the same code to use a data directory
-outside the repository.
+如果希望把数据放到仓库之外，可以设置 `QUANTSPACE_DATA_ROOT`，代码入口保持不变。
 
-## Strategy Demos
+## 策略示例
 
-The demos show the intended shape of strategy work: scripts orchestrate, skills
-provide shared machinery, and `strategies/` holds domain logic.
+示例展示的是推荐工作方式：脚本只做编排，公共能力放在 `skills/`，策略域逻辑放在
+`strategies/`。
 
-### Cross-Sectional Rotation
+### 横截面轮动
 
-Pipeline:
+流程：
 
 ```text
 panel OHLCV -> generic factors -> top-percent selection -> execution -> metrics
 ```
 
-Run:
+运行：
 
 ```bash
 uv run python scripts/run_cross_sectional_demo.py
 ```
 
-This demo combines simple momentum and low-volatility factors through
-`strategies.cross_sectional.ModularBacktester`, using existing
-`data/market/1d/` Parquet files for the configured sample pool.
+这个示例通过 `strategies.cross_sectional.ModularBacktester` 组合简单动量和低波动因子，
+数据来自配置好的 sample pool 对应的 `data/market/1d/` 日线 Parquet。
 
 ### Time-Series ML
 
-Pipeline:
+流程：
 
 ```text
 raw OHLCV bars -> feature engineering -> triple-barrier labels -> model -> backtest
 ```
 
-Run:
+运行：
 
 ```bash
 uv run python scripts/run_time_series_demo.py
 ```
 
-This demo uses `strategies.time_series.features.make_price_volume_features`,
-`TripleBarrierLabelMaker`, a small scikit-learn classifier, a date x symbol
-weight matrix, and `skills.backtest.VectorBacktester` on an existing
-single-symbol daily Parquet file.
+这个示例使用 `strategies.time_series.features.make_price_volume_features`、
+`TripleBarrierLabelMaker`、一个小型 scikit-learn 分类器、date × symbol 权重矩阵和
+`skills.backtest.VectorBacktester`，数据来自已有单品种日线 Parquet。
 
-### Example Strategy Reports
+### 示例策略报告
 
 ```bash
 uv run python scripts/run_strategy_reports.py
 ```
 
-This thin orchestration script reads existing PandaData daily Parquet files from
-`data/market/1d/` and writes four public strategy reports plus performance PNGs
-to `reports/strategy_examples/`. Each strategy family has one rule-based example
-and one XGBoost example. Strategy logic lives under `strategies/`; storage,
-vectorized execution, portfolio weighting, ML helpers, and report rendering live
-under `skills/`.
+这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet，并在
+`reports/strategy_examples/` 下写出 4 份公开策略报告和绩效图。横截面和时序两个策略族
+各有一个规则类示例和一个 XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
+向量化执行、组合权重、ML helper 和报告渲染放在 `skills/`。
 
-## Documentation
+## 文档索引
 
-Use these notes when you need the details behind the README:
+需要了解 README 背后的细节时，可以继续阅读：
 
-- [PandaData ingest](docs/panda_data_ingest.md)
+- [PandaData 接入](docs/panda_data_ingest.md)
 
-## Development
+## 开发与验证
 
-Run the public test suite before handing work back:
+交付改动前运行公开测试：
 
 ```bash
 uv run python -m pytest tests/
 ```
 
-Before publishing, also run a release safety scan for private paths,
-credentials, private strategy names, and removed research-only modules.
-Generated data and private research reports should stay local; the sanitized
-public examples under `reports/strategy_examples/` are the intended report
-artifacts in the open repository.
+发布前还应执行 release safety scan，检查私有路径、凭证、私有策略名称和已经移除的
+研究型模块是否误入仓库。生成的数据和私有研究报告应留在本地；开源仓库中只保留代码、
+文档、测试、sample pool 定义、小型模板，以及 `reports/strategy_examples/` 下经过脱敏
+的公开示例报告。
+
+## 数据来源与假设
+
+- 默认数据来源为 PandaData；也可接入其他数据商或本地数据，只要遵循相同的数据契约。
+- 仓库内置的 fixture 数据为合成 OHLCV，仅用于演示与可复现测试，不代表真实行情。
+- 框架不附带任何已验证收益的策略；`strategies/` 与 `reports/strategy_examples/` 下的内容均为示例。
+
+## 限制与风险边界
+
+- QuantSpace 是研究与工程框架，不是自动交易系统，不接券商接口，不执行订单。
+- 因子、策略、回测和报告输出仅为研究材料，受数据窗口、参数选择和样本范围限制。
+- 是否用于真实交易，需由用户结合自己的策略、风控和执行流程独立判断。
+
+## 免责声明
+
+本仓库仅作量化研究方法与工程框架整理，不验证任何收益声明，不构成任何投资建议。请勿将框架或其示例输出直接作为投资决策依据。
+
+## 维护者
+
+Created or maintained by `abgyjaguo`.
 
 ## License
-GPL-3.0.
-Add the project license before publishing to a public package index or Git host.
+
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
