@@ -1,6 +1,16 @@
-# QuantSpace
+<h1 align="center">QuantSpace</h1>
 
-[简体中文](README.md) | **English**
+<p align="center"><a href="README.md">简体中文</a> | <b>English</b></p>
+
+<p align="center">An AI-native quantitative research framework: describe your idea in the project directory, and an AI agent builds it into runnable, tested, reusable strategy-research code along fixed engineering boundaries.</p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-%3E%3D3.10-3776AB?logo=python&logoColor=white">
+  <img alt="Package manager" src="https://img.shields.io/badge/deps-uv-DE5FE9?logo=astral&logoColor=white">
+  <img alt="Data" src="https://img.shields.io/badge/data-PandaData-1f6feb">
+  <img alt="AI tools" src="https://img.shields.io/badge/AI-Codex%20%7C%20Claude%20Code%20%7C%20Cursor-10A37F">
+  <img alt="License" src="https://img.shields.io/badge/License-GPL--3.0-green">
+</p>
 
 QuantSpace is an AI-native quantitative research framework for turning a market
 idea into working strategy research without leaving the project directory.
@@ -24,6 +34,30 @@ management. Portfolio construction and execution now share the `backtest` skill;
 model training and sparse fitting live under `ml`. `AGENTS.md` and the
 per-skill `SKILL.md` files teach AI agents how to reuse these modules instead of
 scattering research logic across one-off scripts.
+
+## Architecture Overview
+
+External bars are normalized through `ingest` into the local `store`, then reused
+on demand by the capability modules, and finally distilled into reports and
+reusable strategy code. The AI orchestrates the whole loop along fixed data
+contracts:
+
+```mermaid
+flowchart LR
+    idea["Market idea / hypothesis"] --> ingest
+    subgraph skills["skills/ · reusable capabilities"]
+        direction LR
+        ingest["ingest<br/>fetch·symbols"] --> store["store<br/>Parquet·DuckDB"]
+        store --> compute["compute<br/>indicators·labels"]
+        compute --> analyze["analyze<br/>diagnostics·attribution"]
+        analyze --> research["research<br/>screening·sweeps"]
+        research --> ml["ml<br/>training·sparse fit"]
+        ml --> backtest["backtest<br/>vectorized·portfolio"]
+        backtest --> report["report<br/>HTML/MD·charts"]
+    end
+    report --> out["Runnable / tested / reusable research code"]
+    vendor["Other vendors / local data"] -. same contracts .-> ingest
+```
 
 ## Project Layout
 
@@ -227,6 +261,38 @@ to `reports/strategy_examples/`. Each strategy family has one rule-based example
 and one XGBoost example. Strategy logic lives under `strategies/`; storage,
 vectorized execution, portfolio weighting, ML helpers, and report rendering live
 under `skills/`.
+
+Below are the four public example performance charts produced by the script
+(backtested on real historical data, **for demonstration only — not indicative of
+future returns and not investment advice**):
+
+<table>
+<tr>
+<td width="50%" align="center">
+<img src="reports/strategy_examples/csi300_if_ma10_atr_reversion_performance.png" width="100%"><br>
+<sub><b>CSI 300 IF · MA10 ATR Reversion</b><br/>Rule / time-series · sample 2024 +22.1% · 2025 +36.3%</sub>
+</td>
+<td width="50%" align="center">
+<img src="reports/strategy_examples/csi300_if_xgboost_triple_barrier_performance.png" width="100%"><br>
+<sub><b>CSI 300 IF · XGBoost Triple-Barrier</b><br/>ML / time-series · sample 2024 +12.9% · 2025 +4.9%</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" align="center">
+<img src="reports/strategy_examples/futures_cross_sectional_reversal_performance.png" width="100%"><br>
+<sub><b>Futures Cross-Sectional Reversal</b><br/>Rule / cross-sectional · sample 2024 +30.8% · 2025 +31.4%</sub>
+</td>
+<td width="50%" align="center">
+<img src="reports/strategy_examples/futures_xgboost_rank_performance.png" width="100%"><br>
+<sub><b>Futures XGBoost Rank</b><br/>ML / cross-sectional · sample 2024 +18.7% · 2025 +45.7%</sub>
+</td>
+</tr>
+</table>
+
+> The sample returns above come from the public example reports under
+> `reports/strategy_examples/`, are backtested on historical data, depend on the
+> data window, parameters, and sample range, and **are not a return promise or
+> investment advice**. See each `*.md` report for full metrics.
 
 ## Documentation
 
