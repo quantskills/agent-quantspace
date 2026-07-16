@@ -12,18 +12,16 @@
   <img alt="License" src="https://img.shields.io/badge/License-GPL--3.0-green">
 </p>
 
-QuantSpace 是面向 AI 时代重新设计的量化投研框架。通过在项目目录里，直接告诉
+QuantSpace 是面向 AI 时代重新设计的量化投研框架。使用任意 AI coding工具打开本项目目录，直接告诉
 AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 label、交易策略、回测约束或报告要求；AI 会沿着既定工程边界，把想法落成可运行、可测试、可复用的策略研究代码。
-该项目兼容 Codex、Claude Code、Cursor 等主流 AI 编程工具。
+该项目兼容 Chatgpt Codex, Claude Code, Cursor, CodeBuddy, Qoder, TRAE, OpenCode 等主流 AI 编程工具。
 
-真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成取数、符号转换和基础格式整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要接入同一套数据契约，后面的数据管理、因子计算、策略开发、回测和报告流程就可以继续复用。
+真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成数据获取、数据规范整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要接入同一套数据契约，后续数据管理、因子计算、策略开发、回测和报告流程就可以继续复用。
 
 QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
 并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
-回测，再把绩效图表和 Markdown 报告沉淀下来。组合构建和执行统一归入 `backtest`
-skill，模型训练、ML 因子和稀疏拟合统一归入 `ml` skill。`AGENTS.md` 和每个 skill
-目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在
-一次性的脚本里。
+回测，再把绩效图表和 Markdown 报告沉淀下来。`backtest` 进行回测和组合构建，`ml` skill 进行机器学习训练和预测。
+目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在一次性的脚本里。
 
 ## 架构总览
 
@@ -34,11 +32,10 @@ flowchart TD
     idea["市场想法 / 假设"] --> ingest
     subgraph skills["skills/ · 可复用能力"]
         direction TB
-        ingest["ingest<br/>取数·符号转换"] --> store["store<br/>Parquet·DuckDB"]
-        store --> compute["compute<br/>指标·标签"]
-        compute --> analyze["analyze<br/>因子诊断·归因"]
-        analyze --> research["research<br/>筛选·参数扫描"]
-        research --> ml["ml<br/>训练·稀疏拟合"]
+        ingest["ingest<br/>获取数据"] --> store["store<br/>Parquet·DuckDB"]
+        store --> compute["compute<br/>指标/因子运算"]
+        compute --> analyze["analyze<br/>因子绩效分析"]
+        analyze --> ml["ml<br/>ML训练/预测"]
         ml --> backtest["backtest<br/>向量化回测·组合"]
         backtest --> report["report<br/>HTML/MD 报告·图表"]
     end
@@ -60,7 +57,6 @@ quantspace/
     analyze/              因子分析、指标、归因、tearsheet
     backtest/             向量化执行、权重、过滤器、成本
     ml/                   ML 辅助模块和可选模型引擎
-    research/             因子筛选、参数扫描、策略比较
     report/               HTML/Markdown 报告渲染和图表工具
   strategies/
     cross_sectional/      横截面策略
@@ -305,7 +301,7 @@ Created or maintained by `abgyjaguo`.
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-## 开发者
+## 项目创始人
 
 <div align="center">
   <img src="developer-qr.jpg" alt="开发者二维码" width="220">
