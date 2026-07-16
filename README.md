@@ -30,10 +30,10 @@ skill，模型训练、ML 因子和稀疏拟合统一归入 `ml` skill。`AGENTS
 外部行情先经 `ingest` 归一化进入 `store` 本地仓库，随后被各能力模块按需复用，最终沉淀为报告与可复用策略代码。整条研究回路由 AI 沿着固定的数据契约编排：
 
 ```mermaid
-flowchart LR
+flowchart TD
     idea["市场想法 / 假设"] --> ingest
     subgraph skills["skills/ · 可复用能力"]
-        direction LR
+        direction TB
         ingest["ingest<br/>取数·符号转换"] --> store["store<br/>Parquet·DuckDB"]
         store --> compute["compute<br/>指标·标签"]
         compute --> analyze["analyze<br/>因子诊断·归因"]
