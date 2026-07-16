@@ -306,7 +306,6 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
 <table align="center">
   <tr>
     <td align="center">
-      <strong>项目创始人</strong><br>
       <img src="developer-qr.jpg" alt="开发者二维码" width="220"><br>
       <sub>扫码添加微信，针对本项目提问。</sub>
     </td>
