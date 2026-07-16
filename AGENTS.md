@@ -21,6 +21,17 @@ quantSkills:
   summary_en: AI-native quantitative research framework for reusable skills, strategy workflows, backtests, and reports.
 ---
 
+```json qsh-form
+{
+  "version": 1,
+  "task": {
+    "placeholder": "描述要在 QuantSpace 中构建、测试或审查的量化研究工作流、策略、回测、报告或模块",
+    "required": true
+  },
+  "prompt_template": "{{#task}}任务与材料：\n{{task}}\n\n{{/task}}{{#attachments}}用户上传的材料（已放入工作区）：\n{{attachments}}\n\n{{/attachments}}遵循 QuantSpace 的模块边界、数据约定、uv 命令和测试目录规范，优先复用现有 skills 与 strategies，完成所述构建、测试或审查任务并说明验证结果，输出中文报告。"
+}
+```
+
 # AGENTS.md - QuantSpace
 
 QuantSpace is an AI-native quantitative research framework.
