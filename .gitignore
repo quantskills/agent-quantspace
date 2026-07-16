@@ -52,6 +52,8 @@ user.json
 # Local temp and output
 tmp/
 output/
+docs/
+reports/local
 
 # Editor configs
 .cursor/
