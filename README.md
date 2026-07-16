@@ -293,10 +293,6 @@ uv run python -m pytest tests/
 
 本仓库仅作量化研究方法与工程框架整理，不验证任何收益声明，不构成任何投资建议。请勿将框架或其示例输出直接作为投资决策依据。
 
-## 维护者
-
-Created or maintained by `abgyjaguo`.
-
 ## License
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
