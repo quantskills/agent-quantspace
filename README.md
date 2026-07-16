@@ -305,6 +305,12 @@ Created or maintained by `abgyjaguo`.
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
+## 开发者
+
+<div align="center">
+  <img src="developer-qr.jpg" alt="开发者二维码" width="220">
+</div>
+
 ## 🐼 PandaAI / QUANTSKILLS 社群
 
 <div align="center">
