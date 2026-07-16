@@ -301,16 +301,19 @@ Created or maintained by `abgyjaguo`.
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-## 项目创始人
+## 项目创始人与 🐼 PandaAI / QUANTSKILLS 社群二维码
 
-<div align="center">
-  <img src="developer-qr.jpg" alt="开发者二维码" width="220">
-</div>
-
-## 🐼 PandaAI / QUANTSKILLS 社群
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/quantskills/.github/main/profile/assets/pandaai-community-qr.jpg" alt="PandaAI 社群二维码" width="220">
-  <br>
-  <sub>扫码加入 PandaAI 社群，交流 QUANTSKILLS 技能、Agent 工作流与量化研究实践。</sub>
-</div>
+<table align="center">
+  <tr>
+    <td align="center">
+      <strong>项目创始人</strong><br>
+      <img src="developer-qr.jpg" alt="开发者二维码" width="220"><br>
+      <sub>扫码添加微信，针对本项目提问。</sub>
+    </td>
+    <td align="center">
+      <strong>PandaAI / QUANTSKILLS 社群</strong><br>
+      <img src="https://raw.githubusercontent.com/quantskills/.github/main/profile/assets/pandaai-community-qr.jpg" alt="PandaAI 社群二维码" width="220"><br>
+      <sub>扫码加入社群，交流 QUANTSKILLS 技能、Agent 工作流与量化研究实践。</sub>
+    </td>
+  </tr>
+</table>
