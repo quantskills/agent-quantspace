@@ -32,7 +32,7 @@ flowchart TD
     idea["市场想法 / 假设"] --> ingest
     subgraph skills["skills/ · 可复用能力"]
         direction TB
-        ingest["ingest<br/>获取数据"] --> store["store<br/>Parquet·DuckDB"]
+        ingest["ingest<br/>获取数据"] --> store["store<br/>Parquet/DuckDB"]
         store --> compute["compute<br/>指标/因子运算"]
         compute --> analyze["analyze<br/>因子绩效分析"]
         analyze --> ml["ml<br/>ML训练/预测"]
@@ -64,7 +64,6 @@ quantspace/
   scripts/                样本数据、demo、PandaData 导入脚本
   data/                   本地数据根目录；只提交 sample pool
   reports/                本地生成报告目录
-  docs/                   最小补充文档，包括 PandaData 接入说明
   tests/                  公开 pytest 测试
 ```
 
@@ -80,7 +79,6 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
-| `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。当前没有单独的公开 `construct` 或

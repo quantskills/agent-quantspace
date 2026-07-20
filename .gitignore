@@ -53,7 +53,10 @@ user.json
 tmp/
 output/
 docs/
+lessons/
 reports/local
+.wrangler/
+ossutil_output/
 
 # Editor configs
 .cursor/

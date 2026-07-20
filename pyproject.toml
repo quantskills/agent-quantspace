@@ -84,3 +84,16 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.7",
 ]
+lesson = [
+    "ipykernel==6.30.1",
+    "jupyterlab-language-pack-zh-cn>=4.5.post3",
+    "jupyterlite-core[contents,translation]==0.8.1",
+    "jupyterlite-pyodide-kernel==0.8.2",
+    "markdown>=3.10.2",
+    "nbclient==0.11.0",
+]
+notebook = [
+    "ipykernel",
+    "nbclient",
+    "notebook",
+]
