@@ -33,6 +33,8 @@ import pandas as pd
 from skills.ingest.symbol_map import try_to_panda_data_symbol, try_to_quantspace_symbol
 
 _SymbolLike = str | list[str] | None
+_StringLike = str | list[str] | None
+_IntLike = int | list[int] | None
 
 
 def _load_dotenv_if_present(path: Path | None = None) -> None:
@@ -247,6 +249,197 @@ class PandaDataClient:
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
+        )
+
+    # ------------------------------------------------------------------
+    # Listed funds and ETFs
+    # ------------------------------------------------------------------
+
+    def get_fund_detail(
+        self,
+        symbol: _SymbolLike = None,
+        *,
+        exchange: _StringLike = None,
+        type: _StringLike = None,
+        operation_mode: _StringLike = None,
+        etf_lof_type: _StringLike = None,
+        is_class_fund: _IntLike = None,
+        index_fund_type: _StringLike = None,
+        status: _StringLike = None,
+        fund_status: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """Fund metadata via ``panda_data.get_fund_detail``.
+
+        Use ``etf_lof_type="ETF"`` to discover listed ETFs. Both listed-fund
+        symbols (for example ``SHSE.510300``) and off-exchange ``*.OF`` symbols
+        are accepted.
+        """
+        return self._call(
+            "get_fund_detail",
+            symbol=self._to_pd(symbol),
+            exchange=exchange,
+            type=type,
+            operation_mode=operation_mode,
+            etf_lof_type=etf_lof_type,
+            is_class_fund=is_class_fund,
+            index_fund_type=index_fund_type,
+            status=status,
+            fund_status=fund_status,
+            fields=fields,
+        )
+
+    def get_fund_daily(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """Unadjusted listed-fund daily bars via ``panda_data.get_fund_daily``."""
+        return self._call_fund_range(
+            "get_fund_daily",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_daily_pre(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """Forward-adjusted listed-fund bars via ``get_fund_daily_pre``."""
+        return self._call_fund_range(
+            "get_fund_daily_pre",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_daily_post(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """Backward-adjusted listed-fund bars via ``get_fund_daily_post``."""
+        return self._call_fund_range(
+            "get_fund_daily_post",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_etf_cr_limits(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """ETF creation/redemption limits via ``get_fund_etf_cr_limits``."""
+        return self._call_fund_range(
+            "get_fund_etf_cr_limits",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_etf_cr_net(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """ETF net creation/redemption data via ``get_fund_etf_cr_net``."""
+        return self._call_fund_range(
+            "get_fund_etf_cr_net",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_etf_constituents(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """ETF creation/redemption basket via ``get_fund_etf_constituents``."""
+        return self._call_fund_range(
+            "get_fund_etf_constituents",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def get_fund_etf_cr(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike = None,
+        exchange: _StringLike = None,
+        fields: _StringLike = None,
+    ) -> pd.DataFrame:
+        """ETF creation/redemption list via ``panda_data.get_fund_etf_cr``."""
+        return self._call_fund_range(
+            "get_fund_etf_cr",
+            start_date,
+            end_date,
+            symbol=symbol,
+            exchange=exchange,
+            fields=fields,
+        )
+
+    def _call_fund_range(
+        self,
+        method_name: str,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike,
+        exchange: _StringLike,
+        fields: _StringLike,
+    ) -> pd.DataFrame:
+        """Call one PandaData fund endpoint with the shared date-range schema."""
+        return self._call(
+            method_name,
+            start_date=start_date,
+            end_date=end_date,
+            symbol=self._to_pd(symbol),
+            exchange=exchange,
+            fields=fields,
         )
 
     # ------------------------------------------------------------------

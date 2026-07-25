@@ -148,6 +148,22 @@ to_panda_data_symbol("SHSE.510300")  # "510300.SH"
 to_quantspace_symbol("510300.SH")    # "SHSE.510300"
 ```
 
+场内 ETF/LOF 行情使用基金接口，不按股票或回测因子获取：
+
+```python
+from skills.ingest import PandaDataClient
+
+client = PandaDataClient()
+bars = client.get_fund_daily(
+    "20250610",
+    "20250613",
+    symbol="SHSE.510300",
+)
+```
+
+前、后复权行情分别使用 `get_fund_daily_pre` 和
+`get_fund_daily_post`；ETF 申赎数据使用 `get_fund_etf_*`。
+
 ## 数据模型
 
 数据模型保持简单明确，方便 AI 生成的策略代码稳定复用。市场数据按单 symbol 存成

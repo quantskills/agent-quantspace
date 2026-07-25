@@ -175,6 +175,23 @@ to_panda_data_symbol("SHSE.510300")  # "510300.SH"
 to_quantspace_symbol("510300.SH")    # "SHSE.510300"
 ```
 
+Listed ETF/LOF bars use the fund endpoints, not stock or backtest-factor
+endpoints:
+
+```python
+from skills.ingest import PandaDataClient
+
+client = PandaDataClient()
+bars = client.get_fund_daily(
+    "20250610",
+    "20250613",
+    symbol="SHSE.510300",
+)
+```
+
+Use `get_fund_daily_pre` or `get_fund_daily_post` for adjusted prices and
+`get_fund_etf_*` for ETF creation/redemption datasets.
+
 ## Data Model
 
 The data model stays intentionally simple so generated strategy code can depend
