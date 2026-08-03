@@ -66,11 +66,13 @@ weights = risk_parity(votes_df, returns_df=returns_df, lookback=60, min_periods=
 
 ```python
 from skills.backtest.exit_analysis import evaluate_exit_factor
+from skills.strategy.cross_sectional import ModularBacktester
 
 result = evaluate_exit_factor(
     data,
     factor_configs,
     exit_filter,
+    backtester_cls=ModularBacktester,
     commission=0.0002,
     slippage_bp=2.0,
 )

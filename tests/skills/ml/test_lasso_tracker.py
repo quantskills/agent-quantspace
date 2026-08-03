@@ -13,7 +13,9 @@ def test_lasso_track_returns_weights_with_bounded_row_sums() -> None:
     )
     index_returns = pd.Series([0.0015] * 20, index=idx)
 
-    weights = lasso_track(etf_returns, index_returns, lookback=10, min_periods=5, rebalance_freq="D")
+    weights = lasso_track(
+        etf_returns, index_returns, lookback=10, min_periods=5, rebalance_freq="D"
+    )
 
     assert weights.index.equals(idx)
     assert (weights.sum(axis=1) <= 1.0000001).all()

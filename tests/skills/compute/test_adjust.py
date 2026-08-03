@@ -23,7 +23,13 @@ def test_forward_adjust_scales_historical_prices_and_volume() -> None:
 def test_repair_zero_volume_price_stubs_uses_prior_tradable_close() -> None:
     idx = pd.date_range("2024-01-01", periods=3, name="eob")
     frame = pd.DataFrame(
-        {"open": [10.0, 99.0, 11.0], "high": [10.0, 99.0, 11.0], "low": [10.0, 99.0, 11.0], "close": [10.0, 99.0, 11.0], "volume": [100.0, 0.0, 100.0]},
+        {
+            "open": [10.0, 99.0, 11.0],
+            "high": [10.0, 99.0, 11.0],
+            "low": [10.0, 99.0, 11.0],
+            "close": [10.0, 99.0, 11.0],
+            "volume": [100.0, 0.0, 100.0],
+        },
         index=idx,
     )
 

@@ -122,7 +122,9 @@ def load_adjusted(
     """
     from pathlib import Path
 
-    root = Path(data_root) if data_root else Path(__file__).resolve().parents[2] / "data"
+    from skills.store.workspace import resolve_workspace_paths
+
+    root = Path(data_root) if data_root else resolve_workspace_paths().data_root
     raw_path = root / "market" / frequency / f"{symbol}.parquet"
     adj_path = root / "adj_factor" / f"{symbol}.parquet"
     raw = pd.read_parquet(raw_path)

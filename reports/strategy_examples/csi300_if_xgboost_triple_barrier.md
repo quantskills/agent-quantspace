@@ -16,21 +16,21 @@ A real-data time-series ML example. XGBoost classifies triple-barrier states fro
 
 | Metric | Value |
 |---|---:|
-| `2024_return` | 0.1293 |
-| `2025_return` | 0.0487 |
-| `2026_return` | 0.0013 |
-| `active_day_ratio` | 0.1114 |
-| `ann_return` | 0.1046 |
-| `ann_volatility` | 0.0847 |
-| `avg_daily_turnover` | 0.1114 |
-| `calmar_ratio` | 2.8138 |
-| `max_drawdown` | 0.0372 |
-| `month_num` | 20.5667 |
-| `sharpe_ratio` | 1.2352 |
-| `sortino_ratio` | 4.0686 |
-| `total_return` | 0.1859 |
-| `total_transaction_cost` | 0.0184 |
-| `trade_days` | 46.0000 |
+| `2024_return` | 0.0335 |
+| `2025_return` | 0.0105 |
+| `2026_return` | 0.0093 |
+| `active_day_ratio` | 0.0436 |
+| `ann_return` | 0.0310 |
+| `ann_volatility` | 0.1006 |
+| `avg_daily_turnover` | 0.0436 |
+| `calmar_ratio` | 0.2990 |
+| `max_drawdown` | 0.1037 |
+| `month_num` | 20.7000 |
+| `sharpe_ratio` | 0.3083 |
+| `sortino_ratio` | 0.4877 |
+| `total_return` | 0.0541 |
+| `total_transaction_cost` | 0.0072 |
+| `trade_days` | 18.0000 |
 
 ## Notes
 
@@ -44,8 +44,8 @@ A real-data time-series ML example. XGBoost classifies triple-barrier states fro
 
 | Date | return | raw_return | cum_return | drawdown | turnover |
 |---|---:|---:|---:|---:|---:|
-| 2026-06-05 | 0.0000 | 0.0000 | 0.1859 | -0.0267 | 0.0000 |
-| 2026-06-08 | 0.0000 | 0.0000 | 0.1859 | -0.0267 | 0.0000 |
-| 2026-06-09 | 0.0000 | 0.0000 | 0.1859 | -0.0267 | 0.0000 |
-| 2026-06-10 | 0.0000 | 0.0000 | 0.1859 | -0.0267 | 0.0000 |
-| 2026-06-11 | 0.0000 | 0.0000 | 0.1859 | -0.0267 | 0.0000 |
+| 2026-05-29 | 0.0000 | 0.0000 | 0.0541 | -0.0561 | 0.0000 |
+| 2026-06-01 | 0.0000 | 0.0000 | 0.0541 | -0.0561 | 0.0000 |
+| 2026-06-02 | 0.0000 | 0.0000 | 0.0541 | -0.0561 | 0.0000 |
+| 2026-06-03 | 0.0000 | 0.0000 | 0.0541 | -0.0561 | 0.0000 |
+| 2026-06-04 | 0.0000 | 0.0000 | 0.0541 | -0.0561 | 0.0000 |

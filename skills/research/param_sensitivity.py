@@ -9,19 +9,17 @@ logger = logging.getLogger(__name__)
 
 
 def param_sweep(
-    pool: str,
     factor_func: Callable,
     param_name: str,
     param_range: list,
     n: int = 5,
     base_kwargs: dict | None = None,
+    data: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Sweep a single parameter of a factor function and compute IC/IR for each value.
 
     Parameters
     ----------
-    pool : str
-        Pool ID.
     factor_func : callable
         Factor function that takes (data, **kwargs) and returns factor values.
     param_name : str
@@ -32,6 +30,8 @@ def param_sweep(
         Holding period for IC calculation.
     base_kwargs : dict, optional
         Other keyword arguments to pass to factor_func.
+    data : pd.DataFrame, optional
+        Pre-loaded panel (MultiIndex symbol/eob). Required.
 
     Returns
     -------
@@ -39,10 +39,12 @@ def param_sweep(
         Columns: param_value, IC_mean, IC_std, IC_IR, t_stat
     """
     from skills.analyze.factor_analysis import full_stat
-    from skills.store.data_manager import DataManager
 
-    dm = DataManager()
-    data = dm.load_pool_data(pool)
+    if data is None:
+        raise ValueError(
+            "param_sweep requires explicit data. "
+            "Load symbols with DataManager.read_symbols(...) and pass data=panel."
+        )
     close = data["close"].unstack("symbol")
 
     base_kwargs = base_kwargs or {}

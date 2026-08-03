@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from skills.compute.utils import calculate_atr
+from skills.strategy.time_series import signal_to_single_asset_weights
 
 
 def ma_reversion_atr_stop_signal(
@@ -73,7 +74,7 @@ def ma_reversion_atr_stop_weights(
         atr_lookback=atr_lookback,
         atr_multiplier=atr_multiplier,
     )
-    return signal.to_frame(symbol)
+    return signal_to_single_asset_weights(signal, symbol=symbol)
 
 
 __all__ = ["ma_reversion_atr_stop_signal", "ma_reversion_atr_stop_weights"]

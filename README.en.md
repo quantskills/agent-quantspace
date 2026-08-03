@@ -30,8 +30,9 @@ The framework packages the full research loop as reusable skills: data
 ingestion, local Parquet storage with optional DuckDB queries, factor
 calculation and analysis, rule-based and machine-learning strategy development,
 portfolio construction, vectorized backtesting, and performance report
-management. Portfolio construction and execution now share the `backtest` skill;
-model training and sparse fitting live under `ml`. `AGENTS.md` and the
+management. Reusable cross-sectional/time-series strategy types and target-weight
+helpers live under `strategy`; execution and portfolio construction live under
+`backtest`, while model training and sparse fitting live under `ml`. `AGENTS.md` and the
 per-skill `SKILL.md` files teach AI agents how to reuse these modules instead of
 scattering research logic across one-off scripts.
 
@@ -52,7 +53,9 @@ flowchart LR
         compute --> analyze["analyze<br/>diagnostics·attribution"]
         analyze --> research["research<br/>screening·sweeps"]
         research --> ml["ml<br/>training·sparse fit"]
-        ml --> backtest["backtest<br/>vectorized·portfolio"]
+        compute --> strategy["strategy<br/>types·target weights"]
+        ml --> strategy
+        strategy --> backtest["backtest<br/>vectorized·portfolio"]
         backtest --> report["report<br/>HTML/MD·charts"]
     end
     report --> out["Runnable / tested / reusable research code"]
@@ -71,6 +74,7 @@ quantspace/
     ingest/               data ingestion: default PandaData client and symbol conversion
     store/                local Parquet storage, DuckDB queries, artifact management
     compute/              indicators, labels, utilities, factor examples
+    strategy/             reusable contracts, cross-sectional/time-series types, weight helpers
     analyze/              factor analysis, metrics, attribution, tearsheets
     backtest/             vectorized execution, weighting, filters, costs
     ml/                   ML helpers and optional model engines
@@ -80,7 +84,7 @@ quantspace/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
   scripts/                sample data, demos, PandaData import helper
-  data/                   local data root; only sample pools are committed
+  data/                   local data root; market and research artifacts stay local
   reports/                local generated report output
   docs/                   minimal supplemental notes, including PandaData ingest
   tests/                  public pytest suite
@@ -94,8 +98,9 @@ writing new research code.
 | Skill | Main import | Purpose |
 |---|---|---|
 | `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion |
-| `store` | `from skills.store.data_manager import DataManager` | Market data, pools, factors, backtests, metadata |
+| `store` | `from skills.store.data_manager import DataManager` | Market data, factors, backtests, model metadata |
 | `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
+| `strategy` | `from skills.strategy import StrategyResult` | Reusable contracts, cross-sectional/time-series types, and target-weight helpers |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, time-series checks |
 | `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
@@ -119,9 +124,9 @@ and run the demos:
 ```bash
 cp .env.example .env # set PANDA_DATA_USERNAME and PANDA_DATA_PASSWORD
 uv sync
-uv run python scripts/generate_sample_data.py
-uv run python scripts/run_cross_sectional_demo.py
-uv run python scripts/run_time_series_demo.py
+uv run python -m scripts.generate_sample_data
+uv run python -m strategies.cross_sectional.workflows.run_demo
+uv run python -m strategies.time_series.workflows.run_demo
 uv run python -m pytest tests/
 ```
 
@@ -134,8 +139,10 @@ Optional extras:
 
 ```bash
 uv sync --extra panda_data  # PandaData SDK
+uv sync --extra analyze     # plotting, time-series diagnostics, parallel analysis
 uv sync --extra ml          # optional PyCaret-based ML helpers
 uv sync --extra query       # optional DuckDB querying
+uv sync --extra report      # Jinja2 and report charts
 ```
 
 ## PandaData Setup
@@ -159,7 +166,7 @@ PANDA_DATA_PASSWORD=your-password
 Then try a small import:
 
 ```bash
-uv run python scripts/import_panda_data_demo.py \
+uv run python -m scripts.import_panda_data_demo \
   --symbol SHSE.600000 \
   --start-date 20230101 \
   --end-date 20231231
@@ -207,27 +214,30 @@ Each OHLCV frame is indexed by `eob` and uses:
 open, high, low, close, volume
 ```
 
-Pools are JSON files under `data/pools/`:
+Strategies and callers own explicit symbol lists and load them through
+`read_symbols`:
 
-```json
-{
-  "pool_id": "sample_etf_rotation",
-  "description": "ETF-style pool for public examples",
-  "frequency": "1d",
-  "symbols": ["SHSE.510300", "SHSE.510500"]
-}
+```python
+from skills.store.data_manager import DataManager
+
+panel = DataManager().read_symbols(
+    ["SHSE.510300", "SHSE.510500"],
+    frequency="1d",
+)
 ```
 
-`DataManager.load_pool_data(pool_id)` returns a panel indexed by
-`(symbol, eob)`.
+The returned panel is indexed by `(symbol, eob)`. First-level directory names
+under factors, backtests, and models are caller-provided artifact namespaces,
+not centrally managed instrument universes.
 
 Set `QUANTSPACE_DATA_ROOT` when you want the same code to use a data directory
 outside the repository.
 
 ## Strategy Demos
 
-The demos show the intended shape of strategy work: scripts orchestrate, skills
-provide shared machinery, and `strategies/` holds domain logic.
+The demos show the intended shape of strategy work: `skills.strategy` owns
+reusable strategy types, `strategies/` owns concrete behavior and workflows,
+and `VectorBacktester` owns execution.
 
 ### Cross-Sectional Rotation
 
@@ -240,12 +250,12 @@ panel OHLCV -> generic factors -> top-percent selection -> execution -> metrics
 Run:
 
 ```bash
-uv run python scripts/run_cross_sectional_demo.py
+uv run python -m strategies.cross_sectional.workflows.run_demo
 ```
 
 This demo combines simple momentum and low-volatility factors through
-`strategies.cross_sectional.ModularBacktester`, using existing
-`data/market/1d/` Parquet files for the configured sample pool.
+`skills.strategy.cross_sectional.ModularBacktester`, using existing
+`data/market/1d/` Parquet files for the demo's explicit symbol list.
 
 ### Time-Series ML
 
@@ -258,28 +268,31 @@ raw OHLCV bars -> feature engineering -> triple-barrier labels -> model -> backt
 Run:
 
 ```bash
-uv run python scripts/run_time_series_demo.py
+uv run python -m strategies.time_series.workflows.run_demo
 ```
 
 This demo uses `strategies.time_series.features.make_price_volume_features`,
-`TripleBarrierLabelMaker`, a small scikit-learn classifier, a date x symbol
+`TripleBarrierLabelMaker`, a small scikit-learn classifier,
+`skills.strategy.time_series.signal_to_single_asset_weights`, a date x symbol
 weight matrix, and `skills.backtest.VectorBacktester` on an existing
 single-symbol daily Parquet file.
 
 ### Example Strategy Reports
 
 ```bash
-uv run python scripts/run_strategy_reports.py
+uv run python -m scripts.run_strategy_reports
 ```
 
 This thin orchestration script reads existing PandaData daily Parquet files from
-`data/market/1d/` and writes four public strategy reports plus performance PNGs
-to `reports/strategy_examples/`. Each strategy family has one rule-based example
-and one XGBoost example. Strategy logic lives under `strategies/`; storage,
+`data/market/1d/` and writes five public strategy reports plus performance PNGs
+to `reports/strategy_examples/`. The cross-sectional family contains a futures
+rule, a futures XGBoost ranker, and an 18-proxy global-asset ETF/LOF Top-3
+rotation; the time-series family contains one rule example and one XGBoost
+example. Strategy logic lives under `strategies/`; storage,
 vectorized execution, portfolio weighting, ML helpers, and report rendering live
 under `skills/`.
 
-Below are the four public example performance charts produced by the script
+Below are the five public example performance charts produced by the script
 (backtested on real historical data, **for demonstration only — not indicative of
 future returns and not investment advice**):
 
@@ -302,6 +315,12 @@ future returns and not investment advice**):
 <td width="50%" align="center">
 <img src="reports/strategy_examples/futures_xgboost_rank_performance.png" width="100%"><br>
 <sub><b>Futures XGBoost Rank</b><br/>ML / cross-sectional · sample 2024 +18.7% · 2025 +45.7%</sub>
+</td>
+</tr>
+<tr>
+<td colspan="2" align="center">
+<img src="reports/strategy_examples/global_asset_etf_top3_performance.png" width="50%"><br>
+<sub><b>Global Asset ETF/LOF Top-3 Momentum Rotation</b><br/>Rule / cross-sectional · 18 public asset proxies · sample cumulative +32.1%</sub>
 </td>
 </tr>
 </table>

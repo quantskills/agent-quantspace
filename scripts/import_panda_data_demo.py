@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from skills.ingest import PandaDataClient  # noqa: E402
-from skills.store.data_manager import DataManager  # noqa: E402
+from skills.ingest import PandaDataClient
+from skills.store.data_manager import DataManager
 
 
 def main() -> None:

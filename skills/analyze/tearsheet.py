@@ -1,4 +1,4 @@
-"""Factor tearsheet generators: per-factor 4-panel PNG + per-pool HTML summary."""
+"""Factor tearsheet generators: per-factor 4-panel PNG + per-namespace HTML summary."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from skills.store.workspace import resolve_workspace_paths  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
-_REPORTS_ROOT = Path(__file__).resolve().parent.parent.parent / "reports" / "factors"
+_REPORTS_ROOT = resolve_workspace_paths().reports_root / "factors"
 
 
 def _sanitize(name: str) -> str:
@@ -32,7 +34,7 @@ def _sanitize(name: str) -> str:
 
 def generate_factor_tearsheet(
     factor_id: str,
-    pool_id: str,
+    namespace: str,
     ic_series: pd.Series,
     group_return: pd.DataFrame,
     turnover: pd.DataFrame | None,
@@ -45,7 +47,7 @@ def generate_factor_tearsheet(
     Panels: cumulative IC, layered cumulative returns, long-short excess,
     group turnover. Returns the written file path.
     """
-    out_dir = Path(output_dir) if output_dir else _REPORTS_ROOT / pool_id
+    out_dir = Path(output_dir) if output_dir else _REPORTS_ROOT / namespace
     out_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{_sanitize(factor_id)}__n{n}.png"
@@ -107,7 +109,7 @@ def generate_factor_tearsheet(
 
     summary_lines = [
         f"factor_id: {factor_id}",
-        f"pool: {pool_id}",
+        f"namespace: {namespace}",
         f"n: {n}",
     ]
     for key in ("IC_mean", "IC_IR", "t_stat", "IC_count"):
@@ -122,12 +124,12 @@ def generate_factor_tearsheet(
     return str(path)
 
 
-def generate_pool_summary_report(
-    pool_id: str,
+def generate_namespace_summary_report(
+    namespace: str,
     output_path: str | Path | None = None,
     top_n_tearsheets: int = 0,
 ) -> str:
-    """Render an HTML summary report for a pool from data/factor_test/{pool}/summary.parquet.
+    """Render an HTML summary report for a namespace from data/factor_test/{namespace}/summary.parquet.
 
     The HTML contains a sortable ranking table (by |IC_IR|) plus any already-generated
     tearsheet thumbnails for the top factors (if `top_n_tearsheets > 0` and PNGs exist).
@@ -135,17 +137,17 @@ def generate_pool_summary_report(
     from skills.store.data_manager import DataManager
 
     dm = DataManager()
-    summary = dm.read_factor_test_summary(pool_id)
+    summary = dm.read_factor_test_summary(namespace)
     if summary.empty:
         raise ValueError(
-            f"No factor test summary for pool {pool_id!r}; run screen_all_indicators first."
+            f"No factor test summary for namespace {namespace!r}; run screen_all_indicators first."
         )
 
     ordered = summary.reindex(
         summary["IC_IR"].abs().sort_values(ascending=False).index
     ).reset_index(drop=True)
 
-    out_path = Path(output_path) if output_path else _REPORTS_ROOT / pool_id / "summary.html"
+    out_path = Path(output_path) if output_path else _REPORTS_ROOT / namespace / "summary.html"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     table_html = ordered.to_html(
@@ -157,7 +159,7 @@ def generate_pool_summary_report(
 
     thumbnails_html = ""
     if top_n_tearsheets > 0:
-        factor_dir = _REPORTS_ROOT / pool_id
+        factor_dir = _REPORTS_ROOT / namespace
         imgs = []
         for _, row in ordered.head(top_n_tearsheets).iterrows():
             candidate = factor_dir / f"{_sanitize(row['factor_id'])}__n{int(row['n'])}.png"
@@ -173,7 +175,7 @@ def generate_pool_summary_report(
 <html lang=\"en\">
 <head>
 <meta charset=\"utf-8\"/>
-<title>Factor Summary — {pool_id}</title>
+<title>Factor Summary — {namespace}</title>
 <style>
 body {{ font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 24px; }}
 h1 {{ font-size: 20px; }}
@@ -185,7 +187,7 @@ figure {{ margin: 16px 0; }}
 </style>
 </head>
 <body>
-<h1>Factor Summary — {pool_id}</h1>
+<h1>Factor Summary — {namespace}</h1>
 <p>Factors: {len(ordered)} | sorted by |IC_IR| desc.</p>
 {table_html}
 {thumbnails_html}

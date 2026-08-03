@@ -73,7 +73,7 @@ from skills.compute.indicators import trend_score_v2
 ### Exit / risk filters (cross-sectional package)
 
 ```python
-from strategies.cross_sectional.exits import (
+from skills.strategy.cross_sectional.exits import (
     gap_down_filter,
     vol_spike_filter,
     drawdown_from_high_filter,
@@ -127,4 +127,4 @@ Public supervised-learning labels:
 
 ## Factor categories (illustrative)
 
-Momentum/trend, volume, mean reversion, exit filters (`strategies.cross_sectional.exits`), and label makers.
+Momentum/trend, volume, mean reversion, exit filters (`skills.strategy.cross_sectional.exits`), and label makers.

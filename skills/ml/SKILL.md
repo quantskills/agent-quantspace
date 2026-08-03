@@ -9,6 +9,8 @@ ML contains reusable model training, prediction, ML factor, and sparse fitting
 helpers. It should produce predictions, ranks, labels, or weight matrices; return
 accounting belongs in `skills.backtest`.
 
+Install model dependencies with `uv sync --extra ml`.
+
 ## Public API
 
 ```python

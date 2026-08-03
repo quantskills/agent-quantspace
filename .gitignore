@@ -66,8 +66,6 @@ ossutil_output/
 data/*
 !data/README.md
 !data/README-zh.md
-!data/pools/
-!data/pools/*.json
 !data/sample/
 !data/sample/*.csv
 !data/sample/*.parquet

@@ -134,13 +134,11 @@ def write_strategy_index(reports: list[StrategyReport], output_dir: str | Path) 
     path = path_dir / "README.md"
     path.write_text(
         "# Strategy Example Reports\n\n"
-        "These reports are generated from PandaData daily futures bars saved under "
+        "These reports are generated from PandaData daily listed-fund and futures bars saved under "
         "`data/market/1d/`. They are compact public examples, not proof of "
         "long-term production robustness.\n\n"
-        "Run `uv run python scripts/run_strategy_reports.py` after refreshing local "
-        "PandaData Parquet files.\n\n"
-        + "\n".join(rows)
-        + "\n",
+        "Run `uv run python -m scripts.run_strategy_reports` after refreshing local "
+        "PandaData Parquet files.\n\n" + "\n".join(rows) + "\n",
         encoding="utf-8",
     )
     return path

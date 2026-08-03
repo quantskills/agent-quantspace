@@ -15,6 +15,7 @@ def test_public_skill_directories_are_exact() -> None:
         "report",
         "research",
         "store",
+        "strategy",
     }
     actual = {
         path.name
@@ -50,3 +51,8 @@ def test_excluded_paths_are_absent() -> None:
     ]
     for relative in excluded:
         assert not (ROOT / relative).exists(), relative
+
+
+def test_json_pool_registry_is_absent() -> None:
+    assert not (ROOT / "data" / "pools").exists()
+    assert "data/pools" not in (ROOT / ".gitignore").read_text(encoding="utf-8")

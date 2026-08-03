@@ -15,7 +15,9 @@ def test_market_breadth_scale_reduces_exposure_below_threshold() -> None:
     weights = pd.DataFrame({"A": 0.5, "B": 0.5}, index=idx)
     close = pd.DataFrame({"A": [10, 9, 8, 7], "B": [10, 9, 8, 7]}, index=idx)
 
-    scaled = apply_market_breadth_scale(weights, close, breadth_threshold=0.8, scale_below=0.25, ma_period=2)
+    scaled = apply_market_breadth_scale(
+        weights, close, breadth_threshold=0.8, scale_below=0.25, ma_period=2
+    )
 
     assert calculate_market_breadth(close, ma_period=2).iloc[-1] < 0.8
     assert scaled.iloc[-1].sum() == 0.25

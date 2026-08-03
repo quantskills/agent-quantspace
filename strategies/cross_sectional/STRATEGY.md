@@ -1,6 +1,6 @@
 ---
 name: cross-sectional-rotation
-description: Public cross-sectional rotation example using generic factors and the modular backtester.
+description: Public cross-sectional rotation behavior built on reusable strategy types.
 ---
 
 # Cross-Sectional Rotation
@@ -21,19 +21,18 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 ## Public Modules
 
 - `strategies.cross_sectional.factors`: generic example factors.
+- `strategies.cross_sectional.asset_class_rotation`: explicit 18-proxy global-asset ETF/LOF universe and Top-3 composite-momentum weights.
 - `strategies.cross_sectional.rules`: rule-based cross-sectional weights.
 - `strategies.cross_sectional.ml_rank`: rank labels, generic features, and XGBoost rank weights.
-- `strategies.cross_sectional.modular_backtester`: high-level orchestration.
-- `strategies.cross_sectional.signals_top_pct`: top-percent signal generation.
+- `strategies.cross_sectional.workflows`: runnable public workflows.
+- `skills.strategy.cross_sectional`: factor frames, selection, exits, risk controls, and research orchestration.
 - `skills.backtest`: shared vectorized execution, costs, and metrics.
-- `strategies.cross_sectional.types`: config types.
-- `strategies.cross_sectional.exits`: reusable exit filters.
 
 ## Example
 
 ```python
 from strategies.cross_sectional.factors import momentum_score, volatility_score
-from strategies.cross_sectional.modular_backtester import ModularBacktester
+from skills.strategy.cross_sectional import ModularBacktester
 
 factor_configs = [
     {"func": momentum_score, "kwargs": {"lookback": 20}, "name": "momentum", "direction": 1},
@@ -51,3 +50,17 @@ bt = ModularBacktester(
 bt.run()
 print(bt.metrics)
 ```
+
+The public large-asset rotation uses the new reusable weight interface directly:
+
+```python
+from strategies.cross_sectional.asset_class_rotation import (
+    ASSET_CLASS_ETF_SYMBOLS,
+    asset_class_top3_weights,
+)
+
+weights = asset_class_top3_weights(close[ASSET_CLASS_ETF_SYMBOLS])
+```
+
+Its default rule averages 20-, 60-, and 120-trading-day returns, rebalances
+every 20 trading days, and equally weights the strongest three eligible proxies.

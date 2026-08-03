@@ -3025,21 +3025,22 @@ name = "quantspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "jinja2" },
-    { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
-    { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "seaborn" },
     { name = "statsmodels" },
-    { name = "xgboost" },
 ]
 
 [package.optional-dependencies]
+analyze = [
+    { name = "joblib" },
+    { name = "matplotlib" },
+    { name = "seaborn" },
+]
 ml = [
     { name = "pycaret" },
+    { name = "scikit-learn" },
     { name = "xgboost" },
 ]
 panda-data = [
@@ -3049,6 +3050,10 @@ panda-data = [
 query = [
     { name = "duckdb" },
 ]
+report = [
+    { name = "jinja2" },
+    { name = "matplotlib" },
+]
 ts = [
     { name = "joblib" },
     { name = "tsfresh" },
@@ -3056,9 +3061,15 @@ ts = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "jinja2" },
+    { name = "joblib" },
+    { name = "matplotlib" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "scikit-learn" },
+    { name = "seaborn" },
+    { name = "xgboost" },
 ]
 lesson = [
     { name = "ipykernel" },
@@ -3077,30 +3088,37 @@ notebook = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", marker = "extra == 'query'" },
-    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "jinja2", marker = "extra == 'report'", specifier = ">=3.1.0" },
+    { name = "joblib", marker = "extra == 'analyze'" },
     { name = "joblib", marker = "extra == 'ts'" },
-    { name = "matplotlib" },
+    { name = "matplotlib", marker = "extra == 'analyze'" },
+    { name = "matplotlib", marker = "extra == 'report'" },
     { name = "numpy" },
     { name = "panda-data", marker = "extra == 'panda-data'", specifier = ">=0.0.12" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pycaret", marker = "extra == 'ml'", specifier = ">=3.1.0" },
     { name = "requests", marker = "extra == 'panda-data'", specifier = ">=2.32.0" },
-    { name = "scikit-learn" },
+    { name = "scikit-learn", marker = "extra == 'ml'" },
     { name = "scipy" },
-    { name = "seaborn" },
+    { name = "seaborn", marker = "extra == 'analyze'" },
     { name = "statsmodels" },
     { name = "tsfresh", marker = "extra == 'ts'" },
-    { name = "xgboost", specifier = ">=3.2.0" },
     { name = "xgboost", marker = "extra == 'ml'", specifier = ">=3.2.0" },
 ]
-provides-extras = ["query", "ml", "ts", "panda-data"]
+provides-extras = ["analyze", "query", "ml", "report", "ts", "panda-data"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "joblib" },
+    { name = "matplotlib" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.15.7" },
+    { name = "scikit-learn" },
+    { name = "seaborn" },
+    { name = "xgboost", specifier = ">=3.2.0" },
 ]
 lesson = [
     { name = "ipykernel", specifier = "==6.30.1" },

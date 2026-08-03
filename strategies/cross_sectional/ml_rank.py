@@ -7,6 +7,7 @@ import pandas as pd
 from xgboost import XGBRegressor
 
 from skills.backtest.weighting import risk_parity
+from skills.strategy.cross_sectional import top_n_weights
 from strategies.cross_sectional.factors import (
     mean_reversion_score,
     momentum_score,
@@ -60,8 +61,7 @@ def rank_scores_to_weights(
     """Convert predicted rank scores into risk-parity weights on top names."""
     if top_n < 1:
         raise ValueError("top_n must be positive.")
-    ranks = score_df.rank(axis=1, ascending=False, method="first")
-    votes = ranks.le(top_n).astype(float).where(score_df.notna(), 0.0)
+    votes = top_n_weights(score_df, top_n=top_n).gt(0.0).astype(float)
     returns = close.reindex(columns=score_df.columns).pct_change(fill_method=None)
     return risk_parity(
         votes,
@@ -71,7 +71,9 @@ def rank_scores_to_weights(
     ).fillna(0.0)
 
 
-def _purged_multiindex_train(dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int) -> pd.DataFrame:
+def _purged_multiindex_train(
+    dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int
+) -> pd.DataFrame:
     """Training rows whose forward labels are fully before the split date."""
     date_values = pd.DatetimeIndex(dataset.index.get_level_values("eob"))
     train_dates = pd.DatetimeIndex(date_values[date_values < split].unique()).sort_values()

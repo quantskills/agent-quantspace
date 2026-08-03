@@ -38,4 +38,8 @@ def test_strategy_markdown_writes_report_and_index(tmp_path) -> None:
     content = report_path.read_text(encoding="utf-8")
     assert "![Performance Chart](demo_performance.png)" in content
     assert (tmp_path / "demo_performance.png").exists()
-    assert "[Demo Strategy](demo.md)" in index_path.read_text(encoding="utf-8")
+    index_content = index_path.read_text(encoding="utf-8")
+    assert "[Demo Strategy](demo.md)" in index_content
+    assert "listed-fund and futures bars" in index_content
+    assert "uv run python -m scripts.run_strategy_reports" in index_content
+    assert "python scripts/" not in index_content

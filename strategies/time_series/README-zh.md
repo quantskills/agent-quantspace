@@ -13,10 +13,10 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 - `features.py`：公开价格/成交量特征 helper。
 - `rules.py`：规则类单品种权重 helper。
 - `ml.py`：三重屏障 XGBoost 信号到权重 helper。
-- `signal_engine.py`：从原始 OHLCV bar 和训练好的分类器生成流式信号。
-- `types.py`：默认成本、延迟和仓位映射。
+- `workflows/run_demo.py`：不注入路径、通过模块运行的公开 demo。
 - `STRATEGY.md`：策略域说明和端到端示例。
 
+通用 signal-to-weight 类型由 `skills.strategy.time_series` 提供。
 执行和收益核算由 `skills.backtest.VectorBacktester` 提供。
 
 ## 标签
@@ -27,5 +27,5 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 ## Demo
 
 ```bash
-uv run python scripts/run_time_series_demo.py
+uv run python -m strategies.time_series.workflows.run_demo
 ```

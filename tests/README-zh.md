@@ -29,10 +29,12 @@ tests/skills/ml/
 tests/skills/report/
 tests/skills/research/
 tests/skills/store/
+tests/skills/strategy/
 ```
 
 当前没有 `tests/skills/construct/` 或 `tests/skills/model/` 目录；组合构建在
-`backtest` 下测试，模型 helper 在 `ml` 下测试。
+`backtest` 下测试，模型 helper 在 `ml` 下测试。可复用横截面/时序策略类型在
+`strategy` 下测试，具体策略行为仍放在 `tests/strategies/`。
 
 测试覆盖导入边界、工作区结构、PandaData 符号转换、离线 tick ingest helper、公开标签生成器、本地存储、generic 因子示例，以及两个公开策略路径。
 

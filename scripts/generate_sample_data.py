@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from skills.store.data_manager import DataManager  # noqa: E402
+from skills.store.data_manager import DataManager
 
 ETF_SYMBOLS = ["SHSE.510300", "SHSE.510500", "SZSE.159915", "SHSE.513100"]
 TS_SYMBOL = "SHSE.510300"
@@ -47,15 +41,6 @@ def generate_sample_data(data_root: str | Path | None = None) -> Path:
         bars = _make_ohlcv(symbol, dates, seed=100 + i, drift=0.0002 + i * 0.00005)
         dm.save_symbol(symbol, bars, frequency="1d", source="synthetic_sample")
 
-    pool = {
-        "pool_id": "sample_etf_rotation",
-        "description": "ETF-style pool for public examples",
-        "frequency": "1d",
-        "symbols": ETF_SYMBOLS,
-    }
-    pool_path = dm.root / "pools" / "sample_etf_rotation.json"
-    pool_path.parent.mkdir(parents=True, exist_ok=True)
-    pool_path.write_text(json.dumps(pool, indent=2), encoding="utf-8")
     return dm.root
 
 

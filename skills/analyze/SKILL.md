@@ -10,6 +10,9 @@ returns, attribution, robustness, and time-series behavior after data and
 signals have been produced. Strategy execution and portfolio construction live
 in `skills.backtest`.
 
+Install plotting and parallel-analysis dependencies with
+`uv sync --extra analyze`.
+
 ## Public API
 
 ```python
@@ -25,7 +28,7 @@ from skills.analyze.attribution_counterfactual import performance_metrics
 | `factor_analysis` | IC statistics, grouped returns, winsorization, drawdown helpers |
 | `ts_analysis` | KDE/QQ plots, Hurst, ADF, KPSS, trend scoring |
 | `attribution_*` | Symbol/category PnL, Brinson, decision edges, ranking buckets, Shapley, robustness, stat tests |
-| `tearsheet` | Pool summary report helpers |
+| `tearsheet` | Factor and artifact-namespace summary report helpers |
 
 ## Recipes
 

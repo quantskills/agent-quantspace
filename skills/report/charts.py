@@ -98,8 +98,144 @@ def plot_backtest_performance(
     return _fig_to_png(fig)
 
 
+def plot_factor_diagnostics(
+    ic_series: pd.Series,
+    ic_stats: dict[str, float],
+    group_returns: pd.DataFrame,
+    turnover: pd.DataFrame,
+    title: str = "Factor Diagnostics",
+    rolling_ir_window: int = 60,
+) -> bytes:
+    """Plot IC, rolling IC IR, grouped NAV, and group turnover in one figure."""
+    if rolling_ir_window < 2:
+        raise ValueError("rolling_ir_window must be at least 2.")
+
+    ic = ic_series.astype(float).dropna().sort_index()
+    groups = group_returns.astype(float).sort_index()
+    group_turnover = turnover.astype(float).sort_index()
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    fig.suptitle(title, fontsize=15, fontweight="bold")
+
+    ic_ax = axes[0, 0]
+    if ic.empty:
+        ic_ax.text(0.5, 0.5, "No valid IC observations", ha="center", va="center")
+    else:
+        colors = np.where(ic.ge(0.0), "#4f81bd", "#c0504d")
+        ic_ax.bar(ic.index, ic, width=1.0, color=colors, alpha=0.35, label="Daily Rank IC")
+        cumulative_ax = ic_ax.twinx()
+        cumulative_ax.plot(
+            ic.index,
+            ic.cumsum(),
+            color="#1f4e79",
+            linewidth=1.4,
+            label="Cumulative IC",
+        )
+        cumulative_ax.set_ylabel("Cumulative IC")
+        lines, labels = ic_ax.get_legend_handles_labels()
+        lines2, labels2 = cumulative_ax.get_legend_handles_labels()
+        ic_ax.legend(lines + lines2, labels + labels2, loc="upper left", fontsize=8)
+    ic_ax.axhline(0.0, color="#777777", linewidth=0.8)
+    ic_ax.set_title("IC")
+    ic_ax.set_ylabel("Rank IC")
+    ic_ax.grid(True, alpha=0.2)
+
+    ir_ax = axes[0, 1]
+    if ic.empty:
+        ir_ax.text(0.5, 0.5, "No valid IC observations", ha="center", va="center")
+    else:
+        min_periods = min(max(10, rolling_ir_window // 3), rolling_ir_window)
+        rolling_mean = ic.rolling(rolling_ir_window, min_periods=min_periods).mean()
+        rolling_std = ic.rolling(rolling_ir_window, min_periods=min_periods).std()
+        rolling_ir = rolling_mean.div(rolling_std.replace(0.0, np.nan))
+        ir_ax.plot(rolling_ir.index, rolling_ir, color="#8064a2", linewidth=1.3)
+        overall_ir = float(ic_stats.get("IC_IR", np.nan))
+        if np.isfinite(overall_ir):
+            ir_ax.axhline(
+                overall_ir,
+                color="#f79646",
+                linestyle="--",
+                linewidth=1.1,
+                label=f"Full-period IR {overall_ir:.3f}",
+            )
+            ir_ax.legend(loc="upper left", fontsize=8)
+        summary = (
+            f"Mean IC  {float(ic_stats.get('IC_mean', np.nan)):.3f}\n"
+            f"Positive {float(ic_stats.get('IC_>0', np.nan)):.1%}\n"
+            f"p-value  {float(ic_stats.get('p_value', np.nan)):.3f}"
+        )
+        ir_ax.text(
+            0.98,
+            0.97,
+            summary,
+            transform=ir_ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=9,
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+        )
+    ir_ax.axhline(0.0, color="#777777", linewidth=0.8)
+    ir_ax.set_title(f"Rolling IC IR ({rolling_ir_window} observations)")
+    ir_ax.set_ylabel("Mean IC / IC Std")
+    ir_ax.grid(True, alpha=0.2)
+
+    group_ax = axes[1, 0]
+    if groups.empty:
+        group_ax.text(0.5, 0.5, "No grouped-return observations", ha="center", va="center")
+    else:
+        group_nav = (1.0 + groups.fillna(0.0)).cumprod()
+        group_nav.plot(ax=group_ax, linewidth=1.25, colormap="viridis")
+        group_ax.axhline(1.0, color="#777777", linestyle="--", linewidth=0.8)
+        group_ax.legend(loc="best", ncol=2, fontsize=8)
+    group_ax.set_title("Layered Portfolio NAV (low factor → high factor)")
+    group_ax.set_ylabel("NAV")
+    group_ax.grid(True, alpha=0.2)
+
+    turnover_ax = axes[1, 1]
+    if group_turnover.empty:
+        turnover_ax.text(0.5, 0.5, "No turnover observations", ha="center", va="center")
+    else:
+        active_turnover = group_turnover.loc[group_turnover.abs().sum(axis=1).gt(0.0)]
+        if active_turnover.empty:
+            active_turnover = group_turnover
+        active_turnover.plot(
+            ax=turnover_ax,
+            linewidth=0.8,
+            alpha=0.45,
+            colormap="viridis",
+            legend=False,
+        )
+        mean_turnover = active_turnover.mean(axis=1)
+        turnover_ax.plot(
+            mean_turnover.index,
+            mean_turnover,
+            color="#c0504d",
+            linewidth=1.6,
+            label="Cross-group mean",
+        )
+        turnover_ax.legend(loc="upper right", fontsize=8)
+        turnover_ax.text(
+            0.02,
+            0.97,
+            f"Mean turnover {mean_turnover.mean():.1%}",
+            transform=turnover_ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=9,
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+        )
+    turnover_ax.set_title("Group Turnover")
+    turnover_ax.set_ylabel("Turnover ratio")
+    turnover_ax.grid(True, alpha=0.2)
+
+    for ax in axes.flat:
+        ax.set_xlabel("Date")
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+    return _fig_to_png(fig)
+
+
 def plot_ic_heatmap(ic_df: pd.DataFrame, title: str = "IC Heatmap") -> bytes:
-    """Heatmap of an IC matrix (rows = factors, columns = pools or holding periods)."""
+    """Heatmap of an IC matrix (rows = factors, columns = namespaces or holding periods)."""
     fig, ax = plt.subplots(figsize=(max(6, 0.6 * len(ic_df.columns)), max(4, 0.4 * len(ic_df))))
     data = ic_df.to_numpy()
     vmax = np.nanmax(np.abs(data)) if data.size else 0.1

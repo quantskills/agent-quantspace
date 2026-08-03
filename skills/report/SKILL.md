@@ -8,6 +8,9 @@ description: Use when tasks need HTML reports, Markdown strategy reports, PNG ch
 Render research outputs into self-contained HTML (optionally PDF) using
 Jinja2 templates + matplotlib charts.
 
+Install report dependencies with `uv sync --extra report`. Default output uses
+`QUANTSPACE_REPORTS_ROOT` when set, otherwise the workspace `reports/` path.
+
 ## What it provides
 
 | Component | Purpose |
@@ -31,15 +34,15 @@ ranking_png = charts.plot_factor_ranking(ranking_df, value_col="IC_IR")
 html = renderer.render(
     "factor_report",
     {
-        "title": "Macro pool — weekly factor screen",
-        "pool": "macro_pool",
+        "title": "Macro universe — weekly factor screen",
+        "namespace": "macro_weekly",
         "n": 5,
         "as_of": "2026-05-08",
         "ranking_chart": ranking_png,           # bytes
         "ranking_html": ranking_df.to_html(),   # pre-rendered pandas table
     },
 )
-path = renderer.save(html, "macro_pool_2026-05-08.html")
+path = renderer.save(html, "macro_weekly_2026-05-08.html")
 ```
 
 Strategy Markdown reports:
@@ -82,7 +85,8 @@ respected as-is.
 |----------|---------|
 | `plot_equity_curve(returns, title)` | Cumulative `(1+r).cumprod()` equity curve |
 | `plot_backtest_performance(result_df, title)` | Backtest equity curve plus drawdown |
-| `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=pools/periods) |
+| `plot_factor_diagnostics(ic_series, ic_stats, group_returns, turnover, title, rolling_ir_window)` | IC, rolling IR, layered NAV, and turnover dashboard |
+| `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=namespaces/periods) |
 | `plot_factor_ranking(ranking_df, value_col, label_col, title, top_n)` | Horizontal bar chart of top factors, colored by sign |
 | `plot_regime_states(prices, states, title)` | Price line with colored bands per regime |
 
@@ -102,7 +106,7 @@ display.
 ## PDF output (optional)
 
 ```python
-renderer.to_pdf(html, "macro_pool_2026-05-08.pdf")
+renderer.to_pdf(html, "macro_weekly_2026-05-08.pdf")
 ```
 
 Requires `weasyprint` (install via `uv pip install weasyprint`). Keep this as

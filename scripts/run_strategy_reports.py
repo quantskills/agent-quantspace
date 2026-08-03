@@ -2,32 +2,37 @@
 
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+import pandas as pd
 
-from skills.backtest import (  # noqa: E402
+from skills.backtest import (
     VectorBacktester,
     activity_metrics,
     annual_return_metrics,
     benchmark_return_corr,
 )
-from skills.report.strategy_markdown import (  # noqa: E402
+from skills.report.strategy_markdown import (
     StrategyReport,
     write_strategy_index,
     write_strategy_report,
 )
-from skills.store.data_manager import DataManager  # noqa: E402
-from strategies.cross_sectional.ml_rank import xgboost_rank_weights  # noqa: E402
-from strategies.cross_sectional.rules import ma_gap_reversal_weights  # noqa: E402
-from strategies.time_series.ml import xgboost_triple_barrier_weights  # noqa: E402
-from strategies.time_series.rules import ma_reversion_atr_stop_weights  # noqa: E402
+from skills.store.data_manager import DataManager
+from skills.store.workspace import resolve_workspace_paths
+from strategies.cross_sectional.asset_class_rotation import (
+    ASSET_CLASS_ETF_SYMBOLS,
+    apply_asset_class_split_adjustments,
+    asset_class_top3_weights,
+)
+from strategies.cross_sectional.ml_rank import xgboost_rank_weights
+from strategies.cross_sectional.rules import ma_gap_reversal_weights
+from strategies.time_series.ml import xgboost_triple_barrier_weights
+from strategies.time_series.rules import ma_reversion_atr_stop_weights
 
-REPORT_DIR = ROOT / "reports" / "strategy_examples"
+WORKSPACE_PATHS = resolve_workspace_paths()
+REPORT_DIR = WORKSPACE_PATHS.reports_root / "strategy_examples"
 FREQUENCY = "1d"
 RULE_FUTURE_SYMBOLS = [
     "CFFEX.IF99",
@@ -69,6 +74,53 @@ def _common_metrics(result_df, base_metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _global_asset_etf_top3(dm: DataManager) -> StrategyReport:
+    panel = dm.read_symbols(list(ASSET_CLASS_ETF_SYMBOLS), frequency=FREQUENCY)
+    panel = apply_asset_class_split_adjustments(panel)
+    last_dates = panel.reset_index().groupby("symbol")["eob"].max()
+    common_end = pd.Timestamp(last_dates.min())
+    panel = panel.loc[panel.index.get_level_values("eob") <= common_end]
+    available = set(panel.index.get_level_values("symbol"))
+    missing = sorted(set(ASSET_CLASS_ETF_SYMBOLS).difference(available))
+    if missing:
+        raise ValueError(
+            f"No overlapping asset-rotation history through {common_end.date()} "
+            f"for configured symbols: {missing}"
+        )
+    close = panel["close"].unstack(level="symbol").sort_index()
+    weights = asset_class_top3_weights(close)
+    execution = _run_vector_backtest(panel, weights, start_date="2021-01-01")
+    metrics = _common_metrics(execution.result_df, execution.metrics)
+    metrics.update({"universe_size": 18.0, "top_n": 3.0})
+    return StrategyReport(
+        slug="global_asset_etf_top3",
+        title="Global Asset ETF Top 3 Momentum Rotation",
+        domain="cross_sectional",
+        strategy_type="Rule-based listed-fund rotation",
+        label="20/60/120-day composite momentum",
+        description=(
+            "A public large-asset rotation example across 18 listed ETF/LOF proxies. "
+            "It ranks China and global equity indices, government bonds, gold, crude "
+            "oil, soybean meal, nonferrous metals, and broad commodities, then holds "
+            "the strongest Top 3 at equal weights."
+        ),
+        metrics=metrics,
+        result_df=execution.result_df,
+        notes=[
+            "The explicit public universe is defined by strategies.cross_sectional.asset_class_rotation.ASSET_CLASS_ETF_UNIVERSE.",
+            "Score is the equal-weight average of trailing 20-day, 60-day, and 120-day returns.",
+            "The portfolio rebalances every 20 trading days into the Top 3 assets at equal target weights.",
+            "A later-listed or later-imported proxy becomes eligible only after it has enough local history for all lookbacks.",
+            f"The report ends on {common_end.date()}, the latest observation shared by all configured proxies.",
+            "Raw-price share splits are forward-adjusted for SHSE.513100 (1:5), SHSE.513500 (1:2), and SHSE.510170 (1:4) before signals and returns are computed.",
+            "SHSE.501018 and SZSE.164824 are exchange-listed LOF proxies for crude oil and Indian equities, not ETFs.",
+            "SHSE.510170 is a broad-commodity producer-equity ETF, not a commodity-futures basket.",
+            "Weights are run through the shared VectorBacktester with zero signal lag and forward close-to-close returns.",
+            "Transaction cost assumptions are commission 2bp plus slippage 2bp.",
+        ],
+    )
+
+
 def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
     panel = dm.read_symbols([*RULE_FUTURE_SYMBOLS, GOLD_FUTURE_SYMBOL], frequency=FREQUENCY)
     close = panel["close"].unstack(level="symbol").sort_index()
@@ -102,7 +154,7 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
         result_df=execution.result_df,
         notes=[
             "Uses PandaData dominant futures daily bars stored under data/market/1d/.",
-            "Precious metals are excluded from the tradable pool so the result is not a disguised gold trend.",
+            "Precious metals are excluded from the tradable universe so the result is not a disguised gold trend.",
             "Signal is the negative distance from the 120-day moving average; larger values are more mean-reversion stretched.",
             "The top two contracts are rebalanced every three trading days with 60-day risk-parity weights.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
@@ -201,7 +253,7 @@ def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
-            "Label is the percentile rank of 60-day forward return within the real futures pool.",
+            "Label is the percentile rank of 60-day forward return within the real futures universe.",
             "Features are generic public momentum, volatility, trend, and mean-reversion factors.",
             "Training uses rows before 2024-01-01; reports show the held-out period.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
@@ -214,6 +266,7 @@ def build_reports(data_root: str | Path | None = None) -> list[StrategyReport]:
     return [
         _futures_cross_sectional_reversal(dm),
         _futures_xgboost_rank(dm),
+        _global_asset_etf_top3(dm),
         _csi300_if_ma10_atr_reversion(dm),
         _csi300_if_xgboost_triple_barrier(dm),
     ]
@@ -227,18 +280,30 @@ def generate_reports(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     reports = build_reports(data_root)
-    for stale_path in [*output_dir.glob("*.md"), *output_dir.glob("*_performance.png")]:
-        stale_path.unlink()
+    owned_names = {"README.md"}
+    for report in reports:
+        owned_names.update({f"{report.slug}.md", f"{report.slug}_performance.png"})
+    for name in sorted(owned_names):
+        stale_path = output_dir / name
+        if stale_path.exists():
+            stale_path.unlink()
     report_paths = [write_strategy_report(report, output_dir) for report in reports]
     index_path = write_strategy_index(reports, output_dir)
     return [index_path, *report_paths]
 
 
 def main() -> None:
-    paths = generate_reports()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data-root",
+        default=None,
+        help="Data root containing market/1d Parquet files (default: workspace data/).",
+    )
+    args = parser.parse_args()
+    paths = generate_reports(data_root=args.data_root)
     print("Generated strategy reports:")
     for path in paths:
-        print(path.relative_to(ROOT))
+        print(path.relative_to(WORKSPACE_PATHS.workspace_root))
 
 
 if __name__ == "__main__":

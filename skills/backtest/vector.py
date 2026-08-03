@@ -224,7 +224,9 @@ class VectorBacktester:
             problem_dates = missing_dates[missing_dates].index.difference([allowed_boundary])
             if len(problem_dates) > 0:
                 sample = ", ".join(str(pd.Timestamp(date).date()) for date in problem_dates[:5])
-                raise ValueError(f"Missing execution returns for active positions on dates: {sample}")
+                raise ValueError(
+                    f"Missing execution returns for active positions on dates: {sample}"
+                )
 
         raw_returns = (aligned_weights * aligned_returns).sum(axis=1, min_count=1)
         raw_returns = raw_returns.mask(missing_active_returns.any(axis=1))
@@ -308,7 +310,9 @@ class VectorBacktester:
             )
             metrics["ann_return"] = ann_return
             metrics["calmar_ratio"] = (
-                ann_return / max_drawdown if max_drawdown > 0 else (np.inf if ann_return > 0 else 0.0)
+                ann_return / max_drawdown
+                if max_drawdown > 0
+                else (np.inf if ann_return > 0 else 0.0)
             )
 
             annual_factor = np.sqrt(len(result_df) / month_span * 12.0)

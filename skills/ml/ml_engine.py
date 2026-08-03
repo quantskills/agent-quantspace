@@ -12,15 +12,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from skills.store.workspace import resolve_workspace_paths
+
 logger = logging.getLogger(__name__)
 
 
 def _get_data_root_path() -> Path:
     """Resolve data root: QUANTSPACE_DATA_ROOT or repo ``data/`` (same as DataManager)."""
-    env_root = os.getenv("QUANTSPACE_DATA_ROOT")
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-    return Path(__file__).resolve().parents[2] / "data"
+    return resolve_workspace_paths().data_root
 
 
 def _get_pycaret(task: str):
@@ -187,19 +186,19 @@ class MLEngine:
 
     def save_to_registry(
         self,
-        pool_id: str,
+        namespace: str,
         train_data: pd.DataFrame = None,
         target: str = "label",
         metrics: dict = None,
         pca_components: int = None,
         data_root: str = None,
     ) -> str:
-        """Save trained model under ``data/models/{pool_id}/{model_id}/`` with metadata."""
+        """Save trained model under ``data/models/{namespace}/{model_id}/`` with metadata."""
         if self.model is None:
             raise ValueError("No model to save.")
         root = Path(data_root) if data_root else _get_data_root_path()
         model_id = f"{self.task}_{self.model_name}_{datetime.now():%Y%m%d_%H%M%S}"
-        out_dir = root / "models" / pool_id / model_id
+        out_dir = root / "models" / namespace / model_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
         _, _, _, _, save_model, _, _, _ = self._load_pycaret()
@@ -219,7 +218,7 @@ class MLEngine:
 
         meta = {
             "model_id": model_id,
-            "pool_id": pool_id,
+            "namespace": namespace,
             "task": self.task,
             "model_name": self.model_name,
             "target": target,
@@ -236,24 +235,24 @@ class MLEngine:
         logger.info("Model saved to registry: %s", out_dir)
         return model_id
 
-    def load_from_registry(self, pool_id: str, model_id: str, data_root: str = None) -> object:
-        """Load model from ``data/models/{pool_id}/{model_id}/model`` (PyCaret stem, adds .pkl)."""
+    def load_from_registry(self, namespace: str, model_id: str, data_root: str = None) -> object:
+        """Load model from ``data/models/{namespace}/{model_id}/model`` (PyCaret stem, adds .pkl)."""
         root = Path(data_root) if data_root else _get_data_root_path()
-        model_stem = root / "models" / pool_id / model_id / "model"
+        model_stem = root / "models" / namespace / model_id / "model"
         _, _, _, _, _, _, load_model, _ = self._load_pycaret()
         self.model = load_model(str(model_stem))
         logger.info("Model loaded from registry: %s", model_stem)
         return self.model
 
     @staticmethod
-    def list_models(pool_id: str, data_root: str = None) -> list[dict]:
-        """List saved models for a pool (metadata only), newest ``created_at`` first."""
+    def list_models(namespace: str, data_root: str = None) -> list[dict]:
+        """List saved models for a namespace (metadata only), newest ``created_at`` first."""
         root = Path(data_root) if data_root else _get_data_root_path()
-        pool_dir = root / "models" / pool_id
-        if not pool_dir.is_dir():
+        namespace_dir = root / "models" / namespace
+        if not namespace_dir.is_dir():
             return []
         metas = []
-        for sub in pool_dir.iterdir():
+        for sub in namespace_dir.iterdir():
             if not sub.is_dir():
                 continue
             meta_path = sub / "metadata.json"

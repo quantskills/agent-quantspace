@@ -21,9 +21,7 @@ def test_attribution_core_computes_symbol_and_category_pnl() -> None:
             "ret_1d_fwd": [0.01, -0.02, 0.02, 0.01],
         }
     )
-    category_map = pd.DataFrame(
-        {"symbol": ["AAA", "BBB"], "category": ["equity", "bond"]}
-    )
+    category_map = pd.DataFrame({"symbol": ["AAA", "BBB"], "category": ["equity", "bond"]})
 
     ledger = normalize_weight_ledger(weights, strategy_id="demo")
     pnl = compute_symbol_pnl(ledger, returns)

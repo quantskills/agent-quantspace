@@ -44,9 +44,18 @@ def test_report_backtests_use_next_close_execution_for_eod_signals(monkeypatch) 
     assert captured_kwargs["return_mode"] == "forward"
 
 
-def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> None:
+def test_strategy_report_set_includes_rule_and_ml_examples(
+    tmp_path: Path,
+    strategy_report_data_root: Path,
+) -> None:
     output_dir = tmp_path / "strategy_examples"
-    report_paths = generate_reports(report_dir=output_dir)
+    unrelated = output_dir / "research_notes.md"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text("keep", encoding="utf-8")
+    report_paths = generate_reports(
+        data_root=strategy_report_data_root,
+        report_dir=output_dir,
+    )
 
     names = {path.name for path in report_paths}
     assert names == {
@@ -55,6 +64,7 @@ def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> No
         "csi300_if_xgboost_triple_barrier.md",
         "futures_cross_sectional_reversal.md",
         "futures_xgboost_rank.md",
+        "global_asset_etf_top3.md",
     }
     combined = "\n".join(path.read_text(encoding="utf-8") for path in report_paths)
     assert "CFFEX.IF99" in combined
@@ -63,6 +73,8 @@ def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> No
     assert "trade_days" in combined
     assert "triple-barrier" in combined
     assert "rank label" in combined
+    assert "18 listed ETF/LOF proxies" in combined
+    assert "Top 3" in combined
     assert "MA80" not in combined
     assert "inverse-vol basket" not in combined.lower()
 
@@ -72,6 +84,7 @@ def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> No
         "csi300_if_xgboost_triple_barrier_performance.png",
         "futures_cross_sectional_reversal_performance.png",
         "futures_xgboost_rank_performance.png",
+        "global_asset_etf_top3_performance.png",
     }
     for path in report_paths:
         if path.name == "README.md":
@@ -82,3 +95,4 @@ def test_strategy_report_set_includes_rule_and_ml_examples(tmp_path: Path) -> No
         assert report.index("## Summary") < report.index("## Performance Chart")
         assert report.index("## Performance Chart") < report.index("## Metrics")
         assert report.index("## Metrics") < report.index("## Notes")
+    assert unrelated.read_text(encoding="utf-8") == "keep"

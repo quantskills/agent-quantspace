@@ -30,11 +30,13 @@ tests/skills/ml/
 tests/skills/report/
 tests/skills/research/
 tests/skills/store/
+tests/skills/strategy/
 ```
 
 There are no `tests/skills/construct/` or `tests/skills/model/` directories;
 portfolio construction is covered under `backtest`, and model helpers are
-covered under `ml`.
+covered under `ml`. Reusable cross-sectional and time-series strategy types are
+covered under `strategy`; concrete behavior remains under `tests/strategies/`.
 
 ## Run
 

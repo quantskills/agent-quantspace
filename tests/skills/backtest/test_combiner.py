@@ -9,7 +9,10 @@ from skills.backtest.combiner import StrategyCombiner
 def test_strategy_combiner_equal_method_averages_returns() -> None:
     idx = pd.date_range("2024-01-01", periods=3)
     combiner = StrategyCombiner(
-        {"a": pd.Series([0.01, 0.02, 0.03], index=idx), "b": pd.Series([0.03, 0.02, 0.01], index=idx)},
+        {
+            "a": pd.Series([0.01, 0.02, 0.03], index=idx),
+            "b": pd.Series([0.03, 0.02, 0.01], index=idx),
+        },
         method="equal",
     )
 

@@ -10,8 +10,10 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from skills.store.workspace import resolve_workspace_paths
+
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "reports"
+DEFAULT_OUTPUT_DIR = resolve_workspace_paths().reports_root
 
 
 def png_to_data_uri(png: bytes | None) -> str:

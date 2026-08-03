@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from strategies.cross_sectional.modular_backtester import ModularBacktester
+from skills.backtest.protocols import CrossSectionalBacktestResult
 
 # ======================================================================
 # Core evaluation function
@@ -44,6 +44,7 @@ def evaluate_exit_factor(
     start_date: str = None,
     end_date: str = None,
     baseline_exits: list = None,
+    backtester_cls=None,
     forward_windows: list = None,
     exposure_policy: str = "keep_cash",
 ) -> dict:
@@ -69,6 +70,9 @@ def evaluate_exit_factor(
     exposure_policy : str, optional
         Exposure policy for exit filters: 'keep_cash', 'renormalize', 'allocate_defensive'
         Default: 'keep_cash'
+    backtester_cls : type
+        Concrete backtester class injected by the strategy layer. It must expose
+        metrics, weights_df, result_df, and run().
 
     Returns
     -------
@@ -85,6 +89,8 @@ def evaluate_exit_factor(
         forward_windows = [1, 3, 5, 10]
     if baseline_exits is None:
         baseline_exits = []
+    if backtester_cls is None:
+        raise ValueError("evaluate_exit_factor requires backtester_cls from the strategy layer")
 
     name = exit_filter.get("name", exit_filter["func"].__name__)
 
@@ -100,6 +106,7 @@ def evaluate_exit_factor(
         start_date,
         end_date,
         exposure_policy=exposure_policy,
+        backtester_cls=backtester_cls,
     )
 
     # --- Run variant (baseline + this exit filter) ---
@@ -115,6 +122,7 @@ def evaluate_exit_factor(
         start_date,
         end_date,
         exposure_policy=exposure_policy,
+        backtester_cls=backtester_cls,
     )
 
     # --- A/B comparison ---
@@ -157,9 +165,12 @@ def _run_backtest_silent(
     start_date,
     end_date,
     exposure_policy="keep_cash",
-) -> ModularBacktester:
-    """Run a ModularBacktester with stdout suppressed."""
-    bt = ModularBacktester(
+    backtester_cls=None,
+) -> CrossSectionalBacktestResult:
+    """Run an injected cross-sectional backtester with stdout suppressed."""
+    if backtester_cls is None:
+        raise ValueError("_run_backtest_silent requires backtester_cls")
+    bt = backtester_cls(
         data=data,
         factor_configs=factor_configs,
         exit_filters=exit_filters,

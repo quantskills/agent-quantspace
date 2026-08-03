@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from skills.ingest import PandaDataClient  # noqa: E402
-from skills.store.data_manager import DataManager  # noqa: E402
+from skills.ingest import PandaDataClient
+from skills.store.data_manager import DataManager
 
 FUTURE_SYMBOLS = [
     "INE.SC99",
@@ -69,7 +63,11 @@ def _normalize_bars(raw: pd.DataFrame) -> pd.DataFrame:
     for column in ["open", "high", "low", "close", "volume"]:
         if column not in frame.columns:
             frame[column] = 0.0
-    return frame.set_index("eob")[["open", "high", "low", "close", "volume"]].sort_index().astype(float)
+    return (
+        frame.set_index("eob")[["open", "high", "low", "close", "volume"]]
+        .sort_index()
+        .astype(float)
+    )
 
 
 def _fetch_symbol(
@@ -87,17 +85,6 @@ def _fetch_symbol(
     if not parts:
         return pd.DataFrame()
     return pd.concat(parts, ignore_index=True)
-
-
-def _write_pool(dm: DataManager, pool_id: str, symbols: list[str], description: str) -> None:
-    path = dm.root / "pools" / f"{pool_id}.json"
-    payload = {
-        "pool_id": pool_id,
-        "description": description,
-        "frequency": "1d",
-        "symbols": symbols,
-    }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def import_strategy_data(
@@ -118,12 +105,7 @@ def import_strategy_data(
         dm.save_symbol(symbol, bars, frequency="1d", source="panda_data_future")
         imported_futures.append(symbol)
         print(f"{symbol}: {len(bars)} rows {bars.index.min().date()} -> {bars.index.max().date()}")
-    _write_pool(
-        dm,
-        "future_trend",
-        imported_futures,
-        "PandaData dominant futures pool for public trend examples",
-    )
+    print(f"Imported {len(imported_futures)} explicit futures symbols")
 
     if not include_indexes:
         return
@@ -137,12 +119,7 @@ def import_strategy_data(
         dm.save_symbol(symbol, bars, frequency="1d", source="panda_data_index")
         imported_indexes.append(symbol)
         print(f"{symbol}: {len(bars)} rows {bars.index.min().date()} -> {bars.index.max().date()}")
-    _write_pool(
-        dm,
-        "index_rotation",
-        imported_indexes,
-        "PandaData broad China index pool for public strategy examples",
-    )
+    print(f"Imported {len(imported_indexes)} explicit index symbols")
 
 
 def main() -> None:

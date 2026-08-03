@@ -15,7 +15,9 @@ example workflow that composes reusable skills into a complete research path.
 ## Boundary
 
 Strategy domains should contain strategy-specific rules, feature sets,
-signal-to-weight mapping, and data contracts. Reusable storage, analysis,
-backtesting, ML, and reporting belongs in `skills/`.
+factor/model choices, and workflows. Reusable strategy contracts,
+cross-sectional/time-series types, and signal-to-weight primitives belong in
+`skills.strategy`; reusable storage, analysis, backtesting, ML, and reporting
+belongs in the other `skills/` packages.
 
 Private strategy domains should live in a separate private repository.

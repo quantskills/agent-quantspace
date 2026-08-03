@@ -1,9 +1,7 @@
-"""Time-series strategy domain public exports."""
+"""Concrete public time-series strategies.
 
-from strategies.time_series.ml import xgboost_triple_barrier_weights
-from strategies.time_series.rules import ma_reversion_atr_stop_weights
+Import concrete rules and ML functions from their defining modules so importing
+the domain package does not eagerly load optional ML dependencies.
+"""
 
-__all__ = [
-    "ma_reversion_atr_stop_weights",
-    "xgboost_triple_barrier_weights",
-]
+__all__: list[str] = []

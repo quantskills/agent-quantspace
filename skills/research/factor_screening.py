@@ -1,4 +1,4 @@
-"""Batch factor screening across all indicators for a pool."""
+"""Batch factor screening across explicit panels and artifact namespaces."""
 
 import logging
 
@@ -39,7 +39,7 @@ def _build_stat_df(close: pd.Series, factor_series: pd.Series) -> pd.DataFrame:
 
 
 def screen_all_indicators(
-    pool: str,
+    namespace: str,
     n: int = 5,
     g: int = 5,
     top_k: int = 0,
@@ -47,12 +47,12 @@ def screen_all_indicators(
     persist: bool = True,
     data: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Run full_stat (silent) for every discoverable indicator on a pool and rank by |IC_IR|.
+    """Run full_stat for every discoverable indicator on explicit panel data.
 
     Parameters
     ----------
-    pool : str
-        Pool ID (e.g. 'macro_asset_pool').
+    namespace : str
+        Artifact namespace used when persisting results.
     n : int
         Holding period for IC calculation.
     g : int
@@ -63,9 +63,9 @@ def screen_all_indicators(
         Subset of indicator names. None = all auto-discovered.
     persist : bool
         If True, call DataManager.save_factor_test() for each indicator so
-        data/factor_test/{pool}/ stays in sync.
+        data/factor_test/{namespace}/ stays in sync.
     data : pd.DataFrame, optional
-        Pre-loaded panel (MultiIndex symbol/eob). If None, loaded via DataManager.
+        Pre-loaded panel (MultiIndex symbol/eob). Required.
 
     Returns
     -------
@@ -79,7 +79,10 @@ def screen_all_indicators(
 
     dm = DataManager()
     if data is None:
-        data = dm.load_pool_data(pool)
+        raise ValueError(
+            "screen_all_indicators requires explicit data. "
+            "Load symbols with DataManager.read_symbols(...) and pass data=panel."
+        )
 
     registry = discover_indicators()
     names = indicator_names or list(registry.keys())
@@ -137,7 +140,7 @@ def screen_all_indicators(
             if persist:
                 try:
                     dm.save_factor_test(
-                        pool_id=pool,
+                        namespace=namespace,
                         factor_id=factor_id,
                         n=n,
                         g=g,
@@ -163,50 +166,43 @@ def screen_all_indicators(
 
 
 def batch_evaluate(
-    pool_ids: list[str] | None = None,
+    namespaces: list[str] | None = None,
     n_list: list[int] | None = None,
     g: int = 5,
     indicator_names: list[str] | None = None,
     persist: bool = True,
-    generate_tearsheets: bool = False,
+    data_by_namespace: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
-    """Run screen_all_indicators across multiple pools and holding periods.
+    """Run factor screens across explicit namespace-to-panel mappings.
 
-    Returns a combined DataFrame with an extra 'pool' column.
+    Returns a combined DataFrame with an extra artifact namespace column.
     """
-    from skills.store.data_manager import DataManager
-
-    dm = DataManager()
-    if pool_ids is None:
-        try:
-            pools_df = dm.list_pools()
-            pool_ids = (
-                pools_df.loc[pools_df.get("frequency", "") == "1d", "pool_id"].tolist()
-                if not pools_df.empty
-                else []
-            )
-        except Exception:
-            pool_ids = []
+    if data_by_namespace is None:
+        raise ValueError(
+            "batch_evaluate requires explicit data_by_namespace. "
+            "Load symbols with DataManager.read_symbols(...) for each namespace first."
+        )
+    if namespaces is None:
+        namespaces = list(data_by_namespace)
     n_list = n_list or [1, 5, 20]
 
     rows: list[pd.DataFrame] = []
-    for pool in pool_ids:
-        try:
-            panel = dm.load_pool_data(pool)
-        except Exception as e:
-            logger.warning("Pool %s load failed, skipping: %s", pool, e)
+    for namespace in namespaces:
+        panel = data_by_namespace.get(namespace)
+        if panel is None:
+            logger.warning("Namespace %s has no explicit data, skipping", namespace)
             continue
         if panel is None or panel.empty:
-            logger.warning("Pool %s empty, skipping", pool)
+            logger.warning("Namespace %s empty, skipping", namespace)
             continue
         n_symbols = panel.index.get_level_values("symbol").nunique()
         if n_symbols < 3:
-            logger.info("Pool %s has %d symbols (<3), skipping", pool, n_symbols)
+            logger.info("Namespace %s has %d symbols (<3), skipping", namespace, n_symbols)
             continue
 
         for n in n_list:
             ranking = screen_all_indicators(
-                pool=pool,
+                namespace=namespace,
                 n=n,
                 g=g,
                 top_k=0,
@@ -215,18 +211,10 @@ def batch_evaluate(
                 data=panel,
             )
             if not ranking.empty:
-                ranking.insert(0, "pool", pool)
+                ranking.insert(0, "namespace", namespace)
                 rows.append(ranking)
 
-            if generate_tearsheets and not ranking.empty:
-                try:
-                    from skills.analyze.tearsheet import generate_pool_summary_report
-
-                    generate_pool_summary_report(pool_id=pool)
-                except Exception as e:
-                    logger.warning("Summary report for %s failed: %s", pool, e)
-
     if not rows:
-        return pd.DataFrame(columns=["pool", *_SUMMARY_COLUMNS])
+        return pd.DataFrame(columns=["namespace", *_SUMMARY_COLUMNS])
     combined = pd.concat(rows, ignore_index=True)
     return combined

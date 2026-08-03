@@ -17,7 +17,9 @@ from typing import Any
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
+from skills.store.workspace import resolve_workspace_paths
+
+ROOT = resolve_workspace_paths().workspace_root
 
 EXPECTED_TICK_COLUMNS = [
     "symbol",

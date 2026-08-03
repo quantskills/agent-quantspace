@@ -15,7 +15,9 @@ def test_split_by_regime_slices_datetime_index() -> None:
 
 
 def test_split_by_regime_requires_date_level_for_multiindex() -> None:
-    index = pd.MultiIndex.from_product([["AAA"], pd.date_range("2024-01-01", periods=2)], names=["symbol", "date"])
+    index = pd.MultiIndex.from_product(
+        [["AAA"], pd.date_range("2024-01-01", periods=2)], names=["symbol", "date"]
+    )
     frame = pd.DataFrame({"x": [1, 2]}, index=index)
 
     with pytest.raises(ValueError, match="date level"):

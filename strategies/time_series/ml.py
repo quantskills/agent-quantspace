@@ -7,6 +7,7 @@ import pandas as pd
 from xgboost import XGBClassifier
 
 from skills.compute.label_maker import TripleBarrierLabelMaker
+from skills.strategy.time_series import signal_to_single_asset_weights
 from strategies.time_series.features import make_price_volume_features
 
 
@@ -46,10 +47,12 @@ def probability_spread_weights(
     weights = pd.Series(0.0, index=index)
     weights[probability_spread > threshold] = 1.0
     weights[probability_spread < -threshold] = -1.0
-    return weights.to_frame(symbol)
+    return signal_to_single_asset_weights(weights, symbol=symbol)
 
 
-def _purged_datetime_train(dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int) -> pd.DataFrame:
+def _purged_datetime_train(
+    dataset: pd.DataFrame, split: pd.Timestamp, purge_window: int
+) -> pd.DataFrame:
     """Training rows whose forward labels are fully before the split date."""
     train_dates = pd.DatetimeIndex(dataset.index[dataset.index < split].unique()).sort_values()
     if purge_window > 0:
@@ -85,7 +88,9 @@ def xgboost_triple_barrier_weights(
     train = _purged_datetime_train(dataset, split, purge_window=label_t_limit)
     test = features[features.index >= split]
     if train.empty or test.empty:
-        raise ValueError("xgboost_triple_barrier_weights requires non-empty train and test datasets.")
+        raise ValueError(
+            "xgboost_triple_barrier_weights requires non-empty train and test datasets."
+        )
 
     label_to_code = {-1: 0, 0: 1, 1: 2}
     encoded_train_label = train["label"].map(label_to_code)

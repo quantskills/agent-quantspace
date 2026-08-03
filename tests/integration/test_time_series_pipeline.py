@@ -6,6 +6,7 @@ import pandas as pd
 
 from skills.backtest import VectorBacktester
 from skills.compute.label_maker import TripleBarrierLabelMaker
+from skills.strategy.time_series import signal_to_single_asset_weights
 
 
 def test_time_series_public_workflow_runs_with_triple_barrier_labels() -> None:
@@ -22,7 +23,7 @@ def test_time_series_public_workflow_runs_with_triple_barrier_labels() -> None:
         index=index,
     )
     labels = TripleBarrierLabelMaker(data=bars, L=3, pt_sl=0.5, t_limit=5).generate_labels()
-    weights = labels["state"].map({1: 1.0, 0: 0.0, -1: -1.0}).to_frame("SHSE.510300")
+    weights = signal_to_single_asset_weights(labels["state"], symbol="SHSE.510300")
     panel = bars.copy()
     panel["symbol"] = "SHSE.510300"
     panel = panel.reset_index().set_index(["symbol", "eob"])
@@ -42,8 +43,8 @@ def test_time_series_public_workflow_runs_with_triple_barrier_labels() -> None:
 def test_time_series_workflow_documents_triple_barrier_only() -> None:
     root = Path(__file__).resolve().parents[2]
     strategy_doc = (root / "strategies/time_series/STRATEGY.md").read_text()
-    demo_script = (root / "scripts/run_time_series_demo.py").read_text()
-    combined = strategy_doc + "\n" + demo_script
+    workflow = (root / "strategies/time_series/workflows/run_demo.py").read_text()
+    combined = strategy_doc + "\n" + workflow
 
     assert "TripleBarrierLabelMaker" in combined
     assert "VectorBacktester" in combined

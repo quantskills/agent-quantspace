@@ -1,11 +1,7 @@
-"""Cross-sectional strategy domain public exports."""
+"""Concrete public cross-sectional strategy behavior.
 
-from strategies.cross_sectional.ml_rank import xgboost_rank_weights
-from strategies.cross_sectional.modular_backtester import ModularBacktester
-from strategies.cross_sectional.rules import ma_gap_reversal_weights
+Import concrete factors, rules, and ML helpers from their defining modules so
+importing this package does not eagerly load optional model dependencies.
+"""
 
-__all__ = [
-    "ModularBacktester",
-    "ma_gap_reversal_weights",
-    "xgboost_rank_weights",
-]
+__all__: list[str] = []

@@ -8,6 +8,7 @@ from skills.backtest.exit_analysis import (
     _compute_forward_returns,
     _compute_trigger_mask,
     _compute_trigger_stats,
+    evaluate_exit_factor,
     summarize_exit_factors,
 )
 
@@ -55,3 +56,13 @@ def test_summarize_exit_factors_builds_metric_table() -> None:
 
     assert table.loc["risk", "dAnnReturn"] == pytest.approx(0.02)
     assert table.loc["risk", "hit_rate"] == pytest.approx(0.25)
+
+
+def test_exit_evaluation_requires_explicit_backtester_injection() -> None:
+    with pytest.raises(ValueError, match="requires backtester_cls"):
+        evaluate_exit_factor(
+            pd.DataFrame(),
+            factor_configs=[],
+            exit_filter={"func": lambda frame: frame},
+            slippage_bp=2.0,
+        )

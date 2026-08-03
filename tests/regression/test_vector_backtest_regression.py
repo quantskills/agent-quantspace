@@ -9,7 +9,9 @@ from tests.fixtures.market_data import make_ohlcv
 
 def test_vector_backtest_known_no_cost_path() -> None:
     bars = make_ohlcv([100.0, 110.0, 121.0], symbol="AAA")
-    weights = pd.DataFrame({"AAA": [1.0, 1.0, 1.0]}, index=pd.date_range("2024-01-01", periods=3, name="eob"))
+    weights = pd.DataFrame(
+        {"AAA": [1.0, 1.0, 1.0]}, index=pd.date_range("2024-01-01", periods=3, name="eob")
+    )
 
     result = VectorBacktester(
         bars,
@@ -25,7 +27,9 @@ def test_vector_backtest_known_no_cost_path() -> None:
 
 def test_vector_backtest_known_cost_path() -> None:
     bars = make_ohlcv([100.0, 110.0, 121.0], symbol="AAA")
-    weights = pd.DataFrame({"AAA": [1.0, 0.0, 1.0]}, index=pd.date_range("2024-01-01", periods=3, name="eob"))
+    weights = pd.DataFrame(
+        {"AAA": [1.0, 0.0, 1.0]}, index=pd.date_range("2024-01-01", periods=3, name="eob")
+    )
 
     result = VectorBacktester(
         bars,

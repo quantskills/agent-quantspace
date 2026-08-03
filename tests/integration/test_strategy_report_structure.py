@@ -5,13 +5,16 @@ from pathlib import Path
 from scripts.run_strategy_reports import generate_reports
 
 
-def test_generated_strategy_reports_have_markdown_and_png_artifacts(tmp_path: Path) -> None:
+def test_generated_strategy_reports_have_markdown_and_png_artifacts(
+    tmp_path: Path,
+    strategy_report_data_root: Path,
+) -> None:
     output_dir = tmp_path / "reports"
 
-    paths = generate_reports(report_dir=output_dir)
+    paths = generate_reports(data_root=strategy_report_data_root, report_dir=output_dir)
 
     report_paths = [path for path in paths if path.name != "README.md"]
-    assert len(report_paths) == 4
+    assert len(report_paths) == 5
     for report_path in report_paths:
         image_path = output_dir / f"{report_path.stem}_performance.png"
         text = report_path.read_text(encoding="utf-8")

@@ -16,21 +16,21 @@ A single-instrument time-series rule example that holds CFFEX CSI 300 index futu
 
 | Metric | Value |
 |---|---:|
-| `2024_return` | 0.2208 |
-| `2025_return` | 0.3632 |
-| `2026_return` | 0.0258 |
-| `active_day_ratio` | 0.1392 |
-| `ann_return` | 0.2449 |
-| `ann_volatility` | 0.1658 |
-| `avg_daily_turnover` | 0.1392 |
-| `calmar_ratio` | 1.6491 |
-| `max_drawdown` | 0.1485 |
-| `month_num` | 29.3022 |
-| `sharpe_ratio` | 1.4765 |
-| `sortino_ratio` | 3.1570 |
-| `total_return` | 0.7071 |
-| `total_transaction_cost` | 0.0328 |
-| `trade_days` | 82.0000 |
+| `2024_return` | 0.1980 |
+| `2025_return` | 0.3542 |
+| `2026_return` | 0.0156 |
+| `active_day_ratio` | 0.1336 |
+| `ann_return` | 0.2289 |
+| `ann_volatility` | 0.1675 |
+| `avg_daily_turnover` | 0.1336 |
+| `calmar_ratio` | 1.4040 |
+| `max_drawdown` | 0.1631 |
+| `month_num` | 29.0688 |
+| `sharpe_ratio` | 1.3671 |
+| `sortino_ratio` | 2.8712 |
+| `total_return` | 0.6477 |
+| `total_transaction_cost` | 0.0312 |
+| `trade_days` | 78.0000 |
 
 ## Notes
 
@@ -45,8 +45,8 @@ A single-instrument time-series rule example that holds CFFEX CSI 300 index futu
 
 | Date | return | raw_return | cum_return | drawdown | turnover |
 |---|---:|---:|---:|---:|---:|
-| 2026-06-05 | -0.0004 | 0.0000 | 0.6766 | -0.0453 | 1.0000 |
-| 2026-06-08 | 0.0126 | 0.0130 | 0.6977 | -0.0332 | 1.0000 |
-| 2026-06-09 | -0.0047 | -0.0047 | 0.6898 | -0.0377 | 0.0000 |
-| 2026-06-10 | -0.0059 | -0.0059 | 0.6798 | -0.0434 | 0.0000 |
-| 2026-06-11 | 0.0163 | 0.0163 | 0.7071 | -0.0279 | 0.0000 |
+| 2026-05-29 | -0.0076 | -0.0076 | 0.6595 | -0.0380 | 0.0000 |
+| 2026-06-01 | 0.0141 | 0.0141 | 0.6828 | -0.0245 | 0.0000 |
+| 2026-06-02 | 0.0072 | 0.0072 | 0.6949 | -0.0175 | 0.0000 |
+| 2026-06-03 | -0.0087 | -0.0087 | 0.6801 | -0.0260 | 0.0000 |
+| 2026-06-04 | -0.0193 | -0.0193 | 0.6477 | -0.0449 | 0.0000 |

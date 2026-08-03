@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
-from skills.research.factor_screening import _build_stat_df, screen_all_indicators
+from skills.research.factor_screening import _build_stat_df, batch_evaluate, screen_all_indicators
 from tests.fixtures.market_data import make_panel
 
 
@@ -38,7 +39,7 @@ def test_screen_all_indicators_ranks_by_absolute_ic_ir(monkeypatch) -> None:
     monkeypatch.setattr("skills.analyze.factor_analysis.full_stat", fake_full_stat)
 
     ranking = screen_all_indicators(
-        pool="demo",
+        namespace="demo",
         n=1,
         g=2,
         top_k=1,
@@ -48,3 +49,32 @@ def test_screen_all_indicators_ranks_by_absolute_ic_ir(monkeypatch) -> None:
 
     assert ranking.loc[0, "indicator"] == "strong"
     assert ranking.loc[0, "IC_IR"] == -5.0
+
+
+def test_screen_all_indicators_requires_explicit_data() -> None:
+    with pytest.raises(ValueError, match="explicit data"):
+        screen_all_indicators(namespace="artifact_namespace", persist=False)
+
+
+def test_batch_evaluate_uses_explicit_namespace_mapping(monkeypatch) -> None:
+    panel = make_panel(symbols=("AAA", "BBB", "CCC"), periods=8)
+
+    def fake_screen_all_indicators(**kwargs):
+        assert kwargs["namespace"] == "macro_weekly"
+        assert kwargs["data"] is panel
+        return pd.DataFrame({"indicator": ["roc"], "IC_IR": [0.8]})
+
+    monkeypatch.setattr(
+        "skills.research.factor_screening.screen_all_indicators",
+        fake_screen_all_indicators,
+    )
+
+    result = batch_evaluate(
+        namespaces=["macro_weekly"],
+        n_list=[5],
+        persist=False,
+        data_by_namespace={"macro_weekly": panel},
+    )
+
+    assert result.loc[0, "namespace"] == "macro_weekly"
+    assert result.loc[0, "indicator"] == "roc"

@@ -7,23 +7,28 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "pandas",
-    "matplotlib",
     "scipy",
-    "scikit-learn",
     "statsmodels",
     "pyarrow",
-    "seaborn",
-    "xgboost>=3.2.0",
-    "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
+analyze = [
+    "joblib",
+    "matplotlib",
+    "seaborn",
+]
 query = [
     "duckdb",
 ]
 ml = [
+    "scikit-learn",
     "xgboost>=3.2.0",
     "pycaret>=3.1.0",
+]
+report = [
+    "jinja2>=3.1.0",
+    "matplotlib",
 ]
 ts = ["tsfresh", "joblib"]
 panda_data = ["panda_data>=0.0.12", "requests>=2.32.0"]
@@ -80,9 +85,15 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "jinja2>=3.1.0",
+    "joblib",
+    "matplotlib",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "ruff>=0.15.7",
+    "scikit-learn",
+    "seaborn",
+    "xgboost>=3.2.0",
 ]
 lesson = [
     "ipykernel==6.30.1",

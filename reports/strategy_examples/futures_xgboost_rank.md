@@ -16,25 +16,25 @@ A real-data cross-sectional ML example. XGBoost predicts each future's forward-r
 
 | Metric | Value |
 |---|---:|
-| `2024_return` | 0.1866 |
-| `2025_return` | 0.4572 |
-| `2026_return` | 0.0419 |
+| `2024_return` | 0.2089 |
+| `2025_return` | 0.5439 |
+| `2026_return` | 0.1005 |
 | `active_day_ratio` | 1.0000 |
-| `ann_return` | 0.2726 |
-| `ann_volatility` | 0.1530 |
-| `avg_daily_turnover` | 0.2514 |
-| `calmar_ratio` | 2.1069 |
-| `max_drawdown` | 0.1294 |
-| `month_num` | 29.3022 |
-| `sharpe_ratio` | 1.7816 |
-| `sortino_ratio` | 2.8499 |
-| `total_return` | 0.8015 |
-| `total_transaction_cost` | 0.0592 |
-| `trade_days` | 589.0000 |
+| `ann_return` | 0.3460 |
+| `ann_volatility` | 0.1743 |
+| `avg_daily_turnover` | 0.1986 |
+| `calmar_ratio` | 2.3685 |
+| `max_drawdown` | 0.1461 |
+| `month_num` | 29.0688 |
+| `sharpe_ratio` | 1.9847 |
+| `sortino_ratio` | 3.0541 |
+| `total_return` | 1.0539 |
+| `total_transaction_cost` | 0.0464 |
+| `trade_days` | 584.0000 |
 
 ## Notes
 
-- Label is the percentile rank of 60-day forward return within the real futures pool.
+- Label is the percentile rank of 60-day forward return within the real futures universe.
 - Features are generic public momentum, volatility, trend, and mean-reversion factors.
 - Training uses rows before 2024-01-01; reports show the held-out period.
 - Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.
@@ -43,8 +43,8 @@ A real-data cross-sectional ML example. XGBoost predicts each future's forward-r
 
 | Date | return | raw_return | cum_return | drawdown | turnover |
 |---|---:|---:|---:|---:|---:|
-| 2026-06-05 | -0.0246 | -0.0246 | 0.7855 | -0.0976 | 0.0020 |
-| 2026-06-08 | 0.0074 | 0.0075 | 0.7988 | -0.0908 | 0.0040 |
-| 2026-06-09 | -0.0153 | -0.0153 | 0.7712 | -0.1048 | 0.0001 |
-| 2026-06-10 | 0.0025 | 0.0031 | 0.7756 | -0.1026 | 1.5541 |
-| 2026-06-11 | 0.0146 | 0.0146 | 0.8015 | -0.0895 | 0.0041 |
+| 2026-05-29 | 0.0074 | 0.0074 | 1.1194 | -0.1189 | 0.0084 |
+| 2026-06-01 | 0.0109 | 0.0115 | 1.1426 | -0.1092 | 1.3329 |
+| 2026-06-02 | -0.0183 | -0.0183 | 1.1033 | -0.1255 | 0.0046 |
+| 2026-06-03 | -0.0166 | -0.0161 | 1.0684 | -0.1401 | 1.3376 |
+| 2026-06-04 | -0.0070 | -0.0065 | 1.0539 | -0.1461 | 1.3385 |

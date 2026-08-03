@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from skills.backtest.weighting import risk_parity
+from skills.strategy.cross_sectional import top_n_weights
 
 
 def ma_gap_reversal_score(close: pd.DataFrame, symbols: list[str], lookback: int) -> pd.DataFrame:
@@ -35,8 +36,7 @@ def ma_gap_reversal_weights(
         raise ValueError("rebalance_days must be positive.")
 
     score = ma_gap_reversal_score(close, symbols, lookback=lookback)
-    ranks = score.rank(axis=1, ascending=False, method="first")
-    votes = ranks.le(top_n).astype(float).where(score.notna(), 0.0)
+    votes = top_n_weights(score, top_n=top_n).gt(0.0).astype(float)
     returns = close[symbols].pct_change(fill_method=None)
     weights = risk_parity(
         votes,

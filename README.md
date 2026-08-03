@@ -20,7 +20,8 @@ AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 l
 
 QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
 并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
-回测，再把绩效图表和 Markdown 报告沉淀下来。`backtest` 进行回测和组合构建，`ml` skill 进行机器学习训练和预测。
+回测，再把绩效图表和 Markdown 报告沉淀下来。`strategy` 提供横截面与时序策略的通用
+类型和目标权重原语，`backtest` 负责统一执行与组合构建，`ml` 负责机器学习训练和预测。
 目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在一次性的脚本里。
 
 ## 架构总览
@@ -35,8 +36,11 @@ flowchart TD
         ingest["ingest<br/>获取数据"] --> store["store<br/>Parquet/DuckDB"]
         store --> compute["compute<br/>指标/因子运算"]
         compute --> analyze["analyze<br/>因子绩效分析"]
-        analyze --> ml["ml<br/>ML训练/预测"]
-        ml --> backtest["backtest<br/>向量化回测·组合"]
+        analyze --> research["research<br/>筛选/参数扫描"]
+        research --> ml["ml<br/>ML训练/预测"]
+        compute --> strategy["strategy<br/>通用策略类型·目标权重"]
+        ml --> strategy
+        strategy --> backtest["backtest<br/>向量化回测·组合"]
         backtest --> report["report<br/>HTML/MD 报告·图表"]
     end
     report --> out["可运行 / 可测试 / 可复用的研究代码"]
@@ -54,15 +58,17 @@ quantspace/
     ingest/               获取数据：默认 PandaData 客户端和符号转换
     store/                本地 Parquet 存储、DuckDB 查询和产物管理
     compute/              指标、标签、工具、generic 因子示例
+    strategy/             通用策略契约、横截面/时序类型与目标权重 helper
     analyze/              因子分析、指标、归因、tearsheet
     backtest/             向量化执行、权重、过滤器、成本
     ml/                   ML 辅助模块和可选模型引擎
+    research/             因子筛选和参数扫描
     report/               HTML/Markdown 报告渲染和图表工具
   strategies/
     cross_sectional/      横截面策略
     time_series/          单品种时间序列策略
   scripts/                样本数据、demo、PandaData 导入脚本
-  data/                   本地数据根目录；只提交 sample pool
+  data/                   本地数据根目录；行情和研究产物默认不提交
   reports/                本地生成报告目录
   tests/                  公开 pytest 测试
 ```
@@ -74,11 +80,13 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | Skill | 主要导入 | 用途 |
 |---|---|---|
 | `ingest` | `from skills.ingest import PandaDataClient` | 获取数据、默认 PandaData 接入、符号转换 |
-| `store` | `from skills.store.data_manager import DataManager` | 市场数据、pool、因子、回测、元数据 |
+| `store` | `from skills.store.data_manager import DataManager` | 市场数据、因子、回测、模型元数据 |
 | `compute` | `from skills.compute.indicators import trend_score` | 指标、标签、工具、generic 因子示例 |
+| `strategy` | `from skills.strategy import StrategyResult` | 通用策略契约、横截面/时序类型与目标权重 helper |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
+| `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。当前没有单独的公开 `construct` 或
@@ -96,9 +104,9 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 ```bash
 cp .env.example .env # 设置 PANDA_DATA_USERNAME 和 PANDA_DATA_PASSWORD
 uv sync
-uv run python scripts/generate_sample_data.py
-uv run python scripts/run_cross_sectional_demo.py
-uv run python scripts/run_time_series_demo.py
+uv run python -m scripts.generate_sample_data
+uv run python -m strategies.cross_sectional.workflows.run_demo
+uv run python -m strategies.time_series.workflows.run_demo
 uv run python -m pytest tests/
 ```
 
@@ -109,8 +117,10 @@ fixture 数据是合成 OHLCV，结果可复现，也可以随时重新生成。
 
 ```bash
 uv sync --extra panda_data  # PandaData SDK
+uv sync --extra analyze     # 绘图、时序诊断和并行分析
 uv sync --extra ml          # 可选 PyCaret ML 辅助模块
 uv sync --extra query       # 可选 DuckDB 查询能力
+uv sync --extra report      # Jinja2 与报告图表
 ```
 
 ## PandaData 设置
@@ -132,7 +142,7 @@ PANDA_DATA_PASSWORD=your-password
 然后试一次小规模导入：
 
 ```bash
-uv run python scripts/import_panda_data_demo.py \
+uv run python -m scripts.import_panda_data_demo \
   --symbol SHSE.600000 \
   --start-date 20230101 \
   --end-date 20231231
@@ -179,25 +189,26 @@ data/market/{frequency}/{symbol}.parquet
 open, high, low, close, volume
 ```
 
-Pool 定义放在 `data/pools/`：
+品种集合由策略或调用方显式持有，并通过 `read_symbols` 读取：
 
-```json
-{
-  "pool_id": "sample_etf_rotation",
-  "description": "ETF-style pool for public examples",
-  "frequency": "1d",
-  "symbols": ["SHSE.510300", "SHSE.510500"]
-}
+```python
+from skills.store.data_manager import DataManager
+
+panel = DataManager().read_symbols(
+    ["SHSE.510300", "SHSE.510500"],
+    frequency="1d",
+)
 ```
 
-`DataManager.load_pool_data(pool_id)` 会返回 MultiIndex 为 `(symbol, eob)` 的 panel。
+返回 panel 的 MultiIndex 为 `(symbol, eob)`。因子、回测和模型目录下的第一层名称只是
+调用方提供的 artifact namespace，不是由 `DataManager` 维护的品种池。
 
 如果希望把数据放到仓库之外，可以设置 `QUANTSPACE_DATA_ROOT`，代码入口保持不变。
 
 ## 策略示例
 
-示例展示的是推荐工作方式：脚本只做编排，公共能力放在 `skills/`，策略域逻辑放在
-`strategies/`。
+示例展示的是推荐工作方式：通用策略类型放在 `skills.strategy`，具体 factors、features、
+rules、ML 权重函数与 workflow 放在 `strategies/`，统一执行交给 `VectorBacktester`。
 
 ### 横截面轮动
 
@@ -210,11 +221,11 @@ panel OHLCV -> generic factors -> top-percent selection -> execution -> metrics
 运行：
 
 ```bash
-uv run python scripts/run_cross_sectional_demo.py
+uv run python -m strategies.cross_sectional.workflows.run_demo
 ```
 
-这个示例通过 `strategies.cross_sectional.ModularBacktester` 组合简单动量和低波动因子，
-数据来自配置好的 sample pool 对应的 `data/market/1d/` 日线 Parquet。
+这个示例通过 `skills.strategy.cross_sectional.ModularBacktester` 组合简单动量和低波动因子，
+数据来自 demo 显式品种列表对应的 `data/market/1d/` 日线 Parquet。
 
 ### Time-Series ML
 
@@ -227,25 +238,27 @@ raw OHLCV bars -> feature engineering -> triple-barrier labels -> model -> backt
 运行：
 
 ```bash
-uv run python scripts/run_time_series_demo.py
+uv run python -m strategies.time_series.workflows.run_demo
 ```
 
 这个示例使用 `strategies.time_series.features.make_price_volume_features`、
-`TripleBarrierLabelMaker`、一个小型 scikit-learn 分类器、date × symbol 权重矩阵和
+`TripleBarrierLabelMaker`、一个小型 scikit-learn 分类器、
+`skills.strategy.time_series.signal_to_single_asset_weights`、date × symbol 权重矩阵和
 `skills.backtest.VectorBacktester`，数据来自已有单品种日线 Parquet。
 
 ### 示例策略报告
 
 ```bash
-uv run python scripts/run_strategy_reports.py
+uv run python -m scripts.run_strategy_reports
 ```
 
 这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet，并在
-`reports/strategy_examples/` 下写出 4 份公开策略报告和绩效图。横截面和时序两个策略族
-各有一个规则类示例和一个 XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
+`reports/strategy_examples/` 下写出 5 份公开策略报告和绩效图。横截面策略族包含期货规则、
+期货 XGBoost 排序和 18 类资产 ETF/LOF Top 3 轮动，时序策略族包含一个规则类示例和一个
+XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
 向量化执行、组合权重、ML helper 和报告渲染放在 `skills/`。
 
-下面是脚本生成的 4 份公开示例绩效图（基于真实历史行情回测，**仅用于演示框架能力，不代表未来收益，也不构成任何投资建议**）：
+下面是脚本生成的 5 份公开示例绩效图（基于真实历史行情回测，**仅用于演示框架能力，不代表未来收益，也不构成任何投资建议**）：
 
 <table>
 <tr>
@@ -268,6 +281,12 @@ uv run python scripts/run_strategy_reports.py
 <sub><b>期货 XGBoost 排序</b><br/>ML / 横截面 · 示例区间 2024 +18.7% · 2025 +45.7%</sub>
 </td>
 </tr>
+<tr>
+<td colspan="2" align="center">
+<img src="reports/strategy_examples/global_asset_etf_top3_performance.png" width="50%"><br>
+<sub><b>全球大类资产 ETF/LOF Top 3 动量轮动</b><br/>规则 / 横截面 · 18 个公开资产代理 · 示例累计 +32.1%</sub>
+</td>
+</tr>
 </table>
 
 > 上述区间收益来自 `reports/strategy_examples/` 下的公开示例报告，基于历史行情回测，受数据窗口、参数与样本范围影响，**不构成收益承诺或投资建议**。完整指标见对应的 `*.md` 报告。
@@ -288,7 +307,7 @@ uv run python -m pytest tests/
 
 发布前还应执行 release safety scan，检查私有路径、凭证、私有策略名称和已经移除的
 研究型模块是否误入仓库。生成的数据和私有研究报告应留在本地；开源仓库中只保留代码、
-文档、测试、sample pool 定义、小型模板，以及 `reports/strategy_examples/` 下经过脱敏
+文档、测试、小型模板，以及 `reports/strategy_examples/` 下经过脱敏
 的公开示例报告。
 
 ## 数据来源与假设

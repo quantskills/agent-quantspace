@@ -19,8 +19,8 @@ raw OHLCV bars -> features/rules/public labels -> weights -> VectorBacktester
 | Labels | `skills.compute.label_maker` | `from skills.compute.label_maker import TripleBarrierLabelMaker` |
 | Rule weights | `strategies.time_series.rules` | `from strategies.time_series.rules import ma_reversion_atr_stop_weights` |
 | ML weights | `strategies.time_series.ml` | `from strategies.time_series.ml import xgboost_triple_barrier_weights` |
+| Signal to weights | `skills.strategy.time_series` | `from skills.strategy.time_series import signal_to_single_asset_weights` |
 | Backtest | `skills.backtest` | `from skills.backtest import VectorBacktester` |
-| Live signal | `strategies.time_series.signal_engine` | `from strategies.time_series.signal_engine import SignalEngine` |
 
 ## Typical Workflow
 
@@ -49,4 +49,6 @@ result = VectorBacktester(
 - Public time-series labels use `TripleBarrierLabelMaker` from `skills.compute`.
 - Strategy-specific code maps features, rules, and model outputs to target weights.
 - Return accounting and metrics use `skills.backtest.VectorBacktester`.
+- `skills.strategy.time_series.TimeSeriesBacktester` is a research-only adapter
+  backed by `VectorBacktester`; formal public results use explicit target weights.
 - Private label experiments are outside the open-source boundary.
