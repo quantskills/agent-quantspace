@@ -481,7 +481,12 @@ def rsrs_norm(group: pd.DataFrame, N: int = 18, M: int = 200):
 
 def trend_score(group: pd.DataFrame, period: int = 25):
     """
-    计算 trend_score 趋势评分因子
+    计算无量纲 trend_score 趋势评分因子。
+
+    在滚动窗口内对对数收盘价做线性回归，将年化对数价格斜率与
+    回归 R 平方相乘：
+
+        trend_score = 252 * slope(log(close)) * R^2
 
     Parameters
     ----------
@@ -493,39 +498,36 @@ def trend_score(group: pd.DataFrame, period: int = 25):
     Returns
     -------
     pd.Series
-        trend_score 因子序列
+        trend_score 因子序列，前 period - 1 位为 NaN
     """
-    close_prices = group["close"]
+    if period <= 1:
+        raise ValueError("period must be greater than 1")
 
-    # 创建时间序列作为x轴
-    x = np.arange(period)
-    # 预计算以提高效率
-    std_x = np.std(x)
-
-    if std_x == 0:  # 避免除零
-        return pd.Series(np.nan, index=group.index)
+    close = group["close"].astype(float)
+    log_close = np.log(close.where(close > 0.0))
+    x = np.arange(period, dtype=float)
+    x -= x.mean()
+    denominator = float(np.dot(x, x))
 
     def rolling_trend(y: np.ndarray) -> float:
-        """为单个窗口计算趋势"""
         if np.isnan(y).any():
             return np.nan
 
-        # 计算相关性和斜率
-        r = np.corrcoef(x, y)[0, 1]
-        if np.isnan(r):
+        centered_y = y - y.mean()
+        total_variation = float(np.dot(centered_y, centered_y))
+        if total_variation <= 0.0:
             return np.nan
 
-        std_y = np.std(y)
-        slope = r * (std_y / std_x)
+        slope = float(np.dot(x, centered_y) / denominator)
+        fitted = slope * x
+        r_squared = float(np.dot(fitted, fitted) / total_variation)
+        r_squared = min(max(r_squared, 0.0), 1.0)
+        return slope * 252.0 * r_squared
 
-        return slope * (r**2)
-
-    # 使用滚动应用函数
-    trend_scores = close_prices.rolling(window=period).apply(rolling_trend, raw=True)
-
-    # 标准化处理
-    standardization_window = 2 * period
-    return rolling_zscore(trend_scores, standardization_window, period)
+    return log_close.rolling(window=period, min_periods=period).apply(
+        rolling_trend,
+        raw=True,
+    )
 
 
 def trend_score_v2(group: pd.DataFrame, period: int = 25):

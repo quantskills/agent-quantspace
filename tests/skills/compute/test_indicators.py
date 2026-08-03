@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from skills.compute import indicators
@@ -36,3 +37,32 @@ def test_discover_indicators_includes_public_callables() -> None:
     assert "roc" in registry
     assert "ma" in registry
     assert callable(registry["trend_score"])
+
+
+def test_trend_score_is_annualized_log_slope_times_r_squared() -> None:
+    daily_log_slope = 0.001
+    close = np.exp(daily_log_slope * np.arange(30))
+    bars = make_ohlcv(close.tolist())
+
+    score = indicators.trend_score(bars, period=25)
+
+    assert score.iloc[:24].isna().all()
+    assert score.iloc[-1] == pytest.approx(daily_log_slope * 252.0)
+
+
+def test_trend_score_is_invariant_to_price_scale() -> None:
+    close = np.exp(0.001 * np.arange(30))
+    bars = make_ohlcv(close.tolist())
+    scaled_bars = make_ohlcv((close * 100.0).tolist())
+
+    score = indicators.trend_score(bars, period=25)
+    scaled_score = indicators.trend_score(scaled_bars, period=25)
+
+    assert scaled_score.iloc[-1] == pytest.approx(score.iloc[-1])
+
+
+def test_trend_score_validates_period() -> None:
+    bars = make_ohlcv([10.0, 11.0, 12.0])
+
+    with pytest.raises(ValueError, match="greater than 1"):
+        indicators.trend_score(bars, period=1)
