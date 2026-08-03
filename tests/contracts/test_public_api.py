@@ -12,8 +12,6 @@ PUBLIC_MODULES = [
     "skills.store.data_manager",
     "skills.compute.label_maker",
     "skills.compute.indicators",
-    "skills.compute.cs_factor_examples",
-    "skills.compute.ts_factor_examples",
     "skills.backtest",
     "skills.backtest.cost_model",
     "skills.backtest.exit_analysis",
@@ -51,9 +49,19 @@ def test_ingest_public_api() -> None:
     assert to_quantspace_symbol("510300.SH") == "SHSE.510300"
 
 
-def test_compute_time_series_feature_modules_are_not_public() -> None:
-    assert importlib.util.find_spec("skills.compute.ts_features") is None
-    assert importlib.util.find_spec("skills.compute.ts_features_base") is None
+def test_removed_compute_modules_are_not_importable() -> None:
+    removed_modules = [
+        "skills.compute.cs_factor_examples",
+        "skills.compute.ts_factor_examples",
+        "skills.compute.ts_features",
+        "skills.compute.ts_features_base",
+        "skills.compute." + "j" + "q_etf_cs_library",
+        "skills.compute." + "j" + "q_ts_library",
+    ]
+    for module in removed_modules:
+        assert importlib.util.find_spec(module) is None
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)
 
 
 def test_removed_skill_boundaries_are_not_importable() -> None:

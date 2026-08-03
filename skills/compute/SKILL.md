@@ -70,11 +70,6 @@ from skills.compute.indicators import trend_score_v2
 
 **Contract for `func`**: first argument is a single-symbol `DataFrame` indexed by `eob` with OHLCV columns as required.
 
-### Generic factor examples
-
-- **`skills.compute.ts_factor_examples`**: four single-symbol examples: momentum, volatility, trend slope, mean-reversion z-score.
-- **`skills.compute.cs_factor_examples`**: four panel examples with MultiIndex `(symbol, eob)`: momentum score, volatility score, trend score, mean-reversion score.
-
 ### Exit / risk filters (cross-sectional package)
 
 ```python
@@ -106,14 +101,14 @@ roc_df = f2.cal_df(data)
 **2. Direct single-symbol call**  
 Slice one symbol, index by `eob` → `roc(sym_df, period=20)`.
 
-**3. Generic time-series example via wrapper**
+**3. Apply a single-symbol indicator to a panel**
 
 ```python
-from skills.compute.ts_factor_examples import ts_momentum
+from skills.compute.indicators import trend_score
 from skills.compute.wrappers import Factor
 
-ja = Factor(ts_momentum, lookback=60)
-s = ja.calculate(panel)
+factor = Factor(trend_score, period=25)
+scores = factor.calculate(panel)
 ```
 
 **4. Exit filter in a backtest**  
@@ -132,4 +127,4 @@ Public supervised-learning labels:
 
 ## Factor categories (illustrative)
 
-Momentum/trend, volume, mean reversion, generic factor examples, exit filters (`strategies.cross_sectional.exits`), and label makers.
+Momentum/trend, volume, mean reversion, exit filters (`strategies.cross_sectional.exits`), and label makers.
