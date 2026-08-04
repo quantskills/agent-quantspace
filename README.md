@@ -85,7 +85,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `strategy` | `from skills.strategy import StrategyResult` | 通用策略契约、选取类型与横截面/时序目标权重 helper |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
-| `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
+| `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
