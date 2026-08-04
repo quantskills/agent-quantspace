@@ -57,20 +57,20 @@ quantspace/
   skills/                 可复用能力
     ingest/               获取数据：默认 PandaData 客户端和符号转换
     store/                本地 Parquet 存储、DuckDB 查询和产物管理
-    compute/              指标、标签、工具、generic 因子示例
-    strategy/             通用策略契约、横截面/时序类型与目标权重 helper
+    compute/              策略无关的指标、标签、工具与 Factor wrapper
+    strategy/             通用策略契约、选取类型与目标权重 helper
     analyze/              因子分析、指标、归因、tearsheet
     backtest/             向量化执行、权重、过滤器、成本
     ml/                   ML 辅助模块和可选模型引擎
     research/             因子筛选和参数扫描
     report/               HTML/Markdown 报告渲染和图表工具
   strategies/
-    cross_sectional/      横截面策略
-    time_series/          单品种时间序列策略
-  scripts/                样本数据、demo、PandaData 导入脚本
+    cross_sectional/      具体横截面 factors、rules、ML 与 workflows
+    time_series/          具体时序 features、rules、ML 与 workflows
+  scripts/                全局数据导入、报告和维护入口
   data/                   本地数据根目录；行情和研究产物默认不提交
-  reports/                本地生成报告目录
-  tests/                  公开 pytest 测试
+  reports/                本地生成报告目录；strategy_examples/ 是公开产物例外
+  tests/                  按 skills、strategies、scripts 与契约边界组织的公开测试
 ```
 
 ## 公开 Skills
@@ -81,16 +81,16 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 |---|---|---|
 | `ingest` | `from skills.ingest import PandaDataClient` | 获取数据、默认 PandaData 接入、符号转换 |
 | `store` | `from skills.store.data_manager import DataManager` | 市场数据、因子、回测、模型元数据 |
-| `compute` | `from skills.compute.indicators import trend_score` | 指标、标签、工具、generic 因子示例 |
-| `strategy` | `from skills.strategy import StrategyResult` | 通用策略契约、横截面/时序类型与目标权重 helper |
+| `compute` | `from skills.compute.indicators import trend_score` | 策略无关的 OHLCV 指标、标签、工具与 `Factor` wrapper |
+| `strategy` | `from skills.strategy import StrategyResult` | 通用策略契约、选取类型与横截面/时序目标权重 helper |
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理、ML 因子和稀疏 LASSO 拟合 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
 
-每个 skill 目录都有自己的 `SKILL.md` 使用说明。当前没有单独的公开 `construct` 或
-`model` skill：组合构建归入 `backtest`，模型相关 helper 归入 `ml`。
+每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
+target-weight 原语；具体因子、特征、规则、模型行为和 workflow 放在 `strategies/`。
 
 ## 快速开始
 
@@ -102,7 +102,6 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 安装默认环境，生成一份确定性 fixture 数据，然后运行 demo：
 
 ```bash
-cp .env.example .env # 设置 PANDA_DATA_USERNAME 和 PANDA_DATA_PASSWORD
 uv sync
 uv run python -m scripts.generate_sample_data
 uv run python -m strategies.cross_sectional.workflows.run_demo
@@ -110,8 +109,8 @@ uv run python -m strategies.time_series.workflows.run_demo
 uv run python -m pytest tests/
 ```
 
-fixture 数据是合成 OHLCV，结果可复现，也可以随时重新生成。它会写入 `data/market/`；
-真实研究时，用 PandaData 或其他遵循同一数据模型的 adapter 导入日线 Parquet 即可。
+fixture 数据是合成 OHLCV，不需要 PandaData 凭据，结果可复现，也可以随时重新生成。它会写入
+`data/market/`；真实研究时，用 PandaData 或其他遵循同一数据模型的 adapter 导入日线 Parquet 即可。
 
 可选 extras：
 
@@ -176,11 +175,17 @@ bars = client.get_fund_daily(
 
 ## 数据模型
 
-数据模型保持简单明确，方便 AI 生成的策略代码稳定复用。市场数据按单 symbol 存成
-Parquet：
+数据模型保持简单明确，方便 AI 生成的策略代码稳定复用。默认布局如下：
 
 ```text
-data/market/{frequency}/{symbol}.parquet
+data/
+  market/{frequency}/{symbol}.parquet
+  adj_factor/{symbol}.parquet
+  factors/{namespace}/
+  factor_test/{namespace}/
+  correlation/{namespace}/
+  backtest/{namespace}/
+  models/{namespace}/
 ```
 
 每个 OHLCV frame 以 `eob` 为索引，列为：
@@ -203,7 +208,9 @@ panel = DataManager().read_symbols(
 返回 panel 的 MultiIndex 为 `(symbol, eob)`。因子、回测和模型目录下的第一层名称只是
 调用方提供的 artifact namespace，不是由 `DataManager` 维护的品种池。
 
-如果希望把数据放到仓库之外，可以设置 `QUANTSPACE_DATA_ROOT`，代码入口保持不变。
+`DataManager` 使用 `QUANTSPACE_DATA_ROOT`（默认 `data/`）；报告使用
+`QUANTSPACE_REPORTS_ROOT`（默认 `reports/`）。需要在仓库外运行整个工作区时，还可以设置
+`QUANTSPACE_WORKSPACE_ROOT`。三个路径都由 `resolve_workspace_paths()` 统一解析。
 
 ## 策略示例
 
@@ -215,7 +222,7 @@ rules、ML 权重函数与 workflow 放在 `strategies/`，统一执行交给 `V
 流程：
 
 ```text
-panel OHLCV -> generic factors -> top-percent selection -> execution -> metrics
+panel OHLCV -> concrete factors/rules -> target weights -> VectorBacktester -> metrics
 ```
 
 运行：
@@ -252,11 +259,12 @@ uv run python -m strategies.time_series.workflows.run_demo
 uv run python -m scripts.run_strategy_reports
 ```
 
-这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet，并在
-`reports/strategy_examples/` 下写出 5 份公开策略报告和绩效图。横截面策略族包含期货规则、
+这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet；可用
+`--data-root` 指向另一份本地数据，并在解析后的 reports root 的 `strategy_examples/` 下写出
+5 份公开策略报告和绩效图。横截面策略族包含期货规则、
 期货 XGBoost 排序和 18 类资产 ETF/LOF Top 3 轮动，时序策略族包含一个规则类示例和一个
-XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
-向量化执行、组合权重、ML helper 和报告渲染放在 `skills/`。
+XGBoost 示例。策略逻辑放在 `strategies/`；通用选取和 target-weight 类型位于
+`skills.strategy`；存储、向量化执行、回测指标、ML helper 和报告渲染位于其他 `skills/`。
 
 下面是脚本生成的 5 份公开示例绩效图（基于真实历史行情回测，**仅用于演示框架能力，不代表未来收益，也不构成任何投资建议**）：
 
@@ -303,6 +311,7 @@ XGBoost 示例。策略逻辑放在 `strategies/`；存储、回测指标、
 
 ```bash
 uv run python -m pytest tests/
+uv run ruff check .
 ```
 
 发布前还应执行 release safety scan，检查私有路径、凭证、私有策略名称和已经移除的

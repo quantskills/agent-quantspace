@@ -58,9 +58,9 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Path | Purpose |
 |------|---------|
-| `skills/` | Reusable capabilities: ingest, store, compute, strategy, analyze, backtest, ml, research, report |
-| `strategies/` | Public example strategy domains |
-| `scripts/` | Global data, report, and maintenance entrypoints |
+| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, research, report |
+| `strategies/` | Concrete public factors, features, rules, ML behavior, and runnable workflows |
+| `scripts/` | Global data import, report, and maintenance entrypoints; strategy demos live in `strategies/*/workflows/` |
 | `data/` | Local data root; market files and research artifacts stay local |
 | `reports/` | Local generated research outputs; `strategy_examples/` is the public report exception |
 | `tests/` | Public pytest suite |
@@ -72,8 +72,8 @@ AI agents can turn research ideas into tested strategy code inside the project.
 |-------|--------|---------|
 | ingest | `from skills.ingest import PandaDataClient` | PandaData data access and symbol conversion |
 | store | `from skills.store.data_manager import DataManager` | Parquet data and research artifact storage |
-| compute | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
-| strategy | `from skills.strategy import StrategyResult` | Reusable strategy contracts and cross-sectional/time-series target-weight helpers |
+| compute | `from skills.compute.indicators import trend_score` | Strategy-neutral OHLCV indicators, labels, utilities, and the `Factor` wrapper |
+| strategy | `from skills.strategy import StrategyResult` | Reusable strategy contracts, selection types, and cross-sectional/time-series target-weight helpers |
 | analyze | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, and time-series checks |
 | backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
@@ -93,21 +93,25 @@ AI agents can turn research ideas into tested strategy code inside the project.
 - Time column/index: `eob`, timezone-naive.
 - OHLCV columns: `open`, `high`, `low`, `close`, `volume`.
 - Panel format: MultiIndex `(symbol, eob)`.
+- Market files: `data/market/{frequency}/{symbol}.parquet`; adjustment factors: `data/adj_factor/{symbol}.parquet`.
 - Strategy weights: date × symbol `DataFrame`, passed directly to `VectorBacktester`.
+- Strategy universes are explicit symbol lists owned by the caller; factor, backtest, and model folders use caller-provided artifact namespaces.
+- Resolve workspace paths through `skills.store.workspace.resolve_workspace_paths`; use `QUANTSPACE_WORKSPACE_ROOT`, `QUANTSPACE_DATA_ROOT`, or `QUANTSPACE_REPORTS_ROOT` when the defaults need overriding.
 - Reusable selection, signal-to-weight, and strategy-type logic belongs in `skills.strategy`; concrete behavior belongs in `strategies`.
 - `skills/` must never import `strategies/`.
 
 ## Strategy Examples
 
-- `scripts/run_strategy_reports.py` reads existing PandaData daily Parquet files from `data/market/1d/`.
-- Reports are written to `reports/strategy_examples/` as Markdown plus PNG performance charts.
+- `uv run python -m scripts.run_strategy_reports` reads existing PandaData daily Parquet files from `data/market/1d/` and accepts `--data-root` for another local data root.
+- Reports are written below the resolved reports root as `strategy_examples/` Markdown plus PNG performance charts.
 - The five public examples are: time-series rule, time-series XGBoost triple-barrier ML, cross-sectional futures rule, cross-sectional XGBoost rank ML, and global-asset ETF/LOF Top-3 momentum rotation.
-- Strategy report scripts should call `DataManager.read_symbols`, strategy modules, `VectorBacktester`, and `skills.report.strategy_markdown`; do not add reusable research implementations to scripts.
+- Strategy report scripts should call `DataManager.read_symbols`, concrete strategy modules, `VectorBacktester`, and `skills.report.strategy_markdown`; do not add reusable research implementations to scripts.
 
 ## Python Environment
 
 - Package manager: `uv`.
 - Run tests: `uv run python -m pytest tests/`.
+- Run lint: `uv run ruff check .`.
 - Optional PandaData SDK: `uv sync --extra panda_data`.
 - Optional capability profiles: `analyze`, `ml`, `query`, `report`, and `panda_data`.
 
