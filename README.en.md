@@ -17,8 +17,10 @@ idea into working strategy research without leaving the project directory.
 Describe a hypothesis, universe, factor, label, rule, model, backtest constraint,
 or report you want; an AI coding agent can then build on the repository's
 structure to produce runnable, tested, reviewable code. The project is
-compatible with mainstream AI coding tools including Codex, Claude Code, and
-Cursor.
+compatible with mainstream AI coding tools including ChatGPT Codex, Claude Code,
+Cursor, CodeBuddy, Qoder, TRAE, OpenCode, OpenClaw, and Kimi Code. Compatibility
+is declared in README and `AGENTS.md`; runtime collaboration uses capability
+discovery rather than a product whitelist.
 
 PandaData is the default market data provider, so real bars can be used
 immediately. Data flows in through `skills.ingest`, where external symbols and
@@ -80,6 +82,7 @@ quantspace/
     ml/                   ML helpers and optional model engines
     research/             factor screening, parameter sweeps, comparisons
     report/               HTML/Markdown report rendering and charts
+    factor_mining/        AI factor-mining contracts, ports, and cross-platform role protocol
   strategies/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
@@ -106,6 +109,7 @@ writing new research code.
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, four ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role task protocol |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and

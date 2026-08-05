@@ -10,6 +10,7 @@ def test_public_skill_directories_are_exact() -> None:
         "analyze",
         "backtest",
         "compute",
+        "factor_mining",
         "ingest",
         "ml",
         "report",

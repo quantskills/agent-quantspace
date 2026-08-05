@@ -53,6 +53,12 @@ user.json
 tmp/
 output/
 docs/
+# Track only Phase 01 factor_mining documentation contract tests under tests/docs/.
+# Un-ignore the directory for traversal, re-ignore contents, then allowlist two files.
+!tests/docs/
+tests/docs/*
+!tests/docs/test_factor_mining_skill_roles.py
+!tests/docs/test_coding_agent_declarations.py
 lessons/
 reports/local
 .wrangler/

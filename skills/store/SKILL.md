@@ -41,7 +41,7 @@ Main methods:
 
 - `read_symbol`, `read_symbols`, `save_symbol`
 - `import_symbol_csv`, `import_combined_csv`, `list_symbols`
-- `save_factor`, `read_factor`
+- `save_factor`, `read_factor`, `factor_namespace_dir`, `factor_filename`
 - `save_factor_test`, `read_factor_test_summary`
 - `save_factor_correlation`, `read_factor_correlation`
 - `save_backtest_run`, `read_backtest_summary`, `read_backtest_run`
@@ -49,6 +49,15 @@ Main methods:
 
 `read_symbols` returns a MultiIndex `(symbol, eob)` panel and reports every
 missing symbol in one `FileNotFoundError`.
+
+Factor-mining Phase 02 persists research artifacts under
+`data/factors/<namespace>/artifacts/` through `DataManagerArtifactStore` (path
+segments are validated; resolved paths must stay under that namespace) and may
+reuse `save_factor` / `factor_filename` for explicit wide-pivot caches keyed by
+content-addressed params such as `cache_key`. Phase 04 additionally uses
+`DataManager.namespaced_artifact_dir` / `get_by_identity` for controller
+snapshots and append-only event payloads under the same factors namespace root
+(no second catalog).
 
 ```python
 from skills.store.data_manager import DataManager

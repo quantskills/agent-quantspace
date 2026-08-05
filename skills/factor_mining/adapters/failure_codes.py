@@ -1,0 +1,197 @@
+"""Table-driven native finding name -> Phase01 FailureCode mapping."""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from skills.factor_mining.contracts import FailureCode
+
+
+class _FindingLike(Protocol):
+    name: str
+    passed: bool
+
+    @property
+    def severity(self) -> Any: ...
+
+
+# Exact native finding names (preferred) then deliberate prefixes.
+# Every production hard-fail name used by Phase03 must appear here or match a prefix.
+EXACT_FAILURE_CODES: dict[str, FailureCode] = {
+    "INPUT_INVALID_PANEL": FailureCode.INVALID_PANEL_TYPE,
+    "INPUT_INVALID_INDEX": FailureCode.INVALID_INDEX_SCHEMA,
+    "INPUT_INDEX_LEVELS": FailureCode.INVALID_INDEX_SCHEMA,
+    "INPUT_INVALID_SYMBOL": FailureCode.INVALID_INDEX_SCHEMA,
+    "INPUT_SYMBOL_TYPE": FailureCode.INVALID_INDEX_SCHEMA,
+    "INPUT_TIME_CONVERSION": FailureCode.TIME_CONVERSION_FAILED,
+    "INPUT_TIMEZONE": FailureCode.TIME_CONVERSION_FAILED,
+    "INPUT_UNIQUE_KEYS": FailureCode.DUPLICATE_LOGICAL_KEY,
+    "INPUT_SYMBOL_TIME_UNIQUE": FailureCode.TIME_COLLISION,
+    "INPUT_REQUIRED_FIELDS": FailureCode.MISSING_REQUIRED_FIELD,
+    "INPUT_FIELD_NOT_ALLOWED": FailureCode.FORBIDDEN_INPUT,
+    "INPUT_NON_NUMERIC_FIELD": FailureCode.NON_NUMERIC_FIELD,
+    "INPUT_UNIVERSE": FailureCode.INVALID_PARAMETERS,
+    "INPUT_OHLC_ANOMALY": FailureCode.INVALID_PARAMETERS,
+    "INPUT_INF_VALUES": FailureCode.NON_NUMERIC_FIELD,
+    "INPUT_COVERAGE_THRESHOLD": FailureCode.INVALID_PARAMETERS,
+    "SPEC_FUNCTION_NOT_ALLOWED": FailureCode.FUNCTION_NOT_ALLOWED,
+    "SPEC_FORBIDDEN_FRAGMENT": FailureCode.FORBIDDEN_INPUT,
+    "SPEC_INVALID_OUTPUT_DTYPE": FailureCode.INVALID_OUTPUT_DTYPE,
+    "SPEC_INVALID_MISSING_POLICY": FailureCode.INVALID_PARAMETERS,
+    "SPEC_INVALID_WINDOW": FailureCode.INVALID_PARAMETERS,
+    "SPEC_INVALID_LAG": FailureCode.INVALID_PARAMETERS,
+    "SPEC_INVALID_PARAM": FailureCode.INVALID_PARAMETERS,
+    "SPEC_INVALID_PERIOD": FailureCode.INVALID_PARAMETERS,
+    "SPEC_DIRECTION_MISMATCH": FailureCode.INVALID_PARAMETERS,
+    "SPEC_STRUCTURE_OK": FailureCode.UNKNOWN,  # never hard-fail
+    "CAUSALITY_RECOMPUTE_SPEC_MISMATCH": FailureCode.HASH_MISMATCH,
+    "CAUSALITY_RECOMPUTE_FORMULA_MISMATCH": FailureCode.HASH_MISMATCH,
+    "CAUSALITY_RECOMPUTE_UNBOUND": FailureCode.INVALID_PARAMETERS,
+    "CAUSALITY_RECOMPUTE_UNISSUED": FailureCode.FORBIDDEN_INPUT,
+    "CAUSALITY_RECOMPUTE_VALUE_MISMATCH": FailureCode.FORBIDDEN_INPUT,
+    "CAUSALITY_PREFIX_INPUT_MUTATED": FailureCode.FORBIDDEN_INPUT,
+    "CAUSALITY_FULL_INPUT_MUTATED": FailureCode.FORBIDDEN_INPUT,
+    "CAUSALITY_PREFIX_RECOMPUTE": FailureCode.FORBIDDEN_INPUT,
+    "CAUSALITY_PREFIX_SAMPLED_NON_PROOF": FailureCode.FORBIDDEN_INPUT,
+    "ALIGNMENT_NON_NUMERIC": FailureCode.INVALID_OUTPUT_DTYPE,
+    "ALIGNMENT_NON_FINITE": FailureCode.INVALID_OUTPUT_DTYPE,
+    "ALIGNMENT_INVALID_TYPE": FailureCode.INVALID_OUTPUT_TYPE,
+    "ALIGNMENT_MASK_TYPE": FailureCode.INVALID_OUTPUT_TYPE,
+    "ALIGNMENT_MASK_DTYPE": FailureCode.INVALID_OUTPUT_DTYPE,
+    "ALIGNMENT_MASK_NULLABLE_NA": FailureCode.INVALID_OUTPUT_TYPE,
+    "ALIGNMENT_MASK_REQUIRED": FailureCode.INVALID_OUTPUT_TYPE,
+    "ALIGNMENT_INVALID_MISSING_POLICY": FailureCode.INVALID_PARAMETERS,
+    "ALIGNMENT_INVALID_INDEX": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "ALIGNMENT_INDEX_NAMES": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "ALIGNMENT_INDEX_VALUES": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "ALIGNMENT_DUPLICATE_INDEX": FailureCode.DUPLICATE_LOGICAL_KEY,
+    "ALIGNMENT_MASK_INDEX": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "ALIGNMENT_MASK_VALUE_AGREEMENT": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "ALIGNMENT_WARMUP_EXCEEDED": FailureCode.INVALID_PARAMETERS,
+    "ALIGNMENT_KEEP_NAN_INTERIOR": FailureCode.INVALID_PARAMETERS,
+    "ALIGNMENT_DROP_NAN": FailureCode.INVALID_PARAMETERS,
+    "ALIGNMENT_SYMBOL_LEVEL": FailureCode.INVALID_INDEX_SCHEMA,
+    "ALIGNMENT_TIME_CONVERSION": FailureCode.TIME_CONVERSION_FAILED,
+    "ALIGNMENT_EXECUTION_IDENTITY": FailureCode.INVALID_REFERENCE,
+    "EVALUATION_MISSING_CLOSE": FailureCode.MISSING_REQUIRED_FIELD,
+    "EVALUATION_MISSING_TRADE_AT": FailureCode.MISSING_REQUIRED_FIELD,
+    "EVALUATION_VALUES_TYPE": FailureCode.INVALID_OUTPUT_TYPE,
+    "EVALUATION_INDEX_NAMES": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "EVALUATION_INDEX_VALUES": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "BACKTEST_INPUT_INVALID": FailureCode.INVALID_PARAMETERS,
+    "BACKTEST_MISSING_TRADE_AT": FailureCode.MISSING_REQUIRED_FIELD,
+    "BACKTEST_FAILED": FailureCode.FACTOR_RUNTIME_FAILED,
+    "BACKTEST_PROTOCOL_UNSUPPORTED": FailureCode.INVALID_PARAMETERS,
+    "BACKTEST_EMPTY_WEIGHTS": FailureCode.INVALID_PARAMETERS,
+    "POOL_ALIGNMENT_FAILED": FailureCode.OUTPUT_INDEX_MISMATCH,
+    "POOL_MEMBER_LEVEL_MISMATCH": FailureCode.INVALID_INDEX_SCHEMA,
+    "POOL_INVALID_MEMBER_INDEX": FailureCode.INVALID_INDEX_SCHEMA,
+    "POOL_INVALID_MEMBER": FailureCode.INVALID_INDEX_SCHEMA,
+    "POOL_DUPLICATE_MEMBER": FailureCode.DUPLICATE_LOGICAL_KEY,
+    "POOL_UNAVAILABLE": FailureCode.INVALID_PARAMETERS,
+    "POOL_FORMAL_PAIR_INVALID": FailureCode.INVALID_PARAMETERS,
+    "POOL_FORMAL_PROTOCOL_MISMATCH": FailureCode.HASH_MISMATCH,
+    "POOL_FORMAL_RESULT_INVALID": FailureCode.INVALID_PARAMETERS,
+    "POOL_SKIPPED": FailureCode.INVALID_PARAMETERS,
+    "EVALUATION_INSUFFICIENT_SAMPLE": FailureCode.INVALID_PARAMETERS,
+    "EVALUATION_QUANTILE_UNAVAILABLE": FailureCode.INVALID_PARAMETERS,
+    "EVALUATION_REBALANCE_DATES": FailureCode.INVALID_PARAMETERS,
+    "IDENTITY_BRIEF": FailureCode.INVALID_REFERENCE,
+    "IDENTITY_FACTOR": FailureCode.INVALID_REFERENCE,
+    "IDENTITY_EXECUTION": FailureCode.INVALID_REFERENCE,
+    "IDENTITY_PROTOCOL": FailureCode.INVALID_REFERENCE,
+    "IDENTITY_DATA_VERSION": FailureCode.HASH_MISMATCH,
+    "IDENTITY_SCHEMA": FailureCode.SCHEMA_MISMATCH,
+    "IDENTITY_SPLIT": FailureCode.INVALID_PARAMETERS,
+    "PROTOCOL_BRIEF_MISMATCH": FailureCode.INVALID_PARAMETERS,
+    "ROBUSTNESS_REGIME_POSTHOC_FORBIDDEN": FailureCode.INVALID_PARAMETERS,
+    "ROBUSTNESS_PARAM_POSTHOC_FORBIDDEN": FailureCode.INVALID_PARAMETERS,
+    "ROBUSTNESS_TIME_SUBSAMPLE_POSTHOC_FORBIDDEN": FailureCode.INVALID_PARAMETERS,
+    "ROBUSTNESS_SCORE_MISALIGNED": FailureCode.INVALID_PARAMETERS,
+    "ALIGNMENT_SKIPPED": FailureCode.INVALID_STATE,
+    "EVALUATION_SKIPPED": FailureCode.INVALID_STATE,
+    "ROBUSTNESS_SKIPPED": FailureCode.INVALID_STATE,
+    "BACKTEST_SKIPPED": FailureCode.INVALID_STATE,
+}
+
+PREFIX_FAILURE_CODES: tuple[tuple[str, FailureCode], ...] = (
+    ("INPUT_TIME", FailureCode.TIME_CONVERSION_FAILED),
+    ("INPUT_UNIQUE", FailureCode.DUPLICATE_LOGICAL_KEY),
+    ("INPUT_REQUIRED", FailureCode.MISSING_REQUIRED_FIELD),
+    ("INPUT_NON_NUMERIC", FailureCode.NON_NUMERIC_FIELD),
+    ("INPUT_FIELD", FailureCode.FORBIDDEN_INPUT),
+    ("INPUT_INVALID_INDEX", FailureCode.INVALID_INDEX_SCHEMA),
+    ("INPUT_INDEX", FailureCode.INVALID_INDEX_SCHEMA),
+    ("INPUT_", FailureCode.INVALID_PANEL_TYPE),
+    ("SPEC_FUNCTION_NOT_ALLOWED", FailureCode.FUNCTION_NOT_ALLOWED),
+    ("SPEC_FORBIDDEN", FailureCode.FORBIDDEN_INPUT),
+    ("SPEC_INVALID_OUTPUT_DTYPE", FailureCode.INVALID_OUTPUT_DTYPE),
+    ("SPEC_INVALID", FailureCode.INVALID_PARAMETERS),
+    ("SPEC_", FailureCode.UNSUPPORTED_FORMULA),
+    ("CAUSALITY_", FailureCode.FORBIDDEN_INPUT),
+    ("ALIGNMENT_NON_FINITE", FailureCode.INVALID_OUTPUT_DTYPE),
+    ("ALIGNMENT_NON_NUMERIC", FailureCode.INVALID_OUTPUT_DTYPE),
+    ("ALIGNMENT_MASK_TYPE", FailureCode.INVALID_OUTPUT_TYPE),
+    ("ALIGNMENT_INVALID_TYPE", FailureCode.INVALID_OUTPUT_TYPE),
+    ("ALIGNMENT_INVALID_MISSING_POLICY", FailureCode.INVALID_PARAMETERS),
+    ("ALIGNMENT_", FailureCode.OUTPUT_INDEX_MISMATCH),
+    ("EVALUATION_MISSING", FailureCode.MISSING_REQUIRED_FIELD),
+    ("EVALUATION_INDEX", FailureCode.OUTPUT_INDEX_MISMATCH),
+    ("EVALUATION_VALUES", FailureCode.INVALID_OUTPUT_TYPE),
+    ("POOL_ALIGNMENT", FailureCode.OUTPUT_INDEX_MISMATCH),
+    ("POOL_MEMBER", FailureCode.INVALID_INDEX_SCHEMA),
+    ("PROTOCOL_", FailureCode.INVALID_PARAMETERS),
+    ("IDENTITY_", FailureCode.INVALID_REFERENCE),
+    ("ROBUSTNESS_", FailureCode.INVALID_PARAMETERS),
+    ("BACKTEST_INPUT", FailureCode.INVALID_PARAMETERS),
+    ("BACKTEST_MISSING", FailureCode.MISSING_REQUIRED_FIELD),
+    ("BACKTEST_FAILED", FailureCode.FACTOR_RUNTIME_FAILED),
+    ("BACKTEST_", FailureCode.INVALID_PARAMETERS),
+)
+
+
+def _severity_value(severity: Any) -> str:
+    return str(getattr(severity, "value", severity))
+
+
+def map_hard_fail_code(finding: _FindingLike) -> FailureCode:
+    """Map an analyze-native finding-like object to a Phase01 FailureCode.
+
+    Duck-typed so this adapter module never imports ``skills.analyze``.
+    """
+    if finding.name in EXACT_FAILURE_CODES:
+        code = EXACT_FAILURE_CODES[finding.name]
+        if code is FailureCode.UNKNOWN and (
+            (not finding.passed) and _severity_value(finding.severity) == "hard_fail"
+        ):
+            # INFO-only names should never be selected as hard roots.
+            return FailureCode.UNKNOWN
+        return code
+    for prefix, code in PREFIX_FAILURE_CODES:
+        if finding.name.startswith(prefix):
+            return code
+    return FailureCode.UNKNOWN
+
+
+def assert_no_unknown_hard_names(names: list[str]) -> list[str]:
+    """Return names that would map to UNKNOWN under hard-fail selection."""
+
+    class _Probe:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.passed = False
+            self.severity = type("S", (), {"value": "hard_fail"})()
+
+    unknown: list[str] = []
+    for name in names:
+        if map_hard_fail_code(_Probe(name)) is FailureCode.UNKNOWN:
+            unknown.append(name)
+    return unknown
+
+
+__all__ = [
+    "EXACT_FAILURE_CODES",
+    "PREFIX_FAILURE_CODES",
+    "assert_no_unknown_hard_names",
+    "map_hard_fail_code",
+]

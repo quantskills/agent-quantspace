@@ -31,6 +31,7 @@ def test_source_package_tests_have_matching_directories() -> None:
         "tests/skills/analyze",
         "tests/skills/backtest",
         "tests/skills/compute",
+        "tests/skills/factor_mining",
         "tests/skills/ingest",
         "tests/skills/ml",
         "tests/skills/report",

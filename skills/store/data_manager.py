@@ -344,9 +344,15 @@ class DataManager:
     # ==================================================================
 
     @staticmethod
-    def _factor_filename(func_name: str, params: dict) -> str:
+    def factor_filename(func_name: str, params: dict | None = None) -> str:
+        """Public stable factor cache filename under ``data/factors/<namespace>/``."""
+        params = params or {}
         param_str = "_".join(str(v) for v in params.values()) if params else "default"
         return f"{func_name}__{param_str}.parquet"
+
+    @staticmethod
+    def _factor_filename(func_name: str, params: dict) -> str:
+        return DataManager.factor_filename(func_name, params)
 
     @staticmethod
     def _factor_id(func_name: str, params: dict) -> str:
@@ -365,12 +371,37 @@ class DataManager:
         return pd.read_parquet(path)
 
     def save_factor(self, namespace: str, func_name: str, params: dict, pivot_df: pd.DataFrame):
-        """Save a factor pivot (date x symbol) for a namespace."""
+        """Save a factor pivot (date x symbol) for a namespace.
+
+        Callers that need stable cache addressing should put a content-addressed
+        key inside ``params`` (for example ``cache_key`` from factor_mining).
+        """
         params = params or {}
         out_dir = self.root / "factors" / namespace
         out_dir.mkdir(parents=True, exist_ok=True)
         filename = self._factor_filename(func_name, params)
         pivot_df.to_parquet(out_dir / filename)
+
+    def factor_namespace_dir(self, namespace: str) -> Path:
+        """Return ``data/factors/<namespace>/``, creating it if needed."""
+        path = self.root / "factors" / namespace
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def namespaced_artifact_dir(self, namespace: str, *parts: str) -> Path:
+        """Return ``data/factors/<namespace>/<parts...>/``, creating it if needed.
+
+        Generic helper for namespaced research artifacts (controller events,
+        snapshots, JSON payloads). Does not invent a second catalog — paths stay
+        under the existing factors root.
+        """
+        path = self.factor_namespace_dir(namespace)
+        for part in parts:
+            if not part or "/" in part or "\\" in part or part in {".", ".."}:
+                raise ValueError(f"invalid artifact path segment: {part!r}")
+            path = path / part
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     # ==================================================================
     # 4. Factor Test Results (scoped to namespace)

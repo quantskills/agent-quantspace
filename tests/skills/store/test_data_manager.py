@@ -87,6 +87,7 @@ def test_artifacts_are_scoped_by_namespace(tmp_path) -> None:
 
     loaded = dm.read_factor(namespace="macro_weekly", func_name="roc", params={"n": 10})
     pd.testing.assert_frame_equal(loaded, factor, check_freq=False)
+    assert dm.factor_namespace_dir("macro_weekly").exists()
 
 
 def test_model_metadata_uses_namespace(tmp_path) -> None:

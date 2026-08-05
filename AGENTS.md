@@ -11,7 +11,7 @@ quantSkills:
   license: GPL-3.0
   category: workflow-agent
   tags: [quant-research, strategy-research, backtesting, pandadata]
-  platforms: [codex, claude-code, openclaw, cursor]
+  platforms: [codex, claude-code, cursor, codebuddy, qoder, trae, opencode, openclaw, kimi-code]
   language: zh-en
   status: active
   validation_level: runnable
@@ -58,7 +58,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Path | Purpose |
 |------|---------|
-| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, research, report |
+| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, research, report, factor_mining |
 | `strategies/` | Concrete public factors, features, rules, ML behavior, and runnable workflows |
 | `scripts/` | Global data import, report, and maintenance entrypoints; strategy demos live in `strategies/*/workflows/` |
 | `data/` | Local data root; market files and research artifacts stay local |
@@ -79,6 +79,12 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | research | `from skills.research import screen_all_indicators` | Screening and parameter sweeps |
 | report | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
+| factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, ResearchController` | AI factor-mining contracts, ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role protocol |
+
+Coding-agent compatibility is declared here and in README/README.en.md
+(ChatGPT Codex, Claude Code, Cursor, CodeBuddy, Qoder, TRAE, OpenCode, OpenClaw, Kimi Code).
+Runtime collaboration follows `skills/factor_mining/SKILL.md` capability discovery;
+names are declarations, not a product whitelist.
 
 ## Strategy Domains
 

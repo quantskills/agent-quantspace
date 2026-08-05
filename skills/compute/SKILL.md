@@ -65,10 +65,12 @@ from skills.compute.indicators import trend_score_v2
 ```
 
 - `__init__(func: Callable, **params)` — binds callable and defaults; `name` from `func.__name__` and params.
-- `calculate(data: pd.DataFrame) -> pd.Series` — `groupby('symbol')` then `func(group, **params)`; MultiIndex `(symbol, eob)`, NaNs dropped.
-- `cal_df(data) -> pd.DataFrame` — `(eob, symbol)` column layout.
+- `calculate(data: pd.DataFrame, *, dropna: bool = True) -> pd.Series` — per-symbol apply with index contract checks. **Legacy default `dropna=True` is preserved** for existing research callers. Pass `dropna=False` for full-index / warm-up NaN preservation (factor_mining Phase 02 always does this).
+- `cal_df(data, *, dropna: bool = True) -> pd.DataFrame` — wide pivot with `eob` index and one column per symbol; respects the same `dropna` flag. Not an authoritative research result.
 
-**Contract for `func`**: first argument is a single-symbol `DataFrame` indexed by `eob` with OHLCV columns as required.
+`Factor` never persists files. Artifact writes belong to factor_mining store adapters.
+
+**Contract for `func`**: first argument is a single-symbol `DataFrame` with a one-level `eob` DatetimeIndex and required OHLCV columns; return a real numeric `Series` whose index equals the input index item-for-item.
 
 ### Exit / risk filters (cross-sectional package)
 

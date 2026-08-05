@@ -56,9 +56,41 @@ from skills.analyze.attribution_stat_tests import (
     summarize_stat_tests,
     white_reality_check,
 )
+from skills.analyze.contracts import (
+    ANALYZE_SCHEMA_VERSION,
+    ENGINE_VERSION,
+    AnalyzeResult,
+    ArtifactBundle,
+    CompletionStatus,
+    EvidenceItem,
+    Finding,
+    FindingSeverity,
+    MetricResult,
+    ProtocolSnapshot,
+    SectionResult,
+    SectionStatus,
+    SpecSnapshot,
+    UncertaintyResult,
+)
+from skills.analyze.facade import AnalyzeFacade
 from skills.analyze.factor_analysis import full_stat
 
 __all__ = [
+    "ANALYZE_SCHEMA_VERSION",
+    "ENGINE_VERSION",
+    "AnalyzeFacade",
+    "AnalyzeResult",
+    "ArtifactBundle",
+    "CompletionStatus",
+    "EvidenceItem",
+    "Finding",
+    "FindingSeverity",
+    "MetricResult",
+    "ProtocolSnapshot",
+    "SectionResult",
+    "SectionStatus",
+    "SpecSnapshot",
+    "UncertaintyResult",
     "attribute_drawdown_episode",
     "block_bootstrap_metric",
     "build_action_day_ledger",

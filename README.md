@@ -14,7 +14,7 @@
 
 QuantSpace 是面向 AI 时代重新设计的量化投研框架。使用任意 AI coding工具打开本项目目录，直接告诉
 AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 label、交易策略、回测约束或报告要求；AI 会沿着既定工程边界，把想法落成可运行、可测试、可复用的策略研究代码。
-该项目兼容 Chatgpt Codex, Claude Code, Cursor, CodeBuddy, Qoder, TRAE, OpenCode 等主流 AI 编程工具。
+该项目兼容 ChatGPT Codex、Claude Code、Cursor、CodeBuddy、Qoder、TRAE、OpenCode、OpenClaw、Kimi Code 等主流 AI 编程工具；兼容声明以 README 与 AGENTS.md 为准，运行时按能力发现协作，而不是产品白名单。
 
 真实行情通过默认的 PandaData 开箱可用。外部数据先进入 `skills.ingest`，完成数据获取、数据规范整理，再交给后续模块使用。如果你使用其他数据商或本地数据，只要接入同一套数据契约，后续数据管理、因子计算、策略开发、回测和报告流程就可以继续复用。
 
@@ -64,6 +64,7 @@ quantspace/
     ml/                   ML 辅助模块和可选模型引擎
     research/             因子筛选和参数扫描
     report/               HTML/Markdown 报告渲染和图表工具
+    factor_mining/        AI 多因子挖掘契约、端口与跨平台角色协议
   strategies/
     cross_sectional/      具体横截面 factors、rules、ML 与 workflows
     time_series/          具体时序 features、rules、ML 与 workflows
@@ -88,6 +89,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer` | HTML/Markdown 报告渲染和图表工具 |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、四端口、Phase 02/03 适配器、Phase 04 Research Controller 与跨平台角色任务协议 |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
 target-weight 原语；具体因子、特征、规则、模型行为和 workflow 放在 `strategies/`。
