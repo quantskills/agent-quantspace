@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -298,8 +299,8 @@ class PandaDataClient:
         exchange: _StringLike = None,
         fields: _StringLike = None,
     ) -> pd.DataFrame:
-        """Unadjusted listed-fund daily bars via ``panda_data.get_fund_daily``."""
-        return self._call_fund_range(
+        """Unadjusted listed-fund daily bars, chunked to PandaData's 1-year cap."""
+        return self._call_fund_daily_range(
             "get_fund_daily",
             start_date,
             end_date,
@@ -317,8 +318,8 @@ class PandaDataClient:
         exchange: _StringLike = None,
         fields: _StringLike = None,
     ) -> pd.DataFrame:
-        """Forward-adjusted listed-fund bars via ``get_fund_daily_pre``."""
-        return self._call_fund_range(
+        """Forward-adjusted listed-fund bars, chunked to PandaData's 1-year cap."""
+        return self._call_fund_daily_range(
             "get_fund_daily_pre",
             start_date,
             end_date,
@@ -336,8 +337,8 @@ class PandaDataClient:
         exchange: _StringLike = None,
         fields: _StringLike = None,
     ) -> pd.DataFrame:
-        """Backward-adjusted listed-fund bars via ``get_fund_daily_post``."""
-        return self._call_fund_range(
+        """Backward-adjusted listed-fund bars, chunked to PandaData's 1-year cap."""
+        return self._call_fund_daily_range(
             "get_fund_daily_post",
             start_date,
             end_date,
@@ -441,6 +442,65 @@ class PandaDataClient:
             exchange=exchange,
             fields=fields,
         )
+
+    @staticmethod
+    def _parse_yyyymmdd(value: str, *, name: str) -> date:
+        """Validate and parse a PandaData ``YYYYMMDD`` date argument."""
+        if not isinstance(value, str) or len(value) != 8 or not value.isdigit():
+            raise ValueError(f"{name} must be a YYYYMMDD string")
+        try:
+            return datetime.strptime(value, "%Y%m%d").date()
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a valid YYYYMMDD date") from exc
+
+    def _fund_daily_chunks(self, start_date: str, end_date: str) -> list[tuple[str, str]]:
+        """Return contiguous fund-bar requests of at most 365 inclusive days."""
+        start = self._parse_yyyymmdd(start_date, name="start_date")
+        end = self._parse_yyyymmdd(end_date, name="end_date")
+        if start > end:
+            raise ValueError("start_date must be before or equal to end_date")
+
+        chunks: list[tuple[str, str]] = []
+        current = start
+        while current <= end:
+            chunk_end = min(current + timedelta(days=364), end)
+            chunks.append((current.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d")))
+            current = chunk_end + timedelta(days=1)
+        return chunks
+
+    def _call_fund_daily_range(
+        self,
+        method_name: str,
+        start_date: str,
+        end_date: str,
+        *,
+        symbol: _SymbolLike,
+        exchange: _StringLike,
+        fields: _StringLike,
+    ) -> pd.DataFrame:
+        """Fetch a fund daily endpoint in safe chunks and combine its raw frames."""
+        chunks = self._fund_daily_chunks(start_date, end_date)
+        frames: list[pd.DataFrame] = []
+        for chunk_start, chunk_end in chunks:
+            try:
+                frames.append(
+                    self._call_fund_range(
+                        method_name,
+                        chunk_start,
+                        chunk_end,
+                        symbol=symbol,
+                        exchange=exchange,
+                        fields=fields,
+                    )
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"{method_name} failed for date range {chunk_start} to {chunk_end}"
+                ) from exc
+
+        if len(frames) == 1:
+            return frames[0]
+        return pd.concat(frames, ignore_index=True)
 
     # ------------------------------------------------------------------
     # Reference data (metadata)

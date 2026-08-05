@@ -6,11 +6,19 @@ Core concepts:
   - Explicit symbol lists are loaded as MultiIndex panels
   - Derived artifacts are stored under caller-provided namespace strings
 
+Market `frequency` is the subdirectory name under ``data/market/`` and the
+value passed to read/save APIs. It encodes both bar frequency and adjustment
+state: ``1d`` = raw daily, ``1d_adj`` = adjusted daily (still daily bars; the
+``_adj`` suffix only marks that split/dividend adjustments have been applied),
+``1m`` / ``5m`` = minute bars. Raw and adjusted daily histories live as
+siblings under ``data/market/``.
+
 Usage:
     from skills.store.data_manager import DataManager
     dm = DataManager()
     dm.import_combined_csv('E:/datasets/ETF_1d/etf_rotation_daily.csv')
     data = dm.read_symbols(['SHSE.510300', 'SHSE.510500'], frequency='1d')
+    adj = dm.read_symbols(['SHSE.510300', 'SHSE.510500'], frequency='1d_adj')
 """
 
 import json

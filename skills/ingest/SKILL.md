@@ -65,6 +65,12 @@ Listed ETFs and LOFs are funds, not A-share stocks. Fetch their bars with
 `fetch_market_data(..., type="stock")`. The `get_fund_etf_*` methods provide
 creation/redemption data and are not price-bar replacements.
 
+The three `get_fund_daily*` methods accept an inclusive `YYYYMMDD` range of
+any length. `PandaDataClient` automatically sends contiguous requests of at
+most 365 calendar days and concatenates the returned frames in request order.
+This handling applies only to listed-fund daily bars, not `get_fund_etf_*`
+creation/redemption endpoints.
+
 **Futures Tick Utility**
 
 `skills.ingest.panda_future_tick` contains offline-testable helpers and CLI
@@ -119,6 +125,13 @@ df = client.get_fund_daily(
 Use `get_fund_daily_pre` or `get_fund_daily_post` when the research explicitly
 requires forward- or backward-adjusted fund prices.
 
+The market-data API frequency remains the real bar interval. For example,
+adjusted daily bars still use `freq="1d"` (or the endpoint's daily API); do not
+send `"1d_adj"` to an ingest endpoint as a frequency. `1d_adj` is only the
+QuantSpace storage directory/data-set name for adjusted `1d` bars. The same
+rule applies to other intervals: a directory such as `5m_adj` contains adjusted
+`5m` bars, while the ingest frequency is still `5m`.
+
 **Normalize and save bars**
 
 ```python
@@ -136,6 +149,11 @@ bars = bars.set_index("eob")[["open", "high", "low", "close", "volume"]].sort_in
 
 DataManager().save_symbol("SHSE.600000", bars, frequency="1d", source="panda_data")
 ```
+
+When saving adjusted bars, pass the storage directory key to `DataManager`,
+for example `frequency="1d_adj"`, even though the frequency used to fetch or
+describe those bars is `1d`. Here the DataManager parameter is a directory
+selector retained by its current API, not the semantic market-data frequency.
 
 The same store boundary applies to listed funds: normalize the returned
 `date` column to the timezone-naive `eob` index, keep OHLCV columns, and call

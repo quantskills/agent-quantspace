@@ -152,3 +152,131 @@ def test_fund_date_range_endpoints_use_fund_sdk_methods(monkeypatch, method_name
         },
     )
     assert result["symbol"].tolist() == ["SHSE.510300"]
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ["get_fund_daily", "get_fund_daily_pre", "get_fund_daily_post"],
+)
+def test_fund_daily_methods_split_long_ranges_and_concatenate_in_order(
+    monkeypatch, method_name: str
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def init_token(**kwargs) -> None:
+        calls.append(("init_token", kwargs))
+
+    def endpoint(**kwargs) -> pd.DataFrame:
+        calls.append((method_name, kwargs))
+        return pd.DataFrame(
+            {
+                "symbol": ["510300.SH"],
+                "date": [kwargs["start_date"]],
+                "chunk_end": [kwargs["end_date"]],
+            }
+        )
+
+    sdk = SimpleNamespace(init_token=init_token, **{method_name: endpoint})
+    client = PandaDataClient(username="test-user", password="test-password")
+    monkeypatch.setattr(client, "_sdk", lambda: sdk)
+
+    result = getattr(client, method_name)(
+        "20240101",
+        "20250101",
+        symbol="SHSE.510300",
+        exchange="SH",
+        fields=["close"],
+    )
+
+    assert calls == [
+        ("init_token", {"username": "test-user", "password": "test-password"}),
+        (
+            method_name,
+            {
+                "start_date": "20240101",
+                "end_date": "20241230",
+                "symbol": "510300.SH",
+                "exchange": "SH",
+                "fields": ["close"],
+            },
+        ),
+        (
+            method_name,
+            {
+                "start_date": "20241231",
+                "end_date": "20250101",
+                "symbol": "510300.SH",
+                "exchange": "SH",
+                "fields": ["close"],
+            },
+        ),
+    ]
+    assert result.to_dict("list") == {
+        "symbol": ["SHSE.510300", "SHSE.510300"],
+        "date": ["20240101", "20241231"],
+        "chunk_end": ["20241230", "20250101"],
+    }
+
+
+def test_fund_daily_long_range_preserves_empty_response_schema(monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def init_token(**kwargs) -> None:
+        calls.append(("init_token", kwargs))
+
+    def get_fund_daily(**kwargs) -> pd.DataFrame:
+        calls.append(("get_fund_daily", kwargs))
+        return pd.DataFrame(columns=["symbol", "date", "close"])
+
+    sdk = SimpleNamespace(init_token=init_token, get_fund_daily=get_fund_daily)
+    client = PandaDataClient(username="test-user", password="test-password")
+    monkeypatch.setattr(client, "_sdk", lambda: sdk)
+
+    result = client.get_fund_daily("20240101", "20250101", symbol="SHSE.510300")
+
+    assert result.empty
+    assert result.columns.tolist() == ["symbol", "date", "close"]
+    assert [call[0] for call in calls] == ["init_token", "get_fund_daily", "get_fund_daily"]
+
+
+@pytest.mark.parametrize(
+    ("start_date", "end_date", "message"),
+    [
+        ("2024-01-01", "20240102", "start_date must be a YYYYMMDD string"),
+        ("20240230", "20240301", "start_date must be a valid YYYYMMDD date"),
+        ("20240102", "20240101", "start_date must be before or equal to end_date"),
+    ],
+)
+def test_fund_daily_rejects_invalid_date_ranges(
+    start_date: str, end_date: str, message: str
+) -> None:
+    client = PandaDataClient(username="test-user", password="test-password")
+
+    with pytest.raises(ValueError, match=message):
+        client.get_fund_daily(start_date, end_date, symbol="SHSE.510300")
+
+
+def test_fund_daily_stops_on_failed_chunk_with_range_context(monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def init_token(**kwargs) -> None:
+        calls.append(("init_token", kwargs))
+
+    def get_fund_daily(**kwargs) -> pd.DataFrame:
+        calls.append(("get_fund_daily", kwargs))
+        if kwargs["start_date"] == "20241231":
+            raise ConnectionError("temporary provider failure")
+        return pd.DataFrame({"symbol": ["510300.SH"], "date": [kwargs["start_date"]]})
+
+    sdk = SimpleNamespace(init_token=init_token, get_fund_daily=get_fund_daily)
+    client = PandaDataClient(username="test-user", password="test-password")
+    monkeypatch.setattr(client, "_sdk", lambda: sdk)
+
+    with pytest.raises(
+        RuntimeError,
+        match="get_fund_daily failed for date range 20241231 to 20251230",
+    ) as error:
+        client.get_fund_daily("20240101", "20261231", symbol="SHSE.510300")
+
+    assert isinstance(error.value.__cause__, ConnectionError)
+    assert [call[0] for call in calls] == ["init_token", "get_fund_daily", "get_fund_daily"]

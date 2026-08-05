@@ -37,6 +37,29 @@ data/models/
 data/export/
 ```
 
+The subdirectory below `data/market/` is a storage directory/data-set key. Its
+base part is the real bar frequency, while an optional `_adj` suffix records
+the price-adjustment state:
+
+| Directory key | Real `freq` | Meaning |
+|---------------|-------------|---------|
+| `1d` | `1d` | Daily unadjusted (raw) bars |
+| `1d_adj` | `1d` | Adjusted daily bars |
+| `5m` | `5m` | 5-minute unadjusted bars |
+| `5m_adj` | `5m` | Adjusted 5-minute bars |
+
+Therefore `data/market/1d_adj/` does **not** represent a frequency named
+`1d_adj`; its `freq` is still `1d`, and `1d_adj` is only the directory name
+indicating adjusted `1d` data. The same convention applies to other bar
+intervals: `<freq>_adj` stores adjusted bars whose actual frequency is
+`<freq>`.
+
+The current `DataManager` API names its directory-selector parameter
+`frequency`. Pass the full directory key to `read_symbol` / `read_symbols` /
+`save_symbol` (for example, `frequency="1d_adj"`) so it resolves the intended
+path. Do not reuse that suffixed value as the semantic `freq` or pass it to an
+upstream market-data API; use `freq="1d"` there.
+
 Main methods:
 
 - `read_symbol`, `read_symbols`, `save_symbol`

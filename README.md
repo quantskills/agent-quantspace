@@ -173,7 +173,8 @@ bars = client.get_fund_daily(
 ```
 
 前、后复权行情分别使用 `get_fund_daily_pre` 和
-`get_fund_daily_post`；ETF 申赎数据使用 `get_fund_etf_*`。
+`get_fund_daily_post`。三个基金日线方法会自动将超过 365 个自然日的区间
+分块下载并合并；ETF 申赎数据使用 `get_fund_etf_*`，不包含在此处理范围内。
 
 ## 数据模型
 
