@@ -220,6 +220,41 @@ def test_put_if_absent_directory_fsync_invoked_after_link(tmp_path, monkeypatch)
     assert len(fsynced_fds) >= 2
 
 
+def test_put_if_absent_skips_directory_fsync_when_unsupported(
+    tmp_path, monkeypatch
+) -> None:
+    """Windows-like runtimes cannot open directories through ``os.open``."""
+    store = _store(tmp_path)
+    artifact_dir = (
+        Path(tmp_path)
+        / "factors"
+        / NS
+        / "artifacts"
+        / "controller_event"
+    )
+    real_open = os.open
+
+    def windows_like_open(path, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if Path(path) == artifact_dir:
+            raise PermissionError(13, "directory handles are unsupported")
+        return real_open(path, flags, *args, **kwargs)
+
+    # O_DIRECTORY is a capability marker: it is available on Unix but not on
+    # Windows. Simulate that runtime independently of the host running pytest.
+    monkeypatch.delattr(os, "O_DIRECTORY", raising=False)
+    monkeypatch.setattr(os, "open", windows_like_open)
+
+    result = store.put_if_absent(
+        namespace=NS,
+        kind="controller_event",
+        artifact_id="run-no-dir-fsync-00000001",
+        payload={"sequence": 1},
+    )
+
+    assert result.created is True
+    assert store.get(result.ref)["sequence"] == 1
+
+
 def _mp_identical_worker(data_root: str, queue) -> None:
     store = DataManagerArtifactStore(DataManager(data_root=data_root))
     try:

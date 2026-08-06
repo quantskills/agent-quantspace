@@ -191,9 +191,10 @@ class DataManagerArtifactStore:
 
         Complete content is written and fsynced to an anonymous temp file, then
         published via ``os.link`` onto the final path (true create-if-absent).
-        Readers never observe partial final content. Identical races converge
-        (``created=False``); divergent races raise ``DUPLICATE_LOGICAL_KEY``.
-        Temp/orphan files are never authoritative.
+        The containing directory is fsynced when the runtime exposes directory
+        descriptors. Readers never observe partial final content. Identical
+        races converge (``created=False``); divergent races raise
+        ``DUPLICATE_LOGICAL_KEY``. Temp/orphan files are never authoritative.
         """
         namespace = _safe_segment(namespace, label="namespace")
         kind = _safe_segment(kind, label="kind")
@@ -268,18 +269,17 @@ class DataManagerArtifactStore:
                     digest=digest,
                 )
             self._crash_point("after_link")
-            # Durability: directory entry for the new link must be fsynced before
-            # success. Crash after link but before dir fsync still converges on
-            # retry via FileExistsError → identical/divergent compare.
-            dir_flags = os.O_RDONLY
+            # O_DIRECTORY is the capability marker for opening and fsyncing a
+            # directory through Python's os API. Windows does not expose it and
+            # rejects os.open(directory, O_RDONLY), even though the hard-link
+            # publication above succeeded.
             if hasattr(os, "O_DIRECTORY"):
-                dir_flags |= os.O_DIRECTORY
-            dir_fd = os.open(str(path.parent), dir_flags)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-            self._crash_point("after_dir_fsync")
+                dir_fd = os.open(str(path.parent), os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+                self._crash_point("after_dir_fsync")
         except ArtifactStoreAdapterError:
             raise
         except Exception as exc:  # noqa: BLE001
