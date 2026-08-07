@@ -67,7 +67,12 @@ def benchmark_return_corr(result_df: pd.DataFrame, benchmark_close: pd.Series) -
 
 
 class VectorBacktester:
-    """Compute portfolio returns from date x symbol target weights."""
+    """根据日期 × 标的的目标权重，计算下一根 K 线的组合收益。
+
+    ``self.data`` 只保存输入行情，不保存交易信号。策略生成的交易信号以
+    ``weights_df`` 传入 :meth:`run`，经过信号延迟和交易约束后，通过
+    :class:`BacktestResult` 的 ``executed_weights`` 字段返回。
+    """
 
     def __init__(
         self,
@@ -78,13 +83,22 @@ class VectorBacktester:
         slippage_bp: float | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        return_mode: Literal["backward", "forward"] = "forward",
         enforce_trade_constraints: bool = False,
     ) -> None:
+        """校验并复制行情数据，同时保存回测参数和初始化内部缓存。
+
+        Args:
+            data: 以 ``(symbol, eob)`` 为 MultiIndex 的行情 DataFrame。
+            trade_at: 使用 ``open`` 或 ``close`` 作为成交价格。
+            signal_lag: 将原始信号向后移动的 K 线数量。
+            commission: 单边佣金率，例如 ``0.0002`` 表示 2bp。
+            slippage_bp: 单边滑点，单位为基点。
+            start_date: 回测结果的可选起始日期，不会裁剪 ``self.data``。
+            end_date: 回测结果的可选结束日期，不会裁剪 ``self.data``。
+            enforce_trade_constraints: 是否应用停牌、涨停和跌停约束。
+        """
         if commission is None or slippage_bp is None:
             raise ValueError("commission and slippage_bp must be explicitly provided.")
-        if return_mode not in {"backward", "forward"}:
-            raise ValueError("return_mode must be 'backward' or 'forward'.")
         if trade_at not in {"open", "close"}:
             raise ValueError("trade_at must be either 'open' or 'close'.")
         if not isinstance(data.index, pd.MultiIndex):
@@ -101,31 +115,37 @@ class VectorBacktester:
         self.slippage_bp = float(slippage_bp)
         self.start_date = pd.Timestamp(start_date) if start_date else None
         self.end_date = pd.Timestamp(end_date) if end_date else None
-        self.return_mode = return_mode
         self.enforce_trade_constraints = bool(enforce_trade_constraints)
 
         self._price_pivots: dict[str, pd.DataFrame] = {}
-        self._return_cache: dict[tuple[str, str], pd.DataFrame] = {}
+        self._return_cache: dict[str, pd.DataFrame] = {}
         self._constraint_diagnostics: pd.DataFrame | None = None
 
     @property
     def execution_price_pivot(self) -> pd.DataFrame:
+        """返回日期 × 标的的成交价矩阵，并按成交字段缓存结果。"""
         if self.trade_at not in self._price_pivots:
             self._price_pivots[self.trade_at] = self.data[self.trade_at].unstack(level="symbol")
         return self._price_pivots[self.trade_at]
 
     @property
     def execution_returns(self) -> pd.DataFrame:
-        key = (self.trade_at, self.return_mode)
-        if key not in self._return_cache:
+        """返回日期 × 标的的下一根 K 线收益率矩阵，并缓存计算结果。
+
+        日期 ``t`` 上的值为 ``price[t + 1] / price[t] - 1``，因此日期
+        ``t`` 的执行权重赚取下一根 K 线的收益。
+        """
+        if self.trade_at not in self._return_cache:
             price = self.execution_price_pivot
-            if self.return_mode == "forward":
-                self._return_cache[key] = price.shift(-1).div(price).sub(1.0)
-            else:
-                self._return_cache[key] = price.pct_change(fill_method=None)
-        return self._return_cache[key]
+            self._return_cache[self.trade_at] = price.shift(-1).div(price).sub(1.0)
+        return self._return_cache[self.trade_at]
 
     def _build_executed_weights(self, signal_weights: pd.DataFrame) -> pd.DataFrame:
+        """将策略信号权重转换成实际执行权重。
+
+        ``signal_weights`` 就是策略层传入的交易信号。先应用
+        ``signal_lag``，再按需应用停牌和涨跌停等交易约束。
+        """
         target_weights = signal_weights.shift(self.signal_lag).fillna(0.0)
         if not self.enforce_trade_constraints:
             self._constraint_diagnostics = None
@@ -133,6 +153,7 @@ class VectorBacktester:
         return self._apply_trade_constraints(target_weights)
 
     def _constraint_pivot(self, column: str, index: pd.Index, columns: pd.Index) -> pd.DataFrame:
+        """把行情中的布尔交易约束列转换成日期 × 标的矩阵。"""
         if column not in self.data.columns:
             raise ValueError(f"enforce_trade_constraints=True requires data column {column!r}.")
         return (
@@ -144,6 +165,11 @@ class VectorBacktester:
         )
 
     def _apply_trade_constraints(self, target_weights: pd.DataFrame) -> pd.DataFrame:
+        """逐日模拟交易约束，返回实际可成交的持仓权重。
+
+        停牌时禁止买卖，涨停时禁止买入，跌停时禁止卖出；若剩余现金不足，
+        则按比例缩减当日允许执行的买入权重。同时记录受阻权重和现金权重。
+        """
         target = target_weights.fillna(0.0).clip(lower=0.0)
         dates = target.index
         symbols = target.columns
@@ -204,6 +230,12 @@ class VectorBacktester:
         return executed
 
     def compute_execution_returns(self, executed_weights: pd.DataFrame) -> pd.DataFrame:
+        """根据执行权重计算每日组合收益、换手率和交易成本。
+
+        Returns:
+            包含 ``raw_return``、``transaction_cost``、``return`` 和
+            ``turnover`` 的 DataFrame；启用交易约束时还会包含约束诊断列。
+        """
         common_dates = executed_weights.index.intersection(self.execution_returns.index)
         common_symbols = executed_weights.columns.intersection(self.execution_returns.columns)
         if len(common_dates) == 0 or len(common_symbols) == 0:
@@ -216,11 +248,7 @@ class VectorBacktester:
         missing_active_returns = active_weight_mask & aligned_returns.isna()
         if missing_active_returns.any(axis=1).any():
             missing_dates = missing_active_returns.any(axis=1)
-            allowed_boundary = (
-                aligned_returns.index.max()
-                if self.return_mode == "forward"
-                else aligned_returns.index.min()
-            )
+            allowed_boundary = aligned_returns.index.max()
             problem_dates = missing_dates[missing_dates].index.difference([allowed_boundary])
             if len(problem_dates) > 0:
                 sample = ", ".join(str(pd.Timestamp(date).date()) for date in problem_dates[:5])
@@ -258,6 +286,7 @@ class VectorBacktester:
         return result
 
     def _apply_date_range(self, result_df: pd.DataFrame) -> pd.DataFrame:
+        """按配置的起止日期裁剪回测结果，不修改原始行情。"""
         mask = pd.Series(True, index=result_df.index)
         if self.start_date is not None:
             mask &= result_df.index >= self.start_date
@@ -266,6 +295,7 @@ class VectorBacktester:
         return result_df.loc[mask]
 
     def build_result_frame(self, executed_weights: pd.DataFrame) -> pd.DataFrame:
+        """构建包含日收益、累计净值、累计收益和回撤的完整结果表。"""
         result_df = self.compute_execution_returns(executed_weights)
         result_df = self._apply_date_range(result_df)
         result_df = result_df.dropna(subset=["raw_return"])
@@ -278,6 +308,7 @@ class VectorBacktester:
         return result_df
 
     def calculate_metrics(self, result_df: pd.DataFrame) -> dict[str, float]:
+        """从完整结果表计算收益、风险、成本和交易约束统计指标。"""
         if result_df.empty:
             return {}
 
@@ -333,8 +364,19 @@ class VectorBacktester:
         return metrics
 
     def run(self, weights_df: pd.DataFrame) -> BacktestResult:
+        """执行完整回测，并返回执行权重、逐日结果和汇总指标。
+
+        Args:
+            weights_df: 策略生成的目标权重，即本回测器接收的交易信号。
+                行索引为日期，列为标的；权重变化代表调仓指令。
+
+        Returns:
+            ``BacktestResult``。其中 ``executed_weights`` 保存延迟和交易约束
+            处理后的真实交易/持仓信号，``result_df`` 保存逐日回测结果。
+        """
         if weights_df.empty:
             raise ValueError("weights_df cannot be empty.")
+        # 原始交易信号只在本次调用中使用；self.data 始终只保存行情数据。
         weights = weights_df.sort_index().astype(float)
         executed_weights = self._build_executed_weights(weights)
         result_df = self.build_result_frame(executed_weights)

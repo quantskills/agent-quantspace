@@ -33,10 +33,8 @@ from skills.backtest.overlay_metrics import overlay_alpha
 | `skills.backtest.overlay_metrics` | Overlay alpha, win rate, drawdown, Sharpe, and regime metrics |
 
 `VectorBacktester` requires explicit `commission` and `slippage_bp`; there is no
-symbol-level fallback cost table. By default, each date's executed weight earns
-the next bar's return (`return_mode="forward"`), which is the safer convention
-for close-derived signals. Use `return_mode="backward"` only when weights are
-already known before the return interval being measured.
+symbol-level fallback cost table. Each date's executed weight always earns the
+next bar's return, which is the safe convention for close-derived signals.
 
 ## Recipes
 
