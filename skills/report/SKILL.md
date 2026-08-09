@@ -87,6 +87,11 @@ respected as-is.
 | `plot_backtest_performance(result_df, title)` | Backtest equity curve plus drawdown |
 | `plot_factor_diagnostics(ic_series, ic_stats, group_returns, turnover, title, rolling_ir_window)` | IC, rolling IR, layered NAV, and turnover dashboard |
 | `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=namespaces/periods) |
+| `plot_horizon_ic(summary, factors, segment)` | Multi-factor Horizon IC term structure |
+| `plot_lagged_ic(summary, factors, horizons, segment)` | Four-panel signal-delay decay curves |
+| `plot_rebalance_comparison(comparison, segment, selected_days)` | Net Sharpe and turnover by rebalance interval |
+| `plot_factor_weight_history(factor_weights, method, start)` | Stacked dynamic factor weights |
+| `plot_equity_comparison(equities, start, title)` | Rebased equity curves for multiple combination methods |
 | `plot_factor_ranking(ranking_df, value_col, label_col, title, top_n)` | Horizontal bar chart of top factors, colored by sign |
 | `plot_regime_states(prices, states, title)` | Price line with colored bands per regime |
 

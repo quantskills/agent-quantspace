@@ -27,6 +27,13 @@ Install plotting and parallel-analysis dependencies with
 ```python
 from skills.analyze import AnalyzeFacade, ProtocolSnapshot, SpecSnapshot
 from skills.analyze.factor_analysis import IC_stat, group_stat, full_stat
+from skills.analyze.factor_information import (
+    ICInformationResult,
+    compute_horizon_ic,
+    compute_ic_information_surface,
+    compute_lagged_ic,
+    rolling_factor_rank_correlation,
+)
 from skills.analyze.ts_analysis import TimeSeriesAnalyzer, analyze_time_series
 from skills.analyze.attribution_counterfactual import performance_metrics
 ```
@@ -39,6 +46,7 @@ from skills.analyze.attribution_counterfactual import performance_metrics
 | `validation` / `spec_checks` / `causality` | Panel, formula safety, and prefix-causality checks |
 | `factor_evaluation` / `factor_robustness` / `factor_incremental` | IC/quantiles/turnover, robustness, pool incremental |
 | `factor_analysis` | Legacy IC statistics, grouped returns, winsorization helpers |
+| `factor_information` | Horizon/Lag IC surfaces, HAC summaries, rank correlation, rolling correlation, and Top-N overlap |
 | `ts_analysis` | KDE/QQ plots, Hurst, ADF, KPSS, trend scoring |
 | `attribution_*` | Symbol/category PnL, Brinson, decision edges, ranking buckets, Shapley, robustness, stat tests |
 | `tearsheet` | Factor and artifact-namespace summary report helpers |
@@ -119,6 +127,33 @@ Overlapping horizons (`horizon_bars > 1`) mark iid IC t-tests unavailable and
 report Newey–West HAC t/se/p instead. Pool marginal value is joint CS R² delta /
 residual IC under residual df and full-rank checks — never candidate IC minus
 mean member IC, and never saturated `n == n_params` mechanical R²=1.
+
+**Horizon IC and Lagged IC**
+
+```python
+from skills.analyze.factor_information import compute_horizon_ic, compute_lagged_ic
+
+horizon_result = compute_horizon_ic(
+    factors,
+    close_prices,
+    horizons=[1, 3, 5, 10, 20, 40, 60],
+    signal_lag=1,
+)
+lagged_result = compute_lagged_ic(
+    factors,
+    close_prices,
+    horizons=[1, 5, 10, 20],
+    lags=[0, 1, 2, 3, 5, 10, 20, 40, 60],
+    signal_lag=1,
+)
+```
+
+Both return `ICInformationResult(summary, daily_ic)`. Horizon IC fixes
+`lag=0`; Lagged IC changes signal-use delay independently of the return
+horizon. The execution-aligned return is
+`P[t+signal_lag+lag+horizon] / P[t+signal_lag+lag] - 1`, and each summary row
+uses Newey-West lag `horizon-1`.
+
 **Factor evaluation (legacy helpers)**
 
 ```python
@@ -137,3 +172,21 @@ analyzer = TimeSeriesAnalyzer(price_series)
 analyzer.analyze_windows([60, 120, 240])
 results_df = analyzer.get_results_dataframe()
 ```
+
+**Return-distribution KDE and QQ analysis**
+
+```python
+from skills.analyze.ts_analysis import ts_analysis
+
+fig, axes = ts_analysis(
+    price_series,
+    plot_title="asset",
+    plot_path="reports/asset.png",
+    show=False,
+    save_csv=True,
+)
+```
+
+The input is a price-level series. The combined chart and CSV summarize
+standardized log-return distributions for lags 1 through 34; QQ theoretical
+quantiles are deterministic standard-normal quantiles.

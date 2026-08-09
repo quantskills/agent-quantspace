@@ -19,9 +19,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 
-def _fig_to_png(fig) -> bytes:
+def _fig_to_png(fig, *, dpi: int = 100) -> bytes:
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+    fig.savefig(buf, format="png", bbox_inches="tight", dpi=dpi)
     plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
@@ -234,19 +234,176 @@ def plot_factor_diagnostics(
     return _fig_to_png(fig)
 
 
-def plot_ic_heatmap(ic_df: pd.DataFrame, title: str = "IC Heatmap") -> bytes:
+def plot_ic_heatmap(
+    ic_df: pd.DataFrame,
+    title: str = "IC Heatmap",
+    *,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    annotate: bool = False,
+    dpi: int = 100,
+) -> bytes:
     """Heatmap of an IC matrix (rows = factors, columns = namespaces or holding periods)."""
     fig, ax = plt.subplots(figsize=(max(6, 0.6 * len(ic_df.columns)), max(4, 0.4 * len(ic_df))))
     data = ic_df.to_numpy()
-    vmax = np.nanmax(np.abs(data)) if data.size else 0.1
-    im = ax.imshow(data, aspect="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
+    inferred = np.nanmax(np.abs(data)) if data.size else 0.1
+    upper = inferred if vmax is None else vmax
+    lower = -upper if vmin is None else vmin
+    im = ax.imshow(data, aspect="auto", cmap="RdBu_r", vmin=lower, vmax=upper)
     ax.set_xticks(range(len(ic_df.columns)))
     ax.set_xticklabels(ic_df.columns, rotation=45, ha="right")
     ax.set_yticks(range(len(ic_df.index)))
     ax.set_yticklabels(ic_df.index)
     ax.set_title(title)
+    if annotate:
+        for row in range(len(ic_df.index)):
+            for column in range(len(ic_df.columns)):
+                value = ic_df.iloc[row, column]
+                if np.isfinite(value):
+                    ax.text(column, row, f"{value:.2f}", ha="center", va="center", fontsize=7)
     fig.colorbar(im, ax=ax, shrink=0.8)
-    return _fig_to_png(fig)
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
+
+
+def plot_horizon_ic(
+    summary: pd.DataFrame,
+    *,
+    factors: list[str],
+    segment: str = "full",
+    title: str | None = None,
+    dpi: int = 180,
+) -> bytes:
+    """Plot mean IC across return horizons for selected factors."""
+    data = summary[(summary["segment"] == segment) & (summary["lag"] == 0)]
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(factors), 1)))
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    for color, factor in zip(colors, factors, strict=True):
+        rows = data[data["factor"] == factor].sort_values("horizon")
+        ax.plot(rows["horizon"], rows["ic_mean"], marker="o", lw=2, label=factor, color=color)
+    ax.axhline(0, color="#6b7280", lw=1)
+    ax.set(
+        xlabel="Horizon (trading days)",
+        ylabel="Mean rank IC",
+        title=title or f"Horizon IC · {segment}",
+    )
+    ax.legend(ncol=2, fontsize=8, frameon=False)
+    ax.grid(alpha=0.18)
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
+
+
+def plot_lagged_ic(
+    summary: pd.DataFrame,
+    *,
+    factors: list[str],
+    horizons: tuple[int, ...] = (1, 5, 10, 20),
+    segment: str = "full",
+    title: str | None = None,
+    dpi: int = 180,
+) -> bytes:
+    """Plot signal-delay decay curves under multiple return horizons."""
+    if len(horizons) != 4:
+        raise ValueError("plot_lagged_ic currently requires exactly four horizons")
+    data = summary[summary["segment"] == segment]
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(factors), 1)))
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+    for ax, horizon in zip(axes.flat, horizons, strict=True):
+        for color, factor in zip(colors, factors, strict=True):
+            rows = data[
+                (data["factor"] == factor) & (data["horizon"] == horizon)
+            ].sort_values("lag")
+            ax.plot(rows["lag"], rows["ic_mean"], marker="o", ms=3, label=factor, color=color)
+        ax.axhline(0, color="#6b7280", lw=0.8)
+        ax.set_title(f"H={horizon}")
+        ax.grid(alpha=0.15)
+    axes[1, 0].set_xlabel("Lag")
+    axes[1, 1].set_xlabel("Lag")
+    axes[0, 0].set_ylabel("Mean IC")
+    axes[1, 0].set_ylabel("Mean IC")
+    axes[0, 1].legend(ncol=1, fontsize=7, frameon=False)
+    fig.suptitle(title or f"Lagged IC · {segment}", x=0.08, ha="left", fontweight="bold")
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
+
+
+def plot_rebalance_comparison(
+    comparison: pd.DataFrame,
+    *,
+    segment: str = "calibration",
+    selected_days: int | None = None,
+    title: str = "Rebalance choice: evidence + cost",
+    dpi: int = 180,
+) -> bytes:
+    """Plot net Sharpe and annual turnover by rebalance interval."""
+    data = comparison[comparison["segment"] == segment].sort_values("rebalance_days")
+    fig, ax1 = plt.subplots(figsize=(9, 4.8))
+    ax1.plot(
+        data["rebalance_days"],
+        data["sharpe_ratio"],
+        marker="o",
+        lw=2.5,
+        color="#2563eb",
+    )
+    ax1.set(xlabel="Rebalance interval (days)", ylabel="Net Sharpe")
+    ax2 = ax1.twinx()
+    ax2.plot(
+        data["rebalance_days"],
+        data["annual_turnover"],
+        marker="s",
+        lw=2,
+        color="#f97316",
+    )
+    ax2.set_ylabel("Annual turnover")
+    if selected_days is not None:
+        ax1.axvline(selected_days, color="#16a34a", ls="--", lw=1.5)
+    ax1.grid(alpha=0.18)
+    fig.suptitle(title, x=0.1, ha="left", fontweight="bold")
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
+
+
+def plot_factor_weight_history(
+    factor_weights: pd.DataFrame,
+    *,
+    method: str = "max_icir",
+    start: str | None = None,
+    title: str = "Maximum ICIR factor weights",
+    dpi: int = 180,
+) -> bytes:
+    """Plot a stacked factor-weight history from tidy weight records."""
+    data = factor_weights[factor_weights["method"] == method]
+    pivot = data.pivot(index="eob", columns="factor", values="weight").sort_index()
+    if start is not None:
+        pivot = pivot.loc[pivot.index >= pd.Timestamp(start)]
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    pivot.plot.area(ax=ax, colormap="tab10", alpha=0.85)
+    ax.set(xlabel="", ylabel="Factor weight", title=title)
+    ax.legend(ncol=2, fontsize=8, frameon=False)
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
+
+
+def plot_equity_comparison(
+    equities: pd.DataFrame,
+    *,
+    start: str,
+    title: str,
+    dpi: int = 180,
+) -> bytes:
+    """Plot rebased net-value histories from tidy multi-method equity records."""
+    data = equities[equities["eob"] >= pd.Timestamp(start)]
+    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    for method, group in data.groupby("method"):
+        equity = group.set_index("eob")["equity"].sort_index()
+        if equity.empty:
+            continue
+        ax.plot(equity.index, equity / equity.iloc[0], lw=2, label=method)
+    ax.set(xlabel="", ylabel=f"Net value ({start} = 1)", title=title)
+    ax.legend(ncol=3, fontsize=8, frameon=False)
+    ax.grid(alpha=0.16)
+    fig.tight_layout()
+    return _fig_to_png(fig, dpi=dpi)
 
 
 def plot_factor_ranking(

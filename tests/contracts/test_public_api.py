@@ -19,11 +19,13 @@ PUBLIC_MODULES = [
     "skills.backtest.overlay_metrics",
     "skills.backtest.weighting",
     "skills.analyze.factor_analysis",
+    "skills.analyze.factor_information",
     "skills.ml.lasso_tracker",
     "skills.ml.ml_engine",
     "skills.ml.ml_factor",
     "skills.research",
     "skills.report",
+    "skills.report.charts",
     "skills.report.strategy_markdown",
     "skills.factor_mining",
     "skills.factor_mining.contracts",
@@ -32,7 +34,9 @@ PUBLIC_MODULES = [
     "skills.strategy.contracts",
     "skills.strategy.ports",
     "skills.strategy.cross_sectional",
+    "skills.strategy.cross_sectional.factor_combination",
     "skills.strategy.cross_sectional.modular_backtester",
+    "skills.strategy.cross_sectional.selection",
     "skills.strategy.cross_sectional.strategy_comparison",
     "skills.strategy.time_series",
     "strategies.cross_sectional.factors",
@@ -82,8 +86,11 @@ def test_strategy_public_api() -> None:
         top_n_weights,
     )
     from skills.strategy.cross_sectional import (
+        DynamicFactorWeightConfig,
         FactorFrameBuilder,
         ModularBacktester,
+        apply_rebalance_schedule,
+        combine_factor_scores,
         compare_strategies,
         drawdown_from_high_filter,
     )
@@ -95,10 +102,32 @@ def test_strategy_public_api() -> None:
         WeightGenerator,
         signal_to_single_asset_weights,
         top_n_weights,
+        DynamicFactorWeightConfig,
         FactorFrameBuilder,
         ModularBacktester,
+        apply_rebalance_schedule,
+        combine_factor_scores,
         compare_strategies,
         drawdown_from_high_filter,
+    ]:
+        assert symbol is not None
+
+
+def test_factor_information_public_api() -> None:
+    from skills.analyze import (
+        ICInformationResult,
+        compute_horizon_ic,
+        compute_ic_information_surface,
+        compute_lagged_ic,
+        rolling_factor_rank_correlation,
+    )
+
+    for symbol in [
+        ICInformationResult,
+        compute_horizon_ic,
+        compute_ic_information_surface,
+        compute_lagged_ic,
+        rolling_factor_rank_correlation,
     ]:
         assert symbol is not None
 

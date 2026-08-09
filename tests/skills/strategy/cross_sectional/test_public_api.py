@@ -45,7 +45,9 @@ def test_reusable_domain_exports_selection_exit_and_risk_types() -> None:
         "FactorFrameBuilder",
         "ModularBacktester",
         "TopPctStrategy",
+        "apply_rebalance_schedule",
         "apply_risk_controls",
+        "combine_factor_scores",
         "drawdown_from_high_filter",
         "universe_vol_exposure",
         "top_n_weights",
@@ -82,6 +84,26 @@ def test_top_n_weights_selects_valid_highest_scores() -> None:
 def test_top_n_weights_rejects_non_positive_selection_size(top_n: int) -> None:
     with pytest.raises(ValueError, match="top_n"):
         cross_sectional.top_n_weights(pd.DataFrame({"AAA": [1.0]}), top_n=top_n)
+
+
+def test_apply_rebalance_schedule_samples_and_holds_from_start() -> None:
+    dates = pd.bdate_range("2024-01-01", periods=8, name="eob")
+    weights = pd.DataFrame(
+        {"AAA": [1.0, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.5]}, index=dates
+    )
+    got = cross_sectional.apply_rebalance_schedule(weights, every=3, start=dates[2])
+    assert got.loc[: dates[1], "AAA"].eq(0.0).all()
+    assert got.loc[dates[2] : dates[4], "AAA"].eq(weights.loc[dates[2], "AAA"]).all()
+    assert got.loc[dates[5] :, "AAA"].eq(weights.loc[dates[5], "AAA"]).all()
+
+
+@pytest.mark.parametrize("every", [0, -1, True])
+def test_apply_rebalance_schedule_rejects_invalid_interval(every: int) -> None:
+    with pytest.raises(ValueError, match="every"):
+        cross_sectional.apply_rebalance_schedule(
+            pd.DataFrame({"AAA": [1.0]}, index=pd.date_range("2024-01-01", periods=1)),
+            every=every,
+        )
 
 
 def test_exit_module_does_not_keep_compatibility_alias() -> None:

@@ -74,6 +74,19 @@ from skills.analyze.contracts import (
 )
 from skills.analyze.facade import AnalyzeFacade
 from skills.analyze.factor_analysis import full_stat
+from skills.analyze.factor_information import (
+    ICInformationResult,
+    compute_horizon_ic,
+    compute_ic_information_surface,
+    compute_lagged_ic,
+    execution_forward_return_wide,
+    factor_rank_autocorrelation,
+    mean_daily_factor_rank_correlation,
+    rank_ic_series,
+    rolling_factor_rank_correlation,
+    summarize_ic_series,
+    top_n_jaccard_overlap,
+)
 
 __all__ = [
     "ANALYZE_SCHEMA_VERSION",
@@ -106,6 +119,17 @@ __all__ = [
     "factor5_snapshot_from_components",
     "find_drawdown_episodes",
     "full_stat",
+    "ICInformationResult",
+    "compute_horizon_ic",
+    "compute_ic_information_surface",
+    "compute_lagged_ic",
+    "execution_forward_return_wide",
+    "factor_rank_autocorrelation",
+    "mean_daily_factor_rank_correlation",
+    "rank_ic_series",
+    "rolling_factor_rank_correlation",
+    "summarize_ic_series",
+    "top_n_jaccard_overlap",
     "grouped_players",
     "hansen_spa_test",
     "make_category_neutral_benchmark",

@@ -17,6 +17,8 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `rules.py`：规则类横截面权重 helper。
 - `ml_rank.py`：rank label、generic 因子和 XGBoost rank 权重。
 - `workflows/run_demo.py`：可直接运行的公开策略 workflow。
+- `workflows/run_lesson06_multifactor.py`：可复现 Horizon/Lagged IC、相关性、
+  调仓周期与五种多因子组合的研究 workflow。
 
 因子帧构建、选取、风控和 `ModularBacktester` 位于
 `skills.strategy.cross_sectional`；执行和收益核算由
@@ -26,6 +28,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
+uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor
 ```
 
 输入 panel 必须使用 MultiIndex `(symbol, eob)` 和 OHLCV 列。

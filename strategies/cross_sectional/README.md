@@ -19,6 +19,8 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `rules.py`: rule-based cross-sectional weight helpers.
 - `ml_rank.py`: rank labels, generic factors, and XGBoost rank weights.
 - `workflows/run_demo.py`: the runnable public strategy workflow.
+- `workflows/run_lesson06_multifactor.py`: reproducible Horizon/Lagged IC,
+  correlation, rebalance, and five-method multi-factor experiment.
 
 Factor-frame construction, selection, risk controls, and `ModularBacktester`
 live in `skills.strategy.cross_sectional`. Execution and return accounting live
@@ -28,6 +30,7 @@ in `skills.backtest.VectorBacktester`.
 
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
+uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor
 ```
 
 The input panel must use MultiIndex `(symbol, eob)` and OHLCV columns.

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pandas as pd
-
 from skills.strategy.cross_sectional.execution import SignalBacktestExecutor
 from skills.strategy.cross_sectional.exits import (
     big_loss_filter,
@@ -14,9 +12,19 @@ from skills.strategy.cross_sectional.exits import (
     soft_vol_hysteresis,
     vol_spike_filter,
 )
+from skills.strategy.cross_sectional.factor_combination import (
+    CombinationMethod,
+    DynamicFactorWeightConfig,
+    FactorCombinationResult,
+    combine_factor_scores,
+    estimate_factor_weights,
+    orient_factor_frames,
+    rank_factor_frames,
+)
 from skills.strategy.cross_sectional.factor_frame import FactorFrameBuilder, FactorFrameBuildResult
 from skills.strategy.cross_sectional.modular_backtester import ModularBacktester
 from skills.strategy.cross_sectional.risk_controls import apply_risk_controls, universe_vol_exposure
+from skills.strategy.cross_sectional.selection import apply_rebalance_schedule, top_n_weights
 from skills.strategy.cross_sectional.signals_base import BaseStrategy
 from skills.strategy.cross_sectional.signals_base import (
     StrategyContext as CrossSectionalStrategyContext,
@@ -28,44 +36,28 @@ from skills.strategy.cross_sectional.signals_top_pct import TopPctStrategy
 from skills.strategy.cross_sectional.strategy_comparison import compare_strategies
 from skills.strategy.cross_sectional.types import ExitFilterConfig, FactorConfig, TradeAt
 
-
-def top_n_weights(
-    scores: pd.DataFrame,
-    *,
-    top_n: int,
-    gross_exposure: float = 1.0,
-) -> pd.DataFrame:
-    """Equal-weight the highest-scoring names on each date."""
-    if top_n <= 0:
-        raise ValueError("top_n must be positive")
-    if gross_exposure < 0:
-        raise ValueError("gross_exposure must be non-negative")
-
-    ranks = scores.rank(axis=1, method="first", ascending=False)
-    selected = ranks.le(top_n) & scores.notna()
-    selected_counts = selected.sum(axis=1)
-    weights = selected.astype(float).div(
-        selected_counts.where(selected_counts.ne(0)),
-        axis=0,
-    )
-    return weights.fillna(0.0) * gross_exposure
-
-
 __all__ = [
     "BaseStrategy",
+    "CombinationMethod",
     "CrossSectionalStrategyContext",
     "CrossSectionalStrategyResult",
+    "DynamicFactorWeightConfig",
     "ExitFilterConfig",
     "FactorConfig",
     "FactorFrameBuilder",
     "FactorFrameBuildResult",
+    "FactorCombinationResult",
     "ModularBacktester",
     "SignalBacktestExecutor",
     "TopPctStrategy",
     "TradeAt",
     "apply_risk_controls",
+    "apply_rebalance_schedule",
     "big_loss_filter",
     "compare_strategies",
+    "combine_factor_scores",
+    "estimate_factor_weights",
+    "orient_factor_frames",
     "consecutive_loss_filter",
     "drawdown_from_high_filter",
     "gap_down_filter",
@@ -73,5 +65,6 @@ __all__ = [
     "soft_dd_scaledown",
     "soft_vol_hysteresis",
     "top_n_weights",
+    "rank_factor_frames",
     "vol_spike_filter",
 ]

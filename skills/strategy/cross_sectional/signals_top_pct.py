@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from skills.strategy.cross_sectional.selection import apply_rebalance_schedule
+
 from .signals_base import BaseStrategy, StrategyContext, StrategyResult
 
 
@@ -154,12 +156,6 @@ class TopPctStrategy(BaseStrategy):
 
         return result
 
-    def _apply_rebalance_freq(self, weights_df: pd.DataFrame, rebalance_freq: int) -> pd.DataFrame:
-        rebalance_dates = set(weights_df.index[::rebalance_freq])
-        sampled = weights_df.copy()
-        sampled.loc[~sampled.index.isin(rebalance_dates)] = np.nan
-        return sampled.ffill().fillna(0.0)
-
     def _apply_vol_target(
         self,
         weights_df: pd.DataFrame,
@@ -187,7 +183,7 @@ class TopPctStrategy(BaseStrategy):
         if context.exit_filters:
             overlaid = self._apply_exit_filters(overlaid, context)
         if context.rebalance_freq > 1:
-            overlaid = self._apply_rebalance_freq(overlaid, context.rebalance_freq)
+            overlaid = apply_rebalance_schedule(overlaid, every=context.rebalance_freq)
         if context.vol_target is not None:
             overlaid = self._apply_vol_target(overlaid, context)
         return overlaid

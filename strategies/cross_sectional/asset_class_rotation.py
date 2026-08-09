@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from skills.compute.adjust import forward_adjust
-from skills.strategy.cross_sectional import top_n_weights
+from skills.strategy.cross_sectional import apply_rebalance_schedule, top_n_weights
 
 ASSET_CLASS_ETF_UNIVERSE = {
     "gold": "SHSE.518880",
@@ -123,10 +123,7 @@ def asset_class_top3_weights(
     score = asset_class_momentum_score(close, symbols=requested, lookbacks=lookbacks)
     weights = top_n_weights(score, top_n=top_n)
     if rebalance_days > 1:
-        rebalance_dates = set(weights.index[::rebalance_days])
-        sampled = weights.copy()
-        sampled.loc[~sampled.index.isin(rebalance_dates)] = np.nan
-        weights = sampled.ffill().fillna(0.0)
+        weights = apply_rebalance_schedule(weights, every=rebalance_days)
     return weights.reindex(columns=requested).fillna(0.0)
 
 

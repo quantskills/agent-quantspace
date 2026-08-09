@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from skills.backtest.weighting import risk_parity
-from skills.strategy.cross_sectional import top_n_weights
+from skills.strategy.cross_sectional import apply_rebalance_schedule, top_n_weights
 
 
 def ma_gap_reversal_score(close: pd.DataFrame, symbols: list[str], lookback: int) -> pd.DataFrame:
@@ -47,10 +47,7 @@ def ma_gap_reversal_weights(
     weights = weights.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     if rebalance_days > 1:
-        rebalance_dates = set(weights.index[::rebalance_days])
-        sampled = weights.copy()
-        sampled.loc[~sampled.index.isin(rebalance_dates)] = np.nan
-        weights = sampled.ffill().fillna(0.0)
+        weights = apply_rebalance_schedule(weights, every=rebalance_days)
     return weights.reindex(columns=symbols).fillna(0.0)
 
 
