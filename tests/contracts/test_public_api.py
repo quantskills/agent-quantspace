@@ -93,6 +93,7 @@ def test_strategy_public_api() -> None:
         combine_factor_scores,
         compare_strategies,
         drawdown_from_high_filter,
+        normalize_factor_frames,
     )
 
     for symbol in [
@@ -109,6 +110,7 @@ def test_strategy_public_api() -> None:
         combine_factor_scores,
         compare_strategies,
         drawdown_from_high_filter,
+        normalize_factor_frames,
     ]:
         assert symbol is not None
 

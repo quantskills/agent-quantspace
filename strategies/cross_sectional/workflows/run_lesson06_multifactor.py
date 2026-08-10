@@ -171,12 +171,10 @@ def _load_panel(end: str) -> pd.DataFrame:
 
 def _compute_factors(panel: pd.DataFrame) -> dict[str, pd.DataFrame]:
     raw_factors = {}
-    directions = {}
-    for name, (func, params, direction, _source, _label) in FACTOR_SPECS.items():
+    for name, (func, params, _direction, _source, _label) in FACTOR_SPECS.items():
         values = Factor(func, **params).cal_df(panel, dropna=False)
         raw_factors[name] = values.reindex(columns=list(ASSET_CLASS_ETF_SYMBOLS))
-        directions[name] = int(direction)
-    return orient_factor_frames(raw_factors, directions)
+    return raw_factors
 
 
 def _backtest(
@@ -324,6 +322,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--oos-start", default=OOS_START)
     parser.add_argument("--end", default=END)
     parser.add_argument(
+        "--normalization",
+        choices=["rank", "zscore"],
+        default="rank",
+        help="Daily cross-sectional factor normalization used by every combination method.",
+    )
+    parser.add_argument(
         "--baseline-rebalance-days",
         type=int,
         choices=REBALANCE_DAYS,
@@ -373,7 +377,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     prices = panel["close"].unstack("symbol").reindex(columns=list(ASSET_CLASS_ETF_SYMBOLS))
-    factors = _compute_factors(panel)
+    raw_factors = _compute_factors(panel)
+    factor_directions = {
+        name: int(direction)
+        for name, (_func, _params, direction, _source, _label) in FACTOR_SPECS.items()
+    }
+    factors = orient_factor_frames(raw_factors, factor_directions)
     segments = {
         "full": (start_date, end_date),
         "calibration": (start_date, calibration_end),
@@ -441,6 +450,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     revaluation["selected_core"] = revaluation.factor.isin(core)
     revaluation.to_csv(output / "factor_ic_revaluation.csv", index=False)
 
+    raw_core = {name: raw_factors[name] for name in core}
+    core_directions = {name: factor_directions[name] for name in core}
     ranked_core = rank_factor_frames({name: factors[name] for name in core})
     corr_full = mean_daily_factor_rank_correlation(
         ranked_core, start=start_date, end=end_date
@@ -464,7 +475,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         output / "factor_top3_overlap_calibration.csv"
     )
 
-    equal = combine_factor_scores(ranked_core, method="equal_rank", top_n=TOP_N)
+    equal = combine_factor_scores(
+        raw_core,
+        method="equal_rank",
+        directions=core_directions,
+        normalization=args.normalization,
+        top_n=TOP_N,
+    )
     rebalance_rows = []
     for days in REBALANCE_DAYS:
         weights = apply_rebalance_schedule(equal.target_weights, every=days, start=start_date)
@@ -540,7 +557,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                     correlation_shrinkage=0.5,
                 ),
             }
-        combo = combine_factor_scores(ranked_core, method=method, top_n=TOP_N, **kwargs)
+        combo = combine_factor_scores(
+            raw_core,
+            method=method,
+            directions=core_directions,
+            normalization=args.normalization,
+            top_n=TOP_N,
+            **kwargs,
+        )
         held = apply_rebalance_schedule(
             combo.target_weights, every=baseline, start=start_date
         )
@@ -567,7 +591,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     single_rows = []
     for name in core:
-        single = combine_factor_scores({name: ranked_core[name]}, method="equal_rank", top_n=TOP_N)
+        single = combine_factor_scores(
+            {name: raw_factors[name]},
+            method="equal_rank",
+            directions={name: factor_directions[name]},
+            normalization=args.normalization,
+            top_n=TOP_N,
+        )
         held = apply_rebalance_schedule(
             single.target_weights, every=baseline, start=start_date
         )
@@ -634,6 +664,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             for name, (_func, params, direction, source, label) in FACTOR_SPECS.items()
         },
         "selected_core_factors": core,
+        "factor_normalization": args.normalization,
         "selected_rebalance_days": baseline,
         "evidence_selected_rebalance_days": evidence_selected_baseline,
         "rebalance_override": args.baseline_rebalance_days,
@@ -677,6 +708,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"--calibration-end {calibration_end}",
         f"--oos-start {oos_start}",
         f"--end {end_date}",
+        f"--normalization {args.normalization}",
         *(
             [f"--baseline-rebalance-days {args.baseline_rebalance_days}"]
             if args.baseline_rebalance_days is not None
@@ -693,6 +725,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "- IC：横截面 Spearman；收益从信号后一日开始；Horizon 与 Lag 分开。",
         "- 重叠收益：Newey–West HAC，滞后阶数 H-1。",
         f"- 核心因子：{', '.join(core)}。",
+        f"- 因子预处理：统一方向后逐日做横截面 {args.normalization} 归一化。",
         f"- 课堂基准调仓周期：{baseline} 个交易日。动态 IC 在 {SIGNAL_LAG + baseline} 日后才进入权重。",
         f"- 回测：Top 3 ETF 资产等权，佣金 {args.commission_bp:g}bp + 滑点 {slippage_bp:g}bp = 单边总成本 {total_cost_bp:g}bp。",
         "",

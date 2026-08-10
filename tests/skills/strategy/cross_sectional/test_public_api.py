@@ -49,6 +49,7 @@ def test_reusable_domain_exports_selection_exit_and_risk_types() -> None:
         "apply_risk_controls",
         "combine_factor_scores",
         "drawdown_from_high_filter",
+        "normalize_factor_frames",
         "universe_vol_exposure",
         "top_n_weights",
     }

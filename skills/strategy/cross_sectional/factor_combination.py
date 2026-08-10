@@ -12,6 +12,7 @@ import pandas as pd
 from skills.strategy.cross_sectional.selection import top_n_weights
 
 CombinationMethod = Literal["equal_rank", "equal_vote", "rolling_ic", "rolling_icir", "max_icir"]
+NormalizationMethod = Literal["rank", "zscore"]
 
 
 @dataclass(frozen=True)
@@ -57,14 +58,38 @@ def orient_factor_frames(
     return {name: frame * float(directions[name]) for name, frame in factors.items()}
 
 
-def rank_factor_frames(factors: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """Convert direction-corrected factor values to daily percentile ranks."""
+def normalize_factor_frames(
+    factors: Mapping[str, pd.DataFrame],
+    *,
+    method: NormalizationMethod = "rank",
+) -> dict[str, pd.DataFrame]:
+    """Normalize direction-corrected factors across assets on every date."""
     if not factors:
         raise ValueError("factors cannot be empty")
-    return {
-        name: frame.rank(axis=1, pct=True, method="average").replace([np.inf, -np.inf], np.nan)
-        for name, frame in factors.items()
-    }
+    if method not in {"rank", "zscore"}:
+        raise ValueError("method must be 'rank' or 'zscore'")
+
+    normalized = {}
+    for name, frame in factors.items():
+        clean = frame.replace([np.inf, -np.inf], np.nan)
+        if method == "rank":
+            normalized[name] = clean.rank(axis=1, pct=True, method="average")
+            continue
+
+        mean = clean.mean(axis=1)
+        std = clean.std(axis=1, ddof=0)
+        values = clean.sub(mean, axis=0).div(std.where(std.ne(0.0)), axis=0)
+        constant_rows = std.eq(0.0) & clean.notna().any(axis=1)
+        if constant_rows.any():
+            constant_values = clean.loc[constant_rows]
+            values.loc[constant_rows] = constant_values.where(constant_values.isna(), 0.0)
+        normalized[name] = values
+    return normalized
+
+
+def rank_factor_frames(factors: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Convert direction-corrected factor values to daily percentile ranks."""
+    return normalize_factor_frames(factors, method="rank")
 
 
 def _cap_simplex(weights: np.ndarray, cap: float) -> np.ndarray:
@@ -193,8 +218,8 @@ def estimate_factor_weights(
     return pd.DataFrame(rows, index=dates, columns=names)
 
 
-def combine_factor_scores(
-    ranked_factors: Mapping[str, pd.DataFrame],
+def _combine_normalized_factor_scores(
+    normalized_factors: Mapping[str, pd.DataFrame],
     *,
     method: CombinationMethod,
     top_n: int = 3,
@@ -202,12 +227,10 @@ def combine_factor_scores(
     correlation_history: pd.DataFrame | None = None,
     dynamic_config: DynamicFactorWeightConfig | None = None,
 ) -> FactorCombinationResult:
-    """Combine factors, then select Top-N assets at equal asset weights."""
-    if not ranked_factors:
-        raise ValueError("ranked_factors cannot be empty")
-    names = list(ranked_factors)
-    first = ranked_factors[names[0]]
-    frames = {name: frame.reindex_like(first) for name, frame in ranked_factors.items()}
+    """Combine already normalized factors without applying preprocessing."""
+    names = list(normalized_factors)
+    first = normalized_factors[names[0]]
+    frames = {name: frame.reindex_like(first) for name, frame in normalized_factors.items()}
     factor_weights = estimate_factor_weights(
         method=method,
         factor_names=names,
@@ -218,14 +241,17 @@ def combine_factor_scores(
     )
 
     if method == "equal_vote":
+        available_count = sum(frame.notna().astype(int) for frame in frames.values())
         votes = sum(
             (frame.rank(axis=1, ascending=False, method="first").le(top_n) & frame.notna()).astype(
                 float
             )
             for frame in frames.values()
         )
-        tie_break = sum(frames.values()) / float(len(names))
-        composite = votes + tie_break.fillna(0.0) * 1e-3
+        tie_break = sum(frame.fillna(0.0) for frame in frames.values()).div(
+            available_count.where(available_count.gt(0))
+        )
+        composite = (votes + tie_break * 1e-3).where(available_count.gt(0))
     else:
         weighted = [frames[name].mul(factor_weights[name], axis=0) for name in names]
         numerator = sum(frame.fillna(0.0) for frame in weighted)
@@ -235,12 +261,48 @@ def combine_factor_scores(
     return FactorCombinationResult(factor_weights, composite, targets)
 
 
+def combine_factor_scores(
+    factors: Mapping[str, pd.DataFrame],
+    *,
+    method: CombinationMethod,
+    directions: Mapping[str, int],
+    normalization: NormalizationMethod = "rank",
+    top_n: int = 3,
+    ic_history: pd.DataFrame | None = None,
+    correlation_history: pd.DataFrame | None = None,
+    dynamic_config: DynamicFactorWeightConfig | None = None,
+) -> FactorCombinationResult:
+    """Safely preprocess and combine raw factors into Top-N asset weights.
+
+    The public entry point always applies two steps before combination:
+
+    1. orient every factor so larger values imply higher expected returns;
+    2. normalize each factor across assets on every date using percentile rank
+       or population z-score.
+
+    Pass raw factor frames and an explicit direction for every factor. Do not
+    pre-normalize inputs or call the private combination helper from workflows.
+    """
+    oriented = orient_factor_frames(factors, directions)
+    normalized = normalize_factor_frames(oriented, method=normalization)
+    return _combine_normalized_factor_scores(
+        normalized,
+        method=method,
+        top_n=top_n,
+        ic_history=ic_history,
+        correlation_history=correlation_history,
+        dynamic_config=dynamic_config,
+    )
+
+
 __all__ = [
     "CombinationMethod",
     "DynamicFactorWeightConfig",
     "FactorCombinationResult",
+    "NormalizationMethod",
     "combine_factor_scores",
     "estimate_factor_weights",
+    "normalize_factor_frames",
     "orient_factor_frames",
     "rank_factor_frames",
 ]

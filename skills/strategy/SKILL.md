@@ -19,6 +19,7 @@ from skills.strategy.cross_sectional import (
     apply_rebalance_schedule,
     combine_factor_scores,
     estimate_factor_weights,
+    normalize_factor_frames,
     rank_factor_frames,
     top_n_weights,
 )
@@ -50,10 +51,8 @@ strategy results should still use explicit target weights plus `VectorBacktester
 from skills.strategy.cross_sectional import (
     DynamicFactorWeightConfig,
     combine_factor_scores,
-    rank_factor_frames,
 )
 
-ranked = rank_factor_frames(direction_corrected_factors)
 config = DynamicFactorWeightConfig(
     availability_delay=signal_lag + horizon,
     lookback=252,
@@ -62,8 +61,10 @@ config = DynamicFactorWeightConfig(
     correlation_shrinkage=0.5,
 )
 result = combine_factor_scores(
-    ranked,
+    raw_factors,
     method="max_icir",
+    directions=factor_directions,
+    normalization="rank",
     top_n=3,
     ic_history=ic_history,
     correlation_history=rolling_rank_correlations,
@@ -76,7 +77,10 @@ correlation-aware maximum ICIR. `result.factor_weights` is the factor-level
 voice in the composite score; `result.target_weights` is the separate asset
 allocation produced after Top-N selection. Maximum ICIR requires tidy
 correlation history with columns `eob`, `factor_a`, `factor_b`, and
-`correlation`.
+`correlation`. The public combination entry point always applies factor
+direction and daily cross-sectional normalization. Use `normalization="rank"`
+for robust percentile ranks or `normalization="zscore"` to retain relative
+score distance; do not pre-normalize inputs.
 
 ## Time-series recipe
 

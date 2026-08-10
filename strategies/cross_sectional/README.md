@@ -30,8 +30,11 @@ in `skills.backtest.VectorBacktester`.
 
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
-uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor
+uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor --normalization rank
 ```
+
+The multifactor workflow defaults to daily cross-sectional percentile ranks;
+use `--normalization zscore` for population z-scores.
 
 The input panel must use MultiIndex `(symbol, eob)` and OHLCV columns.
 

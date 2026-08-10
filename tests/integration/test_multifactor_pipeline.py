@@ -76,7 +76,14 @@ def test_multifactor_information_to_costed_backtest_pipeline() -> None:
             kwargs = {"ic_history": ic_history, "dynamic_config": config}
         if method == "max_icir":
             kwargs["correlation_history"] = correlations
-        combination = combine_factor_scores(ranked, method=method, top_n=3, **kwargs)
+        combination = combine_factor_scores(
+            factors,
+            method=method,
+            directions=dict.fromkeys(factors, 1),
+            normalization="rank",
+            top_n=3,
+            **kwargs,
+        )
         targets = apply_rebalance_schedule(
             combination.target_weights, every=5, start=prices.index[30]
         )

@@ -28,8 +28,10 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
-uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor
+uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor --normalization rank
 ```
+
+多因子工作流默认使用逐日横截面百分位排名；可改为 `--normalization zscore`。
 
 输入 panel 必须使用 MultiIndex `(symbol, eob)` 和 OHLCV 列。
 
