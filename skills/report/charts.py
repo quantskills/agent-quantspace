@@ -266,6 +266,59 @@ def plot_ic_heatmap(
     return _fig_to_png(fig, dpi=dpi)
 
 
+def plot_rolling_pair_correlation(
+    history: pd.DataFrame,
+    *,
+    title: str = "Rolling factor rank correlation",
+    dpi: int = 180,
+) -> bytes:
+    """Plot tidy pairwise rolling-correlation histories as small multiples.
+
+    ``history`` must contain ``factor_a``, ``factor_b``, ``eob``, and
+    ``correlation`` columns, matching
+    :func:`skills.analyze.factor_information.rolling_factor_rank_correlation`.
+    """
+    required = {"factor_a", "factor_b", "eob", "correlation"}
+    missing = sorted(required.difference(history.columns))
+    if missing:
+        raise ValueError(f"history is missing required columns: {missing}")
+
+    data = history.copy()
+    data["eob"] = pd.to_datetime(data["eob"])
+    pairs = data[["factor_a", "factor_b"]].drop_duplicates().itertuples(
+        index=False, name=None
+    )
+    pair_list = list(pairs)
+    columns = 3
+    rows = max(1, int(np.ceil(len(pair_list) / columns)))
+    fig, axes = plt.subplots(
+        rows,
+        columns,
+        figsize=(15, 2.45 * rows),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    for ax, (left, right) in zip(axes.flat, pair_list, strict=False):
+        pair = data[(data["factor_a"] == left) & (data["factor_b"] == right)].sort_values(
+            "eob"
+        )
+        ax.plot(pair["eob"], pair["correlation"], color="#2f6f9f", linewidth=1.1)
+        ax.axhline(0.0, color="#6b7280", linewidth=0.7)
+        ax.set_title(f"{left} / {right}", fontsize=8)
+        ax.set_ylim(-1.0, 1.0)
+        ax.grid(alpha=0.15)
+    for ax in axes.flat[len(pair_list) :]:
+        ax.set_axis_off()
+    for ax in axes[-1, :]:
+        ax.set_xlabel("Date")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Correlation")
+    fig.suptitle(title, x=0.08, ha="left", fontweight="bold")
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.98))
+    return _fig_to_png(fig, dpi=dpi)
+
+
 def plot_horizon_ic(
     summary: pd.DataFrame,
     *,

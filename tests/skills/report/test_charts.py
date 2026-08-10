@@ -13,6 +13,7 @@ from skills.report.charts import (
     plot_ic_heatmap,
     plot_lagged_ic,
     plot_rebalance_comparison,
+    plot_rolling_pair_correlation,
 )
 
 
@@ -100,6 +101,17 @@ def test_multifactor_chart_helpers_return_png_bytes() -> None:
             for i, date in enumerate(dates)
         ]
     )
+    rolling_correlation = pd.DataFrame(
+        [
+            {
+                "factor_a": "a",
+                "factor_b": "b",
+                "eob": date,
+                "correlation": 0.1 + 0.05 * i,
+            }
+            for i, date in enumerate(dates)
+        ]
+    )
     charts = [
         plot_horizon_ic(summary, factors=["a", "b"], segment="calibration"),
         plot_lagged_ic(summary, factors=["a", "b"], segment="calibration"),
@@ -107,5 +119,6 @@ def test_multifactor_chart_helpers_return_png_bytes() -> None:
         plot_rebalance_comparison(rebalance, selected_days=5),
         plot_factor_weight_history(factor_weights),
         plot_equity_comparison(equities, start="2024-01-01", title="Comparison"),
+        plot_rolling_pair_correlation(rolling_correlation),
     ]
     assert all(_is_png(chart) for chart in charts)
