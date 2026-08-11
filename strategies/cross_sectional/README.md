@@ -17,10 +17,13 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `asset_class_rotation.py`: explicit 18-proxy global-asset ETF/LOF universe and
   a 20/60/120-day composite-momentum Top-3 rotation rule.
 - `rules.py`: rule-based cross-sectional weight helpers.
-- `ml_rank.py`: rank labels, generic factors, and XGBoost rank weights.
+- `ml_rank.py`: rank labels plus expanding PCA model scores/weights on top of the
+  `skills.compute.features` LogDiff panel.
 - `workflows/run_demo.py`: the runnable public strategy workflow.
 - `workflows/run_lesson06_multifactor.py`: reproducible Horizon/Lagged IC,
   correlation, rebalance, and five-method multi-factor experiment.
+- `workflows/run_lesson07_etf18_logdiff_pca_ml.py`: 18-ETF LogDiff + expanding
+  PCA + lasso/rf/xgboost rank comparison with equal-weight Top-3 backtest.
 
 Factor-frame construction, selection, risk controls, and `ModularBacktester`
 live in `skills.strategy.cross_sectional`. Execution and return accounting live
@@ -31,6 +34,7 @@ in `skills.backtest.VectorBacktester`.
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
 uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor --normalization rank
+uv run python -m strategies.cross_sectional.workflows.run_lesson07_etf18_logdiff_pca_ml
 ```
 
 The multifactor workflow defaults to daily cross-sectional percentile ranks;

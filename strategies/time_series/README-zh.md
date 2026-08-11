@@ -12,6 +12,7 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 
 - `features.py`：公开价格/成交量特征 helper。
 - `rules.py`：规则类单品种权重 helper。
+- `cashflow_total_return_mean_reversion.py`：有仓位上限的核心仓/卫星仓均值回归规则。
 - `ml.py`：三重屏障 XGBoost 信号到权重 helper。
 - `workflows/run_demo.py`：不注入路径、通过模块运行的公开 demo。
 - `STRATEGY.md`：策略域说明和端到端示例。
@@ -28,4 +29,6 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 
 ```bash
 uv run python -m strategies.time_series.workflows.run_demo
+uv run python -m strategies.time_series.workflows.run_cashflow_total_return_mean_reversion_is
+uv run python -m strategies.time_series.workflows.run_cashflow_split_2014_2023
 ```

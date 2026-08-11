@@ -54,8 +54,12 @@ def test_vector_backtester_runs_from_weight_matrix() -> None:
     assert "2024_return" in annual_return_metrics(result.result_df)
 
 
-def test_vector_backtester_backward_mode_requires_explicit_opt_in() -> None:
+def test_vector_backtester_always_uses_forward_returns() -> None:
+    import inspect
+
     from skills.backtest import VectorBacktester
+
+    assert "return_mode" not in inspect.signature(VectorBacktester).parameters
 
     weights = pd.DataFrame(
         {
@@ -71,10 +75,9 @@ def test_vector_backtester_backward_mode_requires_explicit_opt_in() -> None:
         signal_lag=0,
         commission=0.0,
         slippage_bp=0.0,
-        return_mode="backward",
     ).run(weights)
 
-    assert result.result_df["return"].tolist() == pytest.approx([0.1, 0.1, 0.0])
+    assert result.result_df["return"].tolist() == pytest.approx([0.1, 0.1])
 
 
 def test_vector_backtester_requires_explicit_costs() -> None:

@@ -24,7 +24,6 @@ def test_signal_executor_delegates_target_weights_to_vector_backtester() -> None
         signal_lag=1,
         commission=0.0002,
         slippage_bp=2.0,
-        return_mode="forward",
     )
     result = executor.run(_signal_frame(weights))
     direct = VectorBacktester(
@@ -32,7 +31,6 @@ def test_signal_executor_delegates_target_weights_to_vector_backtester() -> None
         signal_lag=1,
         commission=0.0002,
         slippage_bp=2.0,
-        return_mode="forward",
     ).run(weights)
 
     pd.testing.assert_frame_equal(result.executed_weights, direct.executed_weights)

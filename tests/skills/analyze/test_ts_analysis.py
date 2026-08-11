@@ -9,6 +9,8 @@ from skills.analyze.ts_analysis import (
     analysis_results_to_df,
     ensure_dir_and_get_path,
     half_life_of_mean_reversion,
+    qq_analysis,
+    ts_analysis,
 )
 
 
@@ -20,12 +22,47 @@ def test_analysis_results_to_df_flattens_kde_metrics() -> None:
                 1: {"peak_height": 0.4, "skew_feature": "symmetric"},
                 2: {"peak_height": 0.5, "skew_feature": "right_skew"},
             },
+            "qq": {
+                1: {"qq_deviation": 0.1},
+                2: {"qq_deviation": 0.2},
+            },
         }
     )
 
     assert list(frame.index) == [1, 2]
     assert frame.loc[2, "kde_skew_feature"] == "right_skew"
+    assert frame.loc[2, "qq_qq_deviation"] == pytest.approx(0.2)
     assert frame["price_length"].eq(100).all()
+
+
+def test_qq_analysis_is_deterministic() -> None:
+    import matplotlib.pyplot as plt
+
+    price = pd.Series(np.exp(np.linspace(0.0, 0.2, 100) + np.sin(np.arange(100)) * 0.01))
+
+    first, first_ax = qq_analysis(price, show=False)
+    second, second_ax = qq_analysis(price, show=False)
+
+    assert first[1]["qq_deviation"] == pytest.approx(second[1]["qq_deviation"])
+    plt.close(first_ax.figure)
+    plt.close(second_ax.figure)
+
+
+def test_ts_analysis_includes_qq_plot_and_csv(tmp_path) -> None:
+    import matplotlib.pyplot as plt
+
+    rng = np.random.default_rng(42)
+    price = pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, 100))))
+    base_path = tmp_path / "asset.png"
+
+    fig, axes = ts_analysis(price, plot_path=base_path, show=False, save_csv=True)
+
+    assert len(axes) == 2
+    assert "QQ plot" in axes[1].get_title()
+    assert (tmp_path / "asset_ts.png").is_file()
+    csv = pd.read_csv(tmp_path / "asset_ts.csv", index_col="lag")
+    assert {"kde_peak_height", "qq_qq_deviation"}.issubset(csv.columns)
+    plt.close(fig)
 
 
 def test_time_series_analyzer_result_dataframe_classifies_cached_results() -> None:

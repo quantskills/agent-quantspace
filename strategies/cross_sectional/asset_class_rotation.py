@@ -36,9 +36,11 @@ DEFAULT_MOMENTUM_LOOKBACKS = (20, 60, 120)
 DEFAULT_REBALANCE_DAYS = 20
 DEFAULT_TOP_N = 3
 
-# Publicly disclosed ETF share splits. Raw PandaData bars retain the pre-split
-# price scale through the suspended split date, so reports apply these events
-# before computing either signals or execution returns.
+# Publicly disclosed ETF share splits. Raw ``1d`` PandaData bars retain the
+# pre-split price scale through the suspended split date, so callers that read
+# unadjusted ``1d`` should apply these events before signals/backtests.
+# Do **not** apply on top of ``1d_adj`` — that series is already adjusted and a
+# second forward-adjust invents fake +100%–400% one-day returns.
 ASSET_CLASS_SPLIT_EVENTS = {
     "SHSE.513100": (("2022-01-13", 5.0),),
     "SHSE.513500": (("2022-03-29", 2.0),),

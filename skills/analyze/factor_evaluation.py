@@ -2,8 +2,7 @@
 
 Execution-aligned return labels
 -------------------------------
-Predictive/group/pool labels and formal VectorBacktester semantics share one
-canonical definition over ``protocol.trade_at`` prices:
+Predictive/group/pool labels are defined over ``protocol.trade_at`` prices:
 
 Let ``P`` be the trade_at price, ``L = signal_lag``, ``H = horizon_bars``.
 
@@ -15,10 +14,9 @@ Let ``P`` be the trade_at price, ``L = signal_lag``, ``H = horizon_bars``.
   ``t+L``).
 
 Missing prices never fabricate returns (no fill across gaps). Formal trading
-via VectorBacktester is available only when ``H == 1`` (engine is one-bar);
-otherwise trading is explicitly unavailable. When available, ``trade_at``,
-``signal_lag`` and ``return_mode`` are passed through unchanged so IC and
-formal trading refer to the same executable interval.
+via VectorBacktester is available only when ``H == 1`` and
+``return_mode="forward"`` because the engine always measures the next bar's
+return. Otherwise trading is explicitly unavailable.
 """
 
 from __future__ import annotations
@@ -366,7 +364,7 @@ def _rebalance_dates(dates: pd.DatetimeIndex | list[Any], rebalance: str) -> lis
 def formal_trading_supported(protocol: ProtocolSnapshot) -> tuple[bool, str | None]:
     if protocol.horizon_bars != 1:
         return False, "horizon_holding_not_representable_by_vector_backtester"
-    if protocol.return_mode not in {"forward", "backward"}:
+    if protocol.return_mode != "forward":
         return False, "unsupported_return_mode"
     if protocol.trade_at not in {"open", "close"}:
         return False, "unsupported_trade_at"
@@ -865,7 +863,6 @@ def run_formal_backtest(
             signal_lag=int(protocol.signal_lag),
             commission=float(protocol.commission),
             slippage_bp=slippage_bp,
-            return_mode=protocol.return_mode,
         )
         result = engine.run(weights)
     except Exception as exc:  # noqa: BLE001

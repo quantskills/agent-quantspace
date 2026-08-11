@@ -2,36 +2,25 @@
 
 from __future__ import annotations
 
-from itertools import product
-
 import numpy as np
 import pandas as pd
 
+from skills.compute.features import make_logdiff_features
 
-def _make_logdiff_features(bars: pd.DataFrame, lookback: int) -> pd.DataFrame:
-    """Build OHLC log-difference features for the public time-series strategy."""
-    if lookback < 1:
-        raise ValueError("diff_lookback must be positive.")
-    base_factors = ["open", "close", "high", "low"]
-    missing = [column for column in base_factors if column not in bars.columns]
-    if missing:
-        raise ValueError(f"bars is missing OHLC columns: {missing}")
-
-    log_bars = pd.DataFrame(
-        {column: np.log(bars[column].astype(float)) for column in base_factors},
-        index=bars.index,
-    )
-    features: dict[str, pd.Series] = {}
-    for left, right, lag in product(base_factors, base_factors, [1, 2, 3, 4, 5]):
-        base = log_bars[left] - log_bars[right].shift(lag)
-        for shift in range(lookback):
-            features[f"logdiff_{left}_{right}{lag}_shift{shift}"] = base.shift(shift)
-    return pd.DataFrame(features, index=bars.index)
+# Public time-series recipe keeps the original lag/shift grid (lags 1..5,
+# shifts 0..diff_lookback-1) rather than the reference notebook's full 1440d set.
 
 
 def make_price_volume_features(bars: pd.DataFrame, diff_lookback: int = 5) -> pd.DataFrame:
     """Build public OHLCV features used by the time-series ML example."""
-    features = _make_logdiff_features(bars, lookback=diff_lookback)
+    if diff_lookback < 1:
+        raise ValueError("diff_lookback must be positive.")
+    features = make_logdiff_features(
+        bars,
+        lags=(1, 2, 3, 4, 5),
+        shifts=tuple(range(diff_lookback)),
+        lookback=diff_lookback,
+    )
     close = bars["close"].astype(float)
     high = bars["high"].astype(float)
     low = bars["low"].astype(float)

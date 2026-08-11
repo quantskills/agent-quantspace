@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -28,6 +30,24 @@ def top_n_weights(
     return weights.fillna(0.0) * gross_exposure
 
 
+def hold_weights_on_calendar(
+    weights: pd.DataFrame,
+    *,
+    dates: pd.Index,
+    symbols: pd.Index | Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Forward-hold signal-day target weights across a full trading calendar.
+
+    Signals produced on a subset of trading days (walk-forward predict windows,
+    scheduled rebalances) are held until the next signal; days before the first
+    signal are flat. ``symbols`` reindexes columns to the tradable universe.
+    """
+    aligned = weights.reindex(pd.Index(dates)).ffill().fillna(0.0)
+    if symbols is None:
+        return aligned
+    return aligned.reindex(columns=pd.Index(symbols)).fillna(0.0)
+
+
 def apply_rebalance_schedule(
     weights: pd.DataFrame,
     *,
@@ -47,4 +67,4 @@ def apply_rebalance_schedule(
     return sampled.ffill().fillna(0.0)
 
 
-__all__ = ["apply_rebalance_schedule", "top_n_weights"]
+__all__ = ["apply_rebalance_schedule", "hold_weights_on_calendar", "top_n_weights"]

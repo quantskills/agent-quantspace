@@ -26,7 +26,11 @@ from skills.strategy.cross_sectional.factor_combination import (
 from skills.strategy.cross_sectional.factor_frame import FactorFrameBuilder, FactorFrameBuildResult
 from skills.strategy.cross_sectional.modular_backtester import ModularBacktester
 from skills.strategy.cross_sectional.risk_controls import apply_risk_controls, universe_vol_exposure
-from skills.strategy.cross_sectional.selection import apply_rebalance_schedule, top_n_weights
+from skills.strategy.cross_sectional.selection import (
+    apply_rebalance_schedule,
+    hold_weights_on_calendar,
+    top_n_weights,
+)
 from skills.strategy.cross_sectional.signals_base import BaseStrategy
 from skills.strategy.cross_sectional.signals_base import (
     StrategyContext as CrossSectionalStrategyContext,
@@ -65,6 +69,7 @@ __all__ = [
     "consecutive_loss_filter",
     "drawdown_from_high_filter",
     "gap_down_filter",
+    "hold_weights_on_calendar",
     "universe_vol_exposure",
     "soft_dd_scaledown",
     "soft_vol_hysteresis",

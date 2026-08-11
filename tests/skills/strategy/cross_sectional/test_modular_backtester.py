@@ -33,7 +33,6 @@ def test_modular_backtester_runs_through_vector_backtester() -> None:
         signal_lag=1,
         commission=0.0001,
         slippage_bp=1.0,
-        return_mode="forward",
     ).run(bt.signal_weights)
     pd.testing.assert_frame_equal(bt.executed_weights, direct.executed_weights)
     pd.testing.assert_frame_equal(bt.result_df, direct.result_df)
@@ -47,16 +46,4 @@ def test_modular_backtester_requires_explicit_slippage() -> None:
         ModularBacktester(
             data=panel,
             factor_configs=[{"func": momentum_score, "kwargs": {"lookback": 2}}],
-        )
-
-
-def test_modular_backtester_validates_return_mode() -> None:
-    panel = make_panel(symbols=("AAA", "BBB"), periods=8)
-
-    with pytest.raises(ValueError, match="return_mode"):
-        ModularBacktester(
-            data=panel,
-            factor_configs=[{"func": momentum_score, "kwargs": {"lookback": 2}}],
-            slippage_bp=0.0,
-            return_mode="same_bar",
         )

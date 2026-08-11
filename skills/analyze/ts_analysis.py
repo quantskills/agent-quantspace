@@ -168,7 +168,11 @@ def kde_analysis(price, plot_title="", plot_path=None, ax=None, show=True):
 
 
 def qq_analysis(price, plot_title="", plot_path=None, ax=None, show=True):
-    """QQ plots of log returns vs normal for selected lags."""
+    """QQ plots of log returns vs normal for selected lags.
+
+    The theoretical quantiles are deterministic standard-normal quantiles,
+    rather than a random normal sample, so repeated analyses are reproducible.
+    """
     plt, _ = _import_matplotlib()
     _, stats = _import_signal_stats()
 
@@ -195,7 +199,8 @@ def qq_analysis(price, plot_title="", plot_path=None, ax=None, show=True):
         kurtosis = stats.kurtosis(standard_returns)
         skewness = stats.skew(standard_returns)
 
-        theoretical_quantiles = np.sort(np.random.normal(0, 1, len(standard_returns)))
+        probabilities = (np.arange(len(standard_returns)) + 0.5) / len(standard_returns)
+        theoretical_quantiles = stats.norm.ppf(probabilities)
         ordered_vals = np.sort(standard_returns)
 
         qq_deviation = np.sqrt(np.mean((theoretical_quantiles - ordered_vals) ** 2))
@@ -213,7 +218,8 @@ def qq_analysis(price, plot_title="", plot_path=None, ax=None, show=True):
         returns = np.log(price).diff(lag).dropna()
         standard_returns = (returns - returns.mean()) / returns.std()
 
-        theoretical_quantiles = np.sort(np.random.normal(0, 1, len(standard_returns)))
+        probabilities = (np.arange(len(standard_returns)) + 0.5) / len(standard_returns)
+        theoretical_quantiles = stats.norm.ppf(probabilities)
         ordered_vals = np.sort(standard_returns)
 
         color = colors[i % len(colors)]
@@ -239,15 +245,23 @@ def qq_analysis(price, plot_title="", plot_path=None, ax=None, show=True):
 
 
 def analysis_results_to_df(analysis_results: dict):
-    all_lags = sorted(analysis_results["kde"].keys())
+    analysis_types = ("kde", "qq")
+    all_lags = sorted(
+        {
+            lag
+            for analysis_type in analysis_types
+            for lag in analysis_results.get(analysis_type, {})
+        }
+    )
 
     rows = []
     for lag in all_lags:
         row = {"lag": lag}
 
-        if lag in analysis_results["kde"]:
-            for key, value in analysis_results["kde"][lag].items():
-                row[f"kde_{key}"] = value
+        for analysis_type in analysis_types:
+            if lag in analysis_results.get(analysis_type, {}):
+                for key, value in analysis_results[analysis_type][lag].items():
+                    row[f"{analysis_type}_{key}"] = value
 
         row["price_length"] = analysis_results["price_length"]
 
@@ -258,15 +272,23 @@ def analysis_results_to_df(analysis_results: dict):
 
 
 def ts_analysis(price, plot_title="", plot_path=None, show=True, save_csv=False):
-    """Run KDE summary plot (and optional CSV export)."""
+    """Run KDE and normal QQ return-distribution analysis.
+
+    ``price`` is a price-level series. Both analyses derive standardized log
+    returns for lags 1 through 34. When ``plot_path`` is provided, the combined
+    chart is saved with a ``_ts.png`` suffix; ``save_csv=True`` additionally
+    writes the per-lag KDE and QQ metrics to ``_ts.csv``.
+    """
     plt, _ = _import_matplotlib()
 
-    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
 
     analysis_results = {"price_length": len(price)}
 
-    kde_results, _ = kde_analysis(price, plot_title, ax=ax, show=False)
+    kde_results, _ = kde_analysis(price, plot_title, ax=axes[0], show=False)
     analysis_results["kde"] = kde_results
+    qq_results, _ = qq_analysis(price, plot_title, ax=axes[1], show=False)
+    analysis_results["qq"] = qq_results
 
     if plot_title:
         fig.suptitle(f"{plot_title} time-series summary, bars={len(price)}", fontsize=16)
@@ -277,14 +299,14 @@ def ts_analysis(price, plot_title="", plot_path=None, show=True, save_csv=False)
         plt.show()
 
     if plot_path:
-        save_path = ensure_dir_and_get_path(plot_path, "_kde.png")
+        save_path = ensure_dir_and_get_path(plot_path, "_ts.png")
         plt.savefig(save_path, bbox_inches="tight", dpi=150)
         if save_csv:
-            kde_csv_path = ensure_dir_and_get_path(plot_path, "_kde.csv")
-            analysis_results_to_df(analysis_results).to_csv(kde_csv_path)
-            logger.info("KDE results saved to %s", kde_csv_path)
+            csv_path = ensure_dir_and_get_path(plot_path, "_ts.csv")
+            analysis_results_to_df(analysis_results).to_csv(csv_path)
+            logger.info("KDE/QQ results saved to %s", csv_path)
 
-    return fig, ax
+    return fig, axes
 
 
 def _period_ts_analysis(price, period, period_index):

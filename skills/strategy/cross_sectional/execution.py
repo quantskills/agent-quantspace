@@ -20,7 +20,6 @@ class SignalBacktestExecutor:
         slippage_bp: float,
         start_date: str | None = None,
         end_date: str | None = None,
-        return_mode: str = "forward",
         enforce_trade_constraints: bool = False,
     ) -> None:
         self.data = data
@@ -30,7 +29,6 @@ class SignalBacktestExecutor:
         self.slippage_bp = float(slippage_bp)
         self.start_date = start_date
         self.end_date = end_date
-        self.return_mode = return_mode
         self.enforce_trade_constraints = bool(enforce_trade_constraints)
         self.executed_weights: pd.DataFrame | None = None
         self.result_df: pd.DataFrame | None = None
@@ -58,7 +56,6 @@ class SignalBacktestExecutor:
             slippage_bp=self.slippage_bp,
             start_date=self.start_date,
             end_date=self.end_date,
-            return_mode=self.return_mode,
             enforce_trade_constraints=self.enforce_trade_constraints,
         ).run(self._target_weights(signal_df))
         self.executed_weights = result.executed_weights

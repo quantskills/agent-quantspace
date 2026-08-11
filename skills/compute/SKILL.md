@@ -11,6 +11,7 @@ Compute derived values from OHLCV data. This skill is organized in reusable, str
 |-------|--------|----------|
 | **Utils** | `skills.compute.utils` | Math primitives: `safe_divide`, `rolling_zscore`, `calculate_atr`, `clip_outliers`, etc. |
 | **Indicators** | `skills.compute.indicators` | 41 public technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
+| **Features** | `skills.compute.features` | Strategy-agnostic OHLCV feature builders such as `make_logdiff_features` |
 
 Also: label makers (`label_maker.py`), compact generic factor examples, and the `Factor` wrapper.
 
@@ -19,7 +20,7 @@ Shared market-structure helpers used by strategy domains:
 - `skills.compute.resample.resample_to_5m(df_1m)` — A-share 1m eob OHLCV to 5m eob bars without crossing lunch break; keeps `09:31-11:30` and `13:01-15:00`, removes zero-volume rows, and preserves OHLCV aggregation.
 - `skills.compute.regime.split_by_regime(df, regimes=None)` — lithium-cycle date slicing for DatetimeIndex or MultiIndex inputs.
 
-**Strategy-specific factors and feature engineering** live in `strategies/`, not here.
+**Strategy-specific factors and feature engineering** live in `strategies/`, not here — except generic single-instrument OHLCV transforms such as log-difference grids, which belong in `skills.compute.features`.
 
 ## Prerequisites
 
@@ -30,6 +31,7 @@ Shared market-structure helpers used by strategy domains:
   - `from skills.compute.wrappers import Factor`
   - `from skills.compute.resample import resample_to_5m`
   - `from skills.compute.regime import split_by_regime`
+  - `from skills.compute.features import make_logdiff_features, default_logdiff_shifts`
 
 ## API Reference
 
@@ -115,6 +117,21 @@ scores = factor.calculate(panel)
 
 **4. Exit filter in a backtest**  
 Pass `{'func': drawdown_from_high_filter, 'kwargs': {...}, 'condition': lambda x: x < 0.1}` in `exit_filters` on `ModularBacktester` (see strategy domain doc).
+
+### OHLCV Features (`skills.compute.features`)
+
+```python
+from skills.compute.features import (
+    default_logdiff_shifts,
+    make_logdiff_features,
+    make_logdiff_panel_features,
+)
+```
+
+- `make_logdiff_features(bars, *, factors=..., lags=..., shifts=None, lookback=5)` — single-symbol OHLC log-difference grid. Default aligns with the lesson-07 reference notebook: 4×4 factor pairs × 9 lags × 10 shifts = **1440** columns when `lookback=5`. Non-positive prices become NaN instead of `-inf`.
+- `make_logdiff_panel_features(panel, ...)` — same grid applied per symbol on a `(symbol, eob)` panel, non-finite rows dropped, so the result is model-ready. Build once and reuse across horizons/models.
+- `default_logdiff_shifts(lookback)` — `{0..lookback-1} ∪ {5,10,...,lookback*5}`.
+- No duplicate log-difference implementation under `strategies/`.
 
 ### Label Generation (`skills.compute.label_maker`)
 

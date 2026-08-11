@@ -12,6 +12,7 @@ raw OHLCV bars -> features/rules/triple-barrier labels -> weights -> VectorBackt
 
 - `features.py`: public price/volume feature helpers.
 - `rules.py`: rule-based single-instrument weight helpers.
+- `cashflow_total_return_mean_reversion.py`: bounded core-satellite mean-reversion rules.
 - `ml.py`: triple-barrier XGBoost signal-to-weight helpers.
 - `workflows/run_demo.py`: module-based public demo without path injection.
 - `STRATEGY.md`: domain guide and end-to-end example.
@@ -28,4 +29,6 @@ Private label experiments are outside the open-source boundary.
 
 ```bash
 uv run python -m strategies.time_series.workflows.run_demo
+uv run python -m strategies.time_series.workflows.run_cashflow_total_return_mean_reversion_is
+uv run python -m strategies.time_series.workflows.run_cashflow_split_2014_2023
 ```

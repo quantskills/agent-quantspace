@@ -41,7 +41,7 @@ def test_report_backtests_use_next_close_execution_for_eod_signals(monkeypatch) 
     report_script._run_vector_backtest(panel, weights, start_date="2024-01-01")
 
     assert captured_kwargs["signal_lag"] == 0
-    assert captured_kwargs["return_mode"] == "forward"
+    assert "return_mode" not in captured_kwargs
 
 
 def test_strategy_report_set_includes_rule_and_ml_examples(

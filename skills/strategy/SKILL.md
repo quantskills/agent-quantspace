@@ -19,6 +19,7 @@ from skills.strategy.cross_sectional import (
     apply_rebalance_schedule,
     combine_factor_scores,
     estimate_factor_weights,
+    hold_weights_on_calendar,
     normalize_factor_frames,
     rank_factor_frames,
     top_n_weights,
@@ -34,6 +35,8 @@ from skills.strategy.time_series import signal_to_single_asset_weights
 - `cross_sectional/` owns reusable ranking, selection, exit, risk-control, and
   modular research types, including equal-rank, equal-vote, rolling IC,
   rolling ICIR, and correlation-aware maximum-ICIR factor combinations.
+- `hold_weights_on_calendar` maps signal-day target weights onto the full trading
+  calendar (forward hold, flat before the first signal) before backtesting.
 - `time_series.py` owns signal-to-weight conversion and a research-only
   `TimeSeriesBacktester` adapter that delegates execution to `VectorBacktester`.
 - Concrete factors, features, rules, model pipelines, and workflows belong in

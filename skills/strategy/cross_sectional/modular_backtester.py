@@ -18,7 +18,6 @@ from .types import (
 )
 
 TradeAt = Literal["open", "close"]
-ReturnMode = Literal["backward", "forward"]
 
 
 class ModularBacktester:
@@ -36,7 +35,6 @@ class ModularBacktester:
         slippage_bp: float,
         start_date: str | None = None,
         end_date: str | None = None,
-        return_mode: ReturnMode = "forward",
         exit_filters: list[ExitFilterConfig] | None = None,
         rebalance_freq: int | str = 1,
         weight_method: str = "equal",
@@ -54,7 +52,6 @@ class ModularBacktester:
         self.slippage_bp = float(slippage_bp)
         self.start_date = pd.Timestamp(start_date) if start_date else None
         self.end_date = pd.Timestamp(end_date) if end_date else None
-        self.return_mode = return_mode
         self.exit_filters = exit_filters or []
         self.rebalance_freq = _normalize_rebalance_freq(rebalance_freq)
         self.weight_method = weight_method
@@ -64,7 +61,7 @@ class ModularBacktester:
         self.strategy = strategy or TopPctStrategy()
 
         self._price_pivots: dict[str, pd.DataFrame] = {}
-        self._return_cache: dict[tuple[str, str], pd.DataFrame] = {}
+        self._return_cache: dict[str, pd.DataFrame] = {}
 
         self.factor_df: pd.DataFrame | None = None
         self.factor_pivots: dict[str, pd.DataFrame] = {}
@@ -93,8 +90,6 @@ class ModularBacktester:
             raise ValueError("signal_lag must be greater than or equal to 0.")
         if self.trade_at not in {"open", "close"}:
             raise ValueError("trade_at must be either 'open' or 'close'.")
-        if self.return_mode not in {"backward", "forward"}:
-            raise ValueError("return_mode must be either 'backward' or 'forward'.")
         if "close" not in self.data.columns:
             raise ValueError("data must contain a 'close' column.")
         if self.trade_at == "open" and "open" not in self.data.columns:
@@ -108,14 +103,10 @@ class ModularBacktester:
 
     @property
     def execution_returns(self) -> pd.DataFrame:
-        key = (self.trade_at, self.return_mode)
-        if key not in self._return_cache:
+        if self.trade_at not in self._return_cache:
             price = self.execution_price_pivot
-            if self.return_mode == "forward":
-                self._return_cache[key] = price.shift(-1).div(price).sub(1.0)
-            else:
-                self._return_cache[key] = price.pct_change(fill_method=None)
-        return self._return_cache[key]
+            self._return_cache[self.trade_at] = price.shift(-1).div(price).sub(1.0)
+        return self._return_cache[self.trade_at]
 
     def build_factor_frame(self) -> pd.DataFrame:
         if self.factor_df is None:
@@ -165,7 +156,6 @@ class ModularBacktester:
             slippage_bp=self.slippage_bp,
             start_date=self.start_date.isoformat() if self.start_date is not None else None,
             end_date=self.end_date.isoformat() if self.end_date is not None else None,
-            return_mode=self.return_mode,
         ).run(self.signal_weights)
         self.executed_weights = execution_result.executed_weights
         self.result_df = execution_result.result_df

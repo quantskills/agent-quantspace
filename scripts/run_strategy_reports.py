@@ -26,7 +26,7 @@ from strategies.cross_sectional.asset_class_rotation import (
     apply_asset_class_split_adjustments,
     asset_class_top3_weights,
 )
-from strategies.cross_sectional.ml_rank import xgboost_rank_weights
+from strategies.cross_sectional.ml_rank import expanding_pca_model_weights
 from strategies.cross_sectional.rules import ma_gap_reversal_weights
 from strategies.time_series.ml import xgboost_triple_barrier_weights
 from strategies.time_series.rules import ma_reversion_atr_stop_weights
@@ -62,7 +62,6 @@ def _run_vector_backtest(panel, weights, *, start_date: str):
         commission=0.0002,
         slippage_bp=2.0,
         start_date=start_date,
-        return_mode="forward",
     ).run(weights)
 
 
@@ -237,7 +236,13 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> StrategyReport:
 
 def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
     panel = dm.read_symbols(ML_FUTURE_SYMBOLS, frequency=FREQUENCY)
-    weights = xgboost_rank_weights(panel, split_date="2024-01-01", horizon=60, top_n=2)
+    weights = expanding_pca_model_weights(
+        panel,
+        model="xgboost",
+        horizon=20,
+        top_n=2,
+        weighting="risk_parity",
+    )
     execution = _run_vector_backtest(panel, weights, start_date="2024-01-01")
     return StrategyReport(
         slug="futures_xgboost_rank",
@@ -253,9 +258,9 @@ def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
-            "Label is the percentile rank of 60-day forward return within the real futures universe.",
-            "Features are generic public momentum, volatility, trend, and mean-reversion factors.",
-            "Training uses rows before 2024-01-01; reports show the held-out period.",
+            "Label is the percentile rank of 20-day forward return within the real futures universe.",
+            "Features are LogDiff OHLC features reduced with train-only StandardScaler + PCA(50).",
+            "Training uses expanding walk-forward folds with purge equal to the label horizon.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
         ],
     )

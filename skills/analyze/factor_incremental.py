@@ -164,7 +164,6 @@ def run_official_formal_backtest_pair(
         "signal_lag": int(protocol.signal_lag),
         "commission": float(protocol.commission),
         "slippage_bp": slippage_bp,
-        "return_mode": protocol.return_mode,
     }
     before = VectorBacktester(data.copy(deep=True), **engine_kwargs).run(before_weights)
     after = VectorBacktester(data.copy(deep=True), **engine_kwargs).run(after_weights)

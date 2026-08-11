@@ -15,10 +15,13 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `asset_class_rotation.py`：显式定义 18 个全球大类资产 ETF/LOF 代理，并提供
   20/60/120 日复合动量 Top 3 轮动规则。
 - `rules.py`：规则类横截面权重 helper。
-- `ml_rank.py`：rank label、generic 因子和 XGBoost rank 权重。
+- `ml_rank.py`：rank label，以及基于 `skills.compute.features` LogDiff panel 的
+  expanding PCA 多模型分数/权重。
 - `workflows/run_demo.py`：可直接运行的公开策略 workflow。
 - `workflows/run_lesson06_multifactor.py`：可复现 Horizon/Lagged IC、相关性、
   调仓周期与五种多因子组合的研究 workflow。
+- `workflows/run_lesson07_etf18_logdiff_pca_ml.py`：18 ETF LogDiff + expanding
+  PCA + lasso/rf/xgboost 横截面 rank 对照与 Top 3 等权回测。
 
 因子帧构建、选取、风控和 `ModularBacktester` 位于
 `skills.strategy.cross_sectional`；执行和收益核算由
@@ -29,6 +32,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 ```bash
 uv run python -m strategies.cross_sectional.workflows.run_demo
 uv run python -m strategies.cross_sectional.workflows.run_lesson06_multifactor --normalization rank
+uv run python -m strategies.cross_sectional.workflows.run_lesson07_etf18_logdiff_pca_ml
 ```
 
 多因子工作流默认使用逐日横截面百分位排名；可改为 `--normalization zscore`。

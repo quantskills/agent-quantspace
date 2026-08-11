@@ -71,7 +71,6 @@ def test_time_series_backtester_delegates_execution_to_vector_backtester() -> No
         signal_lag=0,
         commission=0.0,
         slippage_bp=0.0,
-        return_mode="forward",
     ).run(target_weights)
 
     pd.testing.assert_frame_equal(backtester.result_df, expected.result_df)

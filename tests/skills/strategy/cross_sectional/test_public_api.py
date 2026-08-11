@@ -49,6 +49,7 @@ def test_reusable_domain_exports_selection_exit_and_risk_types() -> None:
         "apply_risk_controls",
         "combine_factor_scores",
         "drawdown_from_high_filter",
+        "hold_weights_on_calendar",
         "normalize_factor_frames",
         "universe_vol_exposure",
         "top_n_weights",
@@ -96,6 +97,27 @@ def test_apply_rebalance_schedule_samples_and_holds_from_start() -> None:
     assert got.loc[: dates[1], "AAA"].eq(0.0).all()
     assert got.loc[dates[2] : dates[4], "AAA"].eq(weights.loc[dates[2], "AAA"]).all()
     assert got.loc[dates[5] :, "AAA"].eq(weights.loc[dates[5], "AAA"]).all()
+
+
+def test_hold_weights_on_calendar_forward_fills_signal_days() -> None:
+    calendar = pd.bdate_range("2024-01-01", periods=6, name="eob")
+    signals = pd.DataFrame(
+        {"AAA": [1.0, 0.0], "BBB": [0.0, 1.0]},
+        index=[calendar[1], calendar[3]],
+    )
+
+    got = cross_sectional.hold_weights_on_calendar(
+        signals,
+        dates=calendar,
+        symbols=["AAA", "BBB", "CCC"],
+    )
+
+    assert got.index.equals(calendar)
+    assert got.columns.tolist() == ["AAA", "BBB", "CCC"]
+    assert got.loc[calendar[0]].eq(0.0).all()
+    assert got.loc[calendar[2], "AAA"] == pytest.approx(1.0)
+    assert got.loc[calendar[5], "BBB"] == pytest.approx(1.0)
+    assert got["CCC"].eq(0.0).all()
 
 
 @pytest.mark.parametrize("every", [0, -1, True])

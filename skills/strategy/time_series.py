@@ -131,7 +131,6 @@ class TimeSeriesBacktester:
             signal_lag=0,
             commission=self.commission,
             slippage_bp=self.slippage * 10_000.0,
-            return_mode="forward",
         ).run(target_weights)
         self.executed_weights = result.executed_weights
         self.result_df = result.result_df
