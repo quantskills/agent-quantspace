@@ -1,6 +1,6 @@
 ---
 name: report
-description: Use when tasks need complete HTML research reports, HTML dashboards, Markdown strategy example cards, PNG chart helpers, or files under the research reports directory.
+description: Use when tasks need complete HTML research reports, HTML dashboards, PNG chart helpers, or files under the research reports directory.
 ---
 
 # Report Skill
@@ -14,12 +14,11 @@ PDF. Do not use a database. Other skills must not write HTML; they return
 objects, and the caller fills `ResearchReport` then calls
 `write_research_bundle`.
 
-## Three output paths
+## Two output paths
 
 | Path | Entry | Output | Use for |
 |------|-------|--------|---------|
-| Complete research archive | `ResearchReport` + `write_research_bundle` | `reports/<namespace>/<slug>/index.html` | Takeaway research document |
-| Public example card | `StrategyReport` + `write_strategy_report` | `reports/strategy_examples/*.html` | Compact public demos |
+| Complete research archive | `ResearchReport` + `write_research_bundle` | `reports/<namespace>/<slug>/index.html` | Takeaway research document, including public examples |
 | Dashboard preview | `ReportRenderer` + `factor_report` / `backtest_report` / `signal_digest` | one HTML file | Quick look, not an archive |
 
 Charts are inlined as base64 data URIs via the `png_data_uri` Jinja filter.
@@ -96,9 +95,14 @@ Hard rules:
 - `metrics_source` is required.
 - `namespace` and `slug` are safe path segments only.
 - Default `visibility="private"`. Do not git-add private studies.
-- `visibility="public_example"` still writes `reports/<namespace>/<slug>/`, not `strategy_examples/`.
+- Public examples use `namespace="strategy_examples"` and `visibility="public_example"`. They still write `reports/<namespace>/<slug>/`.
 - Do not import `strategies/` from this skill.
 - Do not export PDF.
+
+Public examples from `scripts/run_strategy_reports` use the same archive
+contract: `namespace="strategy_examples"`, `visibility="public_example"`,
+`kind="public_example"`. README gallery PNGs are extra sidecar files written
+by that script, not by `write_research_bundle`.
 
 ## Dashboard preview
 
@@ -123,28 +127,6 @@ path = renderer.save(html, "macro_weekly_2026-05-08.html")
 
 Pass a template name with or without `.html`. Relative output paths resolve
 against `reports/`; absolute paths are respected as-is.
-
-## Public HTML cards
-
-```python
-from skills.report.strategy_markdown import StrategyReport, write_strategy_report
-
-report = StrategyReport(
-    slug="demo",
-    title="Demo Strategy",
-    domain="time_series",
-    strategy_type="Rule-based",
-    label="none",
-    description="Demo description.",
-    metrics={"sharpe_ratio": 1.5, "total_return": -0.0102},
-    result_df=result_df,
-    notes=["Uses date x symbol vector weights."],
-)
-path = write_strategy_report(report, "reports/strategy_examples")
-```
-
-Keep this path for `scripts/run_strategy_reports`. Cards are compact HTML,
-not the nine-section research archive.
 
 ## Available charts
 

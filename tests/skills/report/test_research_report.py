@@ -198,11 +198,15 @@ def test_missing_figure_source_does_not_write(tmp_path: Path) -> None:
 
 def test_write_research_catalog_links_study_and_visibility(tmp_path: Path) -> None:
     write_research_bundle(_make_report(), reports_root=tmp_path)
-    examples = tmp_path / "strategy_examples"
-    examples.mkdir()
-    (examples / "demo.html").write_text(
-        "<html><body><h1>Demo Card</h1><p>Public example.</p></body></html>\n",
-        encoding="utf-8",
+    write_research_bundle(
+        _make_report(
+            namespace="strategy_examples",
+            slug="demo",
+            title="Demo Strategy",
+            visibility="public_example",
+            kind="public_example",
+        ),
+        reports_root=tmp_path,
     )
     readme = tmp_path / "README.md"
     readme.write_text("keep me\n", encoding="utf-8")
@@ -211,9 +215,9 @@ def test_write_research_catalog_links_study_and_visibility(tmp_path: Path) -> No
     html = catalog_path.read_text(encoding="utf-8")
     assert catalog_path == tmp_path / "catalog.html"
     assert "lesson_09/if_ma10_atr/index.html" in html
+    assert "strategy_examples/demo/index.html" in html
     assert "private" in html
     assert "public_example" in html
-    assert "strategy_examples/demo.html" in html
     assert (tmp_path / "catalog.json").is_file()
     assert readme.read_text(encoding="utf-8") == "keep me\n"
     assert not (tmp_path / "strategy_examples" / "index.html").exists()

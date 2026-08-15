@@ -14,7 +14,7 @@ import pandas as pd
 
 from skills.analyze.attribution_counterfactual import performance_metrics
 from skills.backtest import VectorBacktester, activity_metrics, annual_return_metrics
-from skills.report.strategy_markdown import StrategyReport, write_strategy_report
+from skills.report import ReportFigure, ResearchReport, charts, write_research_bundle
 from skills.store.data_manager import DataManager
 from skills.store.workspace import resolve_workspace_paths
 from strategies.time_series.cashflow_donchian_atr import (
@@ -236,24 +236,62 @@ def run_optimization(
     execution.result_df.to_parquet(performance_path)
     selected_metrics = _evaluate(selected_candidate, selected_params, bars, panel)
     excluded = set(asdict(selected_params)) | {"candidate"}
-    report = StrategyReport(
-        slug="selected_donchian_atr",
-        title=f"{SYMBOL} Donchian + ATR Proxy IS Optimization",
-        domain="time_series",
-        strategy_type="Close-channel Donchian breakout with ATR-proxy stop",
-        label=selected_candidate,
-        description=f"In-sample optimization only; all data ends on {IS_END}.",
-        metrics={key: value for key, value in selected_metrics.items() if key not in excluded},
-        result_df=execution.result_df,
-        notes=[
-            "No observations after 2024-12-31 are loaded into this optimization panel.",
-            "Entry is a close above the prior Donchian upper channel.",
-            "Exit is the prior closing-low channel or the initial/trailing ATR-proxy stop.",
-            "ATR uses Wilder-smoothed absolute close changes because historical OHLC is unavailable.",
-            "Signals are shifted one bar; costs are 2 bp commission plus 2 bp slippage.",
-        ],
+    sample_start = str(pd.to_datetime(execution.result_df.index).min().date())
+    png = charts.plot_backtest_performance(
+        execution.result_df, title=f"{SYMBOL} Donchian + ATR Proxy IS Optimization"
     )
-    report_path = write_strategy_report(report, out)
+    report_path = (
+        write_research_bundle(
+            ResearchReport(
+                namespace=out.name,
+                slug="selected_donchian_atr",
+                title=f"{SYMBOL} Donchian + ATR Proxy IS Optimization",
+                question=f"In-sample optimization only; all data ends on {IS_END}.",
+                universe=[SYMBOL],
+                frequency=FREQUENCY,
+                sample_start=sample_start,
+                sample_end=IS_END,
+                in_sample_end=IS_END,
+                out_of_sample_start=None,
+                hypothesis="Close-channel Donchian breakout with ATR-proxy stop.",
+                method_notes=[
+                    "No observations after 2024-12-31 are loaded into this optimization panel.",
+                    "Entry is a close above the prior Donchian upper channel.",
+                    "Exit is the prior closing-low channel or the initial/trailing ATR-proxy stop.",
+                    "ATR uses Wilder-smoothed absolute close changes because historical OHLC is unavailable.",
+                    "Signals are shifted one bar; costs are 2 bp commission plus 2 bp slippage.",
+                ],
+                execution={
+                    "trade_at": "close",
+                    "signal_lag": 1,
+                    "commission": COMMISSION,
+                    "slippage_bp": SLIPPAGE_BP,
+                    "strategy_type": "Close-channel Donchian breakout with ATR-proxy stop",
+                    "label": selected_candidate,
+                },
+                metrics={
+                    key: value
+                    for key, value in selected_metrics.items()
+                    if key not in excluded
+                },
+                metrics_source="BacktestResult.metrics",
+                figures=[
+                    ReportFigure(name="equity", caption="Equity and drawdown", png=png)
+                ],
+                tables=[],
+                caveats=[
+                    "The index is not directly tradable; a real execution proxy requires separate tracking-error and cost tests."
+                ],
+                next_steps=[],
+                reproduce_command="uv run python -m strategies.time_series.workflows.run_cashflow_donchian_atr_is",
+                visibility="private",
+                domain="time_series",
+                kind="research",
+            ),
+            reports_root=out.parent,
+        )
+        / "index.html"
+    )
     return {
         "core": core_path,
         "sizing": sizing_path,

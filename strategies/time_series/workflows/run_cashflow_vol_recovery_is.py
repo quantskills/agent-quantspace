@@ -14,7 +14,7 @@ import pandas as pd
 
 from skills.analyze.attribution_counterfactual import performance_metrics
 from skills.backtest import VectorBacktester, activity_metrics, annual_return_metrics
-from skills.report.strategy_markdown import StrategyReport, write_strategy_report
+from skills.report import ReportFigure, ResearchReport, charts, write_research_bundle
 from skills.store.data_manager import DataManager
 from skills.store.workspace import resolve_workspace_paths
 from strategies.time_series.cashflow_vol_recovery import (
@@ -243,25 +243,56 @@ def _write_report(
     metrics = _evaluate(candidate, params, bars, panel)
     excluded = set(asdict(params)) | {"candidate"}
     report_metrics = {key: value for key, value in metrics.items() if key not in excluded}
-    report = StrategyReport(
-        slug=slug,
-        title=title,
-        domain="time_series",
-        strategy_type=f"{params.family} sizing + loss-stop recovery",
-        label=candidate,
-        description=f"In-sample optimization only; all data ends on {IS_END}.",
-        metrics=report_metrics,
-        result_df=execution.result_df,
-        notes=[
-            "No observations after 2024-12-31 are loaded into this optimization panel.",
-            "Entry uses a rising long MA, close-channel breakout, and MA20 above MA60.",
-            "A loss stop exits relative to entry close; re-entry requires cooldown, price recovery, and a positive trend regime.",
-            "Signals are shifted one bar and earn forward close-to-close returns.",
-            "Transaction costs assume 2 bp commission plus 2 bp slippage per unit turnover.",
-            "The index is not directly tradable; execution-proxy validation remains separate.",
-        ],
+    sample_start = str(pd.to_datetime(execution.result_df.index).min().date())
+    png = charts.plot_backtest_performance(execution.result_df, title=title)
+    report_path = (
+        write_research_bundle(
+            ResearchReport(
+                namespace=output_dir.name,
+                slug=slug,
+                title=title,
+                question=f"In-sample optimization only; all data ends on {IS_END}.",
+                universe=[SYMBOL],
+                frequency=FREQUENCY,
+                sample_start=sample_start,
+                sample_end=IS_END,
+                in_sample_end=IS_END,
+                out_of_sample_start=None,
+                hypothesis=f"{params.family} sizing + loss-stop recovery",
+                method_notes=[
+                    "No observations after 2024-12-31 are loaded into this optimization panel.",
+                    "Entry uses a rising long MA, close-channel breakout, and MA20 above MA60.",
+                    "A loss stop exits relative to entry close; re-entry requires cooldown, price recovery, and a positive trend regime.",
+                    "Signals are shifted one bar and earn forward close-to-close returns.",
+                    "Transaction costs assume 2 bp commission plus 2 bp slippage per unit turnover.",
+                    "The index is not directly tradable; execution-proxy validation remains separate.",
+                ],
+                execution={
+                    "trade_at": "close",
+                    "signal_lag": 1,
+                    "commission": COMMISSION,
+                    "slippage_bp": SLIPPAGE_BP,
+                    "strategy_type": f"{params.family} sizing + loss-stop recovery",
+                    "label": candidate,
+                },
+                metrics=report_metrics,
+                metrics_source="BacktestResult.metrics",
+                figures=[
+                    ReportFigure(name="equity", caption="Equity and drawdown", png=png)
+                ],
+                tables=[],
+                caveats=["Historical in-sample result only; not a live trading recommendation."],
+                next_steps=[],
+                reproduce_command="uv run python -m strategies.time_series.workflows.run_cashflow_vol_recovery_is",
+                visibility="private",
+                domain="time_series",
+                kind="research",
+            ),
+            reports_root=output_dir.parent,
+        )
+        / "index.html"
     )
-    return write_strategy_report(report, output_dir), weights, execution.result_df
+    return report_path, weights, execution.result_df
 
 
 def run_optimization(

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from skills.backtest import VectorBacktester, activity_metrics, annual_return_metrics
-from skills.report.strategy_markdown import StrategyReport, write_strategy_report
+from skills.report import ReportFigure, ResearchReport, charts, write_research_bundle
 from skills.store.data_manager import DataManager
 from skills.store.workspace import resolve_workspace_paths
 from strategies.time_series.cashflow_total_return_mean_reversion import (
@@ -408,24 +408,56 @@ def run_optimization(
         "buy_hold_sharpe": benchmark_metrics["sharpe_ratio"],
         "buy_hold_calmar": benchmark_metrics["calmar_ratio"],
     }
-    report = StrategyReport(
-        slug="selected_core_satellite_mean_reversion",
-        title=f"{SYMBOL} Core-Satellite Mean Reversion IS",
-        domain="time_series",
-        strategy_type="Core holding + oversold satellite + temporary defensive window",
-        label=selected_candidate,
-        description=f"In-sample optimization only: {IS_START} through {IS_END}.",
-        metrics=report_metrics,
-        result_df=selected.result_df,
-        notes=[
-            "The optimization panel is hard-capped at 2024-12-31; 2025+ is untouched.",
-            "Signals are shifted one bar and costs are intentionally zero per the research request.",
-            "The loss stop applies only to the incremental oversold satellite, not the core holding.",
-            "The chosen near-optimal candidate beats buy and hold in total return, Sharpe, Calmar, and all five calendar years.",
-            "The index history before its launch is backfilled and may contain index-construction bias.",
-        ],
+    sample_start = str(pd.to_datetime(selected.result_df.index).min().date())
+    png = charts.plot_backtest_performance(
+        selected.result_df, title=f"{SYMBOL} Core-Satellite Mean Reversion IS"
     )
-    report_path = write_strategy_report(report, out)
+    report_path = (
+        write_research_bundle(
+            ResearchReport(
+                namespace=out.name,
+                slug="selected_core_satellite_mean_reversion",
+                title=f"{SYMBOL} Core-Satellite Mean Reversion IS",
+                question=f"In-sample optimization only: {IS_START} through {IS_END}.",
+                universe=[SYMBOL],
+                frequency=FREQUENCY,
+                sample_start=sample_start,
+                sample_end=IS_END,
+                in_sample_end=IS_END,
+                out_of_sample_start=None,
+                hypothesis="Core holding + oversold satellite + temporary defensive window.",
+                method_notes=[
+                    "The optimization panel is hard-capped at 2024-12-31; 2025+ is untouched.",
+                    "Signals are shifted one bar and costs are intentionally zero per the research request.",
+                    "The loss stop applies only to the incremental oversold satellite, not the core holding.",
+                    "The chosen near-optimal candidate beats buy and hold in total return, Sharpe, Calmar, and all five calendar years.",
+                    "The index history before its launch is backfilled and may contain index-construction bias.",
+                ],
+                execution={
+                    "trade_at": "close",
+                    "signal_lag": 1,
+                    "commission": COMMISSION,
+                    "slippage_bp": SLIPPAGE_BP,
+                    "strategy_type": "Core holding + oversold satellite + temporary defensive window",
+                    "label": selected_candidate,
+                },
+                metrics=report_metrics,
+                metrics_source="BacktestResult.metrics",
+                figures=[
+                    ReportFigure(name="equity", caption="Equity and drawdown", png=png)
+                ],
+                tables=[],
+                caveats=["Historical in-sample result only; not a live trading recommendation."],
+                next_steps=[],
+                reproduce_command="uv run python -m strategies.time_series.workflows.run_cashflow_total_return_mean_reversion_is",
+                visibility="private",
+                domain="time_series",
+                kind="research",
+            ),
+            reports_root=out.parent,
+        )
+        / "index.html"
+    )
     readme_path = _write_readme(
         out,
         selected_candidate,

@@ -1,0 +1,34 @@
+{
+  "namespace": "strategy_examples",
+  "slug": "futures_cross_sectional_reversal",
+  "title": "Futures Cross-Sectional Reversal",
+  "kind": "public_example",
+  "domain": "cross_sectional",
+  "visibility": "public_example",
+  "tags": [
+    "cross_sectional",
+    "Rule-based futures"
+  ],
+  "sample_start": "2024-01-02",
+  "sample_end": "2026-07-01",
+  "metrics": {
+    "2024_return": 0.2516,
+    "2025_return": 0.3403,
+    "2026_return": 0.0597,
+    "active_day_ratio": 0.3339,
+    "ann_return": 0.2591,
+    "ann_volatility": 0.1898,
+    "avg_daily_turnover": 0.1979,
+    "calmar_ratio": 1.5847,
+    "gold_return_corr": 0.0576,
+    "max_drawdown": 0.1635,
+    "month_num": 29.9677,
+    "sharpe_ratio": 1.3648,
+    "sortino_ratio": 2.5837,
+    "total_return": 0.7777,
+    "total_transaction_cost": 0.0476,
+    "trade_days": 201.0
+  },
+  "metrics_source": "BacktestResult.metrics",
+  "as_of": null
+}

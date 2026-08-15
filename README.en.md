@@ -108,7 +108,7 @@ writing new research code.
 | `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
-| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports, public HTML cards, and chart helpers |
+| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, four ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role task protocol |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
@@ -332,7 +332,7 @@ future returns and not investment advice**):
 > The sample returns above come from the public example reports under
 > `reports/strategy_examples/`, are backtested on historical data, depend on the
 > data window, parameters, and sample range, and **are not a return promise or
-> investment advice**. See each `*.md` report for full metrics.
+> investment advice**. See each `<slug>/index.html` report for full metrics.
 
 ## Documentation
 

@@ -17,7 +17,7 @@ from skills.store.workspace import resolve_workspace_paths
 
 _SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _RESERVED_NAMES = frozenset(
-    {"strategy_examples", "README.md", "README-zh.md", "catalog.html", "catalog.json"}
+    {"README.md", "README-zh.md", "catalog.html", "catalog.json"}
 )
 _ALLOWED_VISIBILITY = frozenset({"private", "public_example"})
 _ALLOWED_KIND = frozenset({"research", "dashboard", "public_example"})
@@ -210,14 +210,11 @@ def list_research_studies(reports_root: str | Path | None = None) -> list[dict[s
 
 def write_research_catalog(
     reports_root: str | Path | None = None,
-    include_public_examples: bool = True,
 ) -> Path:
     """Write ``catalog.html`` and ``catalog.json`` under ``reports_root``."""
     root = _resolve_reports_root(reports_root)
     root.mkdir(parents=True, exist_ok=True)
     records = [_catalog_record(item) for item in list_research_studies(root)]
-    if include_public_examples:
-        records.extend(_public_example_records(root))
     records.sort(key=lambda item: (str(item.get("namespace", "")), str(item.get("slug", ""))))
 
     html = ReportRenderer(output_dir=root).render(
@@ -425,52 +422,6 @@ def _first_metric(metrics: dict[str, Any], *keys: str) -> Any:
         if key.lower() in lowered:
             return lowered[key.lower()]
     return None
-
-
-def _public_example_records(root: Path) -> list[dict[str, Any]]:
-    folder = root / "strategy_examples"
-    if not folder.is_dir():
-        return []
-    records: list[dict[str, Any]] = []
-    for path in sorted(folder.glob("*.html")):
-        if path.name in {"index.html", "catalog.html", "README.html"}:
-            continue
-        try:
-            title = _html_title(path)
-        except OSError:
-            continue
-        records.append(
-            {
-                "namespace": "strategy_examples",
-                "slug": path.stem,
-                "title": title,
-                "kind": "public_example",
-                "domain": "",
-                "visibility": "public_example",
-                "tags": [],
-                "sample_start": "",
-                "sample_end": "",
-                "sample": "—",
-                "metrics": {},
-                "metrics_source": "",
-                "as_of": None,
-                "sharpe": None,
-                "max_drawdown": None,
-                "index_html": f"strategy_examples/{path.name}",
-                "study_dir": "strategy_examples",
-            }
-        )
-    return records
-
-
-def _html_title(path: Path) -> str:
-    text = path.read_text(encoding="utf-8-sig")
-    match = re.search(r"<h1[^>]*>(.*?)</h1>", text, flags=re.IGNORECASE | re.DOTALL)
-    if match:
-        heading = re.sub(r"<[^>]+>", "", match.group(1)).strip()
-        if heading:
-            return heading
-    return path.stem
 
 
 def _to_jsonable(value: Any) -> Any:

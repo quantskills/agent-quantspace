@@ -8,6 +8,14 @@ import pandas as pd
 import scripts.run_strategy_reports as report_script
 from scripts.run_strategy_reports import generate_reports
 
+_SLUGS = {
+    "csi300_if_ma10_atr_reversion",
+    "csi300_if_xgboost_triple_barrier",
+    "futures_cross_sectional_reversal",
+    "futures_xgboost_rank",
+    "global_asset_etf_top3",
+}
+
 
 def test_report_backtests_use_next_close_execution_for_eod_signals(monkeypatch) -> None:
     captured_kwargs = {}
@@ -57,15 +65,9 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
         report_dir=output_dir,
     )
 
-    names = {path.name for path in report_paths}
-    assert names == {
-        "index.html",
-        "csi300_if_ma10_atr_reversion.html",
-        "csi300_if_xgboost_triple_barrier.html",
-        "futures_cross_sectional_reversal.html",
-        "futures_xgboost_rank.html",
-        "global_asset_etf_top3.html",
-    }
+    slugs = {path.parent.name for path in report_paths}
+    assert slugs == _SLUGS
+    assert all(path.name == "index.html" for path in report_paths)
     combined = "\n".join(path.read_text(encoding="utf-8") for path in report_paths)
     assert "CFFEX.IF99" in combined
     assert "MA10" in combined
@@ -79,21 +81,17 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
     assert "inverse-vol basket" not in combined.lower()
 
     chart_names = {path.name for path in output_dir.glob("*_performance.png")}
-    assert chart_names == {
-        "csi300_if_ma10_atr_reversion_performance.png",
-        "csi300_if_xgboost_triple_barrier_performance.png",
-        "futures_cross_sectional_reversal_performance.png",
-        "futures_xgboost_rank_performance.png",
-        "global_asset_etf_top3_performance.png",
-    }
+    assert chart_names == {f"{slug}_performance.png" for slug in _SLUGS}
     for path in report_paths:
-        if path.name == "index.html":
-            continue
-        chart_name = f"{path.stem}_performance.png"
+        slug = path.parent.name
         report = path.read_text(encoding="utf-8")
         assert "data:image/png;base64," in report
-        assert (output_dir / chart_name).is_file()
-        assert report.index("<h2>Performance Chart</h2>") < report.index("<h2>Metrics</h2>")
-        assert report.index("<h2>Metrics</h2>") < report.index("<h2>Notes</h2>")
-        assert 'href="../catalog.html"' in report
+        assert (output_dir / f"{slug}_performance.png").is_file()
+        assert (path.parent / "params.json").is_file()
+        assert report.index("<h2>研究问题</h2>") < report.index("<h2>证据与指标</h2>")
+        assert report.index("<h2>证据与指标</h2>") < report.index("<h2>图表</h2>")
+        assert 'href="../../catalog.html"' in report
     assert unrelated.read_text(encoding="utf-8") == "keep"
+    catalog = (tmp_path / "catalog.html").read_text(encoding="utf-8")
+    assert "public_example" in catalog
+    assert "strategy_examples/global_asset_etf_top3/index.html" in catalog

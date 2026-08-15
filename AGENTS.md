@@ -78,7 +78,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | research | `from skills.research import screen_all_indicators` | Screening and parameter sweeps |
-| report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports, public HTML cards, and chart helpers |
+| report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, ResearchController` | AI factor-mining contracts, ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role protocol |
 
 Coding-agent compatibility is declared here and in README/README.en.md
@@ -109,9 +109,9 @@ names are declarations, not a product whitelist.
 ## Strategy Examples
 
 - `uv run python -m scripts.run_strategy_reports` reads existing PandaData daily Parquet files from `data/market/1d/` and accepts `--data-root` for another local data root.
-- Reports are written below the resolved reports root as `strategy_examples/` HTML plus PNG performance charts.
+- Reports are written below the resolved reports root as `strategy_examples/<slug>/index.html` plus PNG performance charts.
 - The five public examples are: time-series rule, time-series XGBoost triple-barrier ML, cross-sectional futures rule, cross-sectional XGBoost rank ML, and global-asset ETF/LOF Top-3 momentum rotation.
-- Strategy report scripts should call `DataManager.read_symbols`, concrete strategy modules, `VectorBacktester`, and `skills.report.strategy_markdown`; do not add reusable research implementations to scripts.
+- Strategy report scripts should call `DataManager.read_symbols`, concrete strategy modules, `VectorBacktester`, and `write_research_bundle`; do not add reusable research implementations to scripts.
 
 ## Python Environment
 

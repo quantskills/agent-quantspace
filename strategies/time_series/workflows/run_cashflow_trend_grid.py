@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 
 from skills.backtest import VectorBacktester, activity_metrics, annual_return_metrics
-from skills.report.strategy_markdown import StrategyReport, write_strategy_report
+from skills.report import ReportFigure, ResearchReport, charts, write_research_bundle
 from skills.store.data_manager import DataManager
 from skills.store.workspace import resolve_workspace_paths
 from strategies.time_series.cashflow_trend import (
@@ -166,33 +166,92 @@ def run_grid(
         "Transaction costs assume 2 bp commission plus 2 bp slippage per unit turnover.",
         "The index is not directly tradable; a real execution proxy requires separate tracking-error and cost tests.",
     ]
-    write_strategy_report(
-        StrategyReport(
+    is_start = str(pd.to_datetime(is_execution.result_df.index).min().date())
+    oos_end = str(pd.to_datetime(oos_execution.result_df.index).max().date())
+    is_png = charts.plot_backtest_performance(
+        is_execution.result_df, title=f"{SYMBOL} Selected Trend Rule — In Sample"
+    )
+    oos_png = charts.plot_backtest_performance(
+        oos_execution.result_df, title=f"{SYMBOL} Selected Trend Rule — Out of Sample"
+    )
+    is_report = write_research_bundle(
+        ResearchReport(
+            namespace=out.name,
             slug="selected_in_sample",
             title=f"{SYMBOL} Selected Trend Rule — In Sample",
-            domain="time_series",
-            strategy_type="Close-only trend breakout",
-            label=f"Selected candidate: {selected_name}",
-            description=f"Parameter selection sample ends on {IS_END}.",
+            question=f"Parameter selection sample ends on {IS_END}.",
+            universe=[SYMBOL],
+            frequency=FREQUENCY,
+            sample_start=is_start,
+            sample_end=IS_END,
+            in_sample_end=IS_END,
+            out_of_sample_start=None,
+            hypothesis="Close-only trend breakout.",
+            method_notes=[*common_notes, "This segment was used for parameter selection."],
+            execution={
+                "trade_at": "close",
+                "signal_lag": 1,
+                "commission": COMMISSION,
+                "slippage_bp": SLIPPAGE_BP,
+                "strategy_type": "Close-only trend breakout",
+                "label": f"Selected candidate: {selected_name}",
+            },
             metrics=_metrics(is_execution),
-            result_df=is_execution.result_df,
-            notes=[*common_notes, "This segment was used for parameter selection."],
+            metrics_source="BacktestResult.metrics",
+            figures=[
+                ReportFigure(name="equity", caption="In-sample equity and drawdown", png=is_png)
+            ],
+            tables=[],
+            caveats=["Historical result only; not a live trading recommendation."],
+            next_steps=[],
+            reproduce_command="uv run python -m strategies.time_series.workflows.run_cashflow_trend_grid",
+            visibility="private",
+            domain="time_series",
+            kind="research",
         ),
-        out,
+        reports_root=out.parent,
     )
-    write_strategy_report(
-        StrategyReport(
+    oos_report = write_research_bundle(
+        ResearchReport(
+            namespace=out.name,
             slug="selected_out_of_sample",
             title=f"{SYMBOL} Selected Trend Rule — Out of Sample",
-            domain="time_series",
-            strategy_type="Close-only trend breakout",
-            label=f"Locked candidate: {selected_name}",
-            description=f"Locked-parameter evaluation begins on {OOS_START}.",
+            question=f"Locked-parameter evaluation begins on {OOS_START}.",
+            universe=[SYMBOL],
+            frequency=FREQUENCY,
+            sample_start=OOS_START,
+            sample_end=oos_end,
+            in_sample_end=None,
+            out_of_sample_start=OOS_START,
+            hypothesis="Close-only trend breakout.",
+            method_notes=[
+                *common_notes,
+                "Parameters were selected without using this segment's metrics.",
+            ],
+            execution={
+                "trade_at": "close",
+                "signal_lag": 1,
+                "commission": COMMISSION,
+                "slippage_bp": SLIPPAGE_BP,
+                "strategy_type": "Close-only trend breakout",
+                "label": f"Locked candidate: {selected_name}",
+            },
             metrics=_metrics(oos_execution),
-            result_df=oos_execution.result_df,
-            notes=[*common_notes, "Parameters were selected without using this segment's metrics."],
+            metrics_source="BacktestResult.metrics",
+            figures=[
+                ReportFigure(
+                    name="equity", caption="Out-of-sample equity and drawdown", png=oos_png
+                )
+            ],
+            tables=[],
+            caveats=["Historical result only; not a live trading recommendation."],
+            next_steps=[],
+            reproduce_command="uv run python -m strategies.time_series.workflows.run_cashflow_trend_grid",
+            visibility="private",
+            domain="time_series",
+            kind="research",
         ),
-        out,
+        reports_root=out.parent,
     )
 
     return {
@@ -201,8 +260,8 @@ def run_grid(
         "weights": weights_path,
         "is_performance": is_path,
         "oos_performance": oos_path,
-        "is_report": out / "selected_in_sample.md",
-        "oos_report": out / "selected_out_of_sample.md",
+        "is_report": is_report / "index.html",
+        "oos_report": oos_report / "index.html",
     }
 
 

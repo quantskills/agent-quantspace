@@ -14,10 +14,13 @@ from skills.backtest import (
     annual_return_metrics,
     benchmark_return_corr,
 )
-from skills.report.strategy_markdown import (
-    StrategyReport,
-    write_strategy_index,
-    write_strategy_report,
+from skills.report import (
+    ReportFigure,
+    ReportTable,
+    ResearchReport,
+    charts,
+    write_research_bundle,
+    write_research_catalog,
 )
 from skills.store.data_manager import DataManager
 from skills.store.workspace import resolve_workspace_paths
@@ -32,7 +35,8 @@ from strategies.time_series.ml import xgboost_triple_barrier_weights
 from strategies.time_series.rules import ma_reversion_atr_stop_weights
 
 WORKSPACE_PATHS = resolve_workspace_paths()
-REPORT_DIR = WORKSPACE_PATHS.reports_root / "strategy_examples"
+PUBLIC_NAMESPACE = "strategy_examples"
+REPRODUCE_COMMAND = "uv run python -m scripts.run_strategy_reports"
 FREQUENCY = "1d"
 RULE_FUTURE_SYMBOLS = [
     "CFFEX.IF99",
@@ -73,7 +77,89 @@ def _common_metrics(result_df, base_metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _global_asset_etf_top3(dm: DataManager) -> StrategyReport:
+def _sample_range(result_df: pd.DataFrame) -> tuple[str, str]:
+    if result_df.empty:
+        raise ValueError("result_df is empty; cannot fill sample_start/sample_end")
+    index = pd.to_datetime(result_df.index)
+    return str(index.min().date()), str(index.max().date())
+
+
+def _recent_rows_table(result_df: pd.DataFrame) -> ReportTable | None:
+    columns = [
+        column
+        for column in ["return", "raw_return", "cum_return", "drawdown", "turnover"]
+        if column in result_df.columns
+    ]
+    if not columns or result_df.empty:
+        return None
+    view = result_df[columns].tail(5).copy()
+    view.insert(0, "Date", pd.to_datetime(view.index).strftime("%Y-%m-%d"))
+    return ReportTable(
+        name="recent_rows",
+        caption="Recent result rows",
+        frame=view.reset_index(drop=True),
+    )
+
+
+def _public_example(
+    *,
+    slug: str,
+    title: str,
+    domain: str,
+    strategy_type: str,
+    label: str,
+    description: str,
+    universe: list[str],
+    metrics: dict[str, Any],
+    result_df: pd.DataFrame,
+    notes: list[str],
+) -> ResearchReport:
+    sample_start, sample_end = _sample_range(result_df)
+    png = charts.plot_backtest_performance(result_df, title=f"{title} Performance")
+    tables = []
+    recent = _recent_rows_table(result_df)
+    if recent is not None:
+        tables.append(recent)
+    return ResearchReport(
+        namespace=PUBLIC_NAMESPACE,
+        slug=slug,
+        title=title,
+        question=description,
+        universe=list(universe),
+        frequency=FREQUENCY,
+        sample_start=sample_start,
+        sample_end=sample_end,
+        in_sample_end=None,
+        out_of_sample_start=None,
+        hypothesis=description,
+        method_notes=list(notes),
+        execution={
+            "trade_at": "close",
+            "signal_lag": 0,
+            "commission": 0.0002,
+            "slippage_bp": 2.0,
+            "strategy_type": strategy_type,
+            "label": label,
+        },
+        metrics=metrics,
+        metrics_source="BacktestResult.metrics",
+        figures=[
+            ReportFigure(name="equity", caption="Equity and drawdown", png=png)
+        ],
+        tables=tables,
+        caveats=["Public example only; not a live trading recommendation."],
+        next_steps=[
+            f"Re-run with `{REPRODUCE_COMMAND}` after refreshing local Parquet files."
+        ],
+        reproduce_command=REPRODUCE_COMMAND,
+        visibility="public_example",
+        domain=domain,
+        kind="public_example",
+        tags=[domain, strategy_type],
+    )
+
+
+def _global_asset_etf_top3(dm: DataManager) -> ResearchReport:
     panel = dm.read_symbols(list(ASSET_CLASS_ETF_SYMBOLS), frequency=FREQUENCY)
     panel = apply_asset_class_split_adjustments(panel)
     last_dates = panel.reset_index().groupby("symbol")["eob"].max()
@@ -91,7 +177,7 @@ def _global_asset_etf_top3(dm: DataManager) -> StrategyReport:
     execution = _run_vector_backtest(panel, weights, start_date="2021-01-01")
     metrics = _common_metrics(execution.result_df, execution.metrics)
     metrics.update({"universe_size": 18.0, "top_n": 3.0})
-    return StrategyReport(
+    return _public_example(
         slug="global_asset_etf_top3",
         title="Global Asset ETF Top 3 Momentum Rotation",
         domain="cross_sectional",
@@ -103,6 +189,7 @@ def _global_asset_etf_top3(dm: DataManager) -> StrategyReport:
             "oil, soybean meal, nonferrous metals, and broad commodities, then holds "
             "the strongest Top 3 at equal weights."
         ),
+        universe=list(ASSET_CLASS_ETF_SYMBOLS),
         metrics=metrics,
         result_df=execution.result_df,
         notes=[
@@ -120,7 +207,7 @@ def _global_asset_etf_top3(dm: DataManager) -> StrategyReport:
     )
 
 
-def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
+def _futures_cross_sectional_reversal(dm: DataManager) -> ResearchReport:
     panel = dm.read_symbols([*RULE_FUTURE_SYMBOLS, GOLD_FUTURE_SYMBOL], frequency=FREQUENCY)
     close = panel["close"].unstack(level="symbol").sort_index()
     tradable_panel = panel.loc[panel.index.get_level_values("symbol").isin(RULE_FUTURE_SYMBOLS)]
@@ -138,7 +225,7 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
         execution.result_df,
         close[GOLD_FUTURE_SYMBOL],
     )
-    return StrategyReport(
+    return _public_example(
         slug="futures_cross_sectional_reversal",
         title="Futures Cross-Sectional Reversal",
         domain="cross_sectional",
@@ -149,6 +236,7 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
             "agricultural, and energy futures by 120-day moving-average gap reversal "
             "strength, then holds the two most stretched contracts with risk-parity weights."
         ),
+        universe=list(RULE_FUTURE_SYMBOLS),
         metrics=metrics,
         result_df=execution.result_df,
         notes=[
@@ -162,7 +250,7 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> StrategyReport:
     )
 
 
-def _csi300_if_ma10_atr_reversion(dm: DataManager) -> StrategyReport:
+def _csi300_if_ma10_atr_reversion(dm: DataManager) -> ResearchReport:
     panel = dm.read_symbols([CSI300_FUTURE_SYMBOL], frequency=FREQUENCY)
     bars = panel.xs(CSI300_FUTURE_SYMBOL, level="symbol")
     weights = ma_reversion_atr_stop_weights(
@@ -173,7 +261,7 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> StrategyReport:
         atr_multiplier=2.0,
     )
     execution = _run_vector_backtest(panel, weights, start_date="2024-01-01")
-    return StrategyReport(
+    return _public_example(
         slug="csi300_if_ma10_atr_reversion",
         title="CSI 300 IF MA10 ATR Reversion",
         domain="time_series",
@@ -184,6 +272,7 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> StrategyReport:
             "index futures when price is below its 10-day moving average, with an ATR "
             "trailing stop controlling exits."
         ),
+        universe=[CSI300_FUTURE_SYMBOL],
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
@@ -197,7 +286,7 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> StrategyReport:
     )
 
 
-def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> StrategyReport:
+def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> ResearchReport:
     panel = dm.read_symbols([CSI300_FUTURE_SYMBOL], frequency=FREQUENCY)
     bars = panel.xs(CSI300_FUTURE_SYMBOL, level="symbol")
     weights = xgboost_triple_barrier_weights(
@@ -211,7 +300,7 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> StrategyReport:
         threshold=0.10,
     )
     execution = _run_vector_backtest(panel, weights, start_date="2024-01-01")
-    return StrategyReport(
+    return _public_example(
         slug="csi300_if_xgboost_triple_barrier",
         title="CSI 300 IF XGBoost Triple-Barrier",
         domain="time_series",
@@ -222,6 +311,7 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> StrategyReport:
             "from log-difference and price/volume features on CFFEX.IF99, then takes "
             "long or short IF exposure when the corresponding barrier probability is high."
         ),
+        universe=[CSI300_FUTURE_SYMBOL],
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
@@ -234,7 +324,7 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> StrategyReport:
     )
 
 
-def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
+def _futures_xgboost_rank(dm: DataManager) -> ResearchReport:
     panel = dm.read_symbols(ML_FUTURE_SYMBOLS, frequency=FREQUENCY)
     weights = expanding_pca_model_weights(
         panel,
@@ -244,7 +334,7 @@ def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
         weighting="risk_parity",
     )
     execution = _run_vector_backtest(panel, weights, start_date="2024-01-01")
-    return StrategyReport(
+    return _public_example(
         slug="futures_xgboost_rank",
         title="Futures XGBoost Rank",
         domain="cross_sectional",
@@ -255,6 +345,7 @@ def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
             "forward-return rank label and allocates to the top two predicted ranks "
             "with risk-parity weights."
         ),
+        universe=list(ML_FUTURE_SYMBOLS),
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
@@ -266,7 +357,7 @@ def _futures_xgboost_rank(dm: DataManager) -> StrategyReport:
     )
 
 
-def build_reports(data_root: str | Path | None = None) -> list[StrategyReport]:
+def build_reports(data_root: str | Path | None = None) -> list[ResearchReport]:
     dm = DataManager(data_root=str(data_root) if data_root is not None else None)
     return [
         _futures_cross_sectional_reversal(dm),
@@ -279,28 +370,39 @@ def build_reports(data_root: str | Path | None = None) -> list[StrategyReport]:
 
 def generate_reports(
     data_root: str | Path | None = None,
+    reports_root: str | Path | None = None,
     report_dir: str | Path | None = None,
 ) -> list[Path]:
-    output_dir = Path(report_dir) if report_dir is not None else REPORT_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if report_dir is not None:
+        namespace_dir = Path(report_dir)
+        root = namespace_dir.parent
+    else:
+        root = (
+            Path(reports_root)
+            if reports_root is not None
+            else WORKSPACE_PATHS.reports_root
+        )
+        namespace_dir = root / PUBLIC_NAMESPACE
+    namespace_dir.mkdir(parents=True, exist_ok=True)
 
     reports = build_reports(data_root)
-    owned_names = {"index.html", "README.md"}
+    stale_names = {"index.html", "README.md"}
     for report in reports:
-        owned_names.update(
-            {
-                f"{report.slug}.html",
-                f"{report.slug}.md",
-                f"{report.slug}_performance.png",
-            }
-        )
-    for name in sorted(owned_names):
-        stale_path = output_dir / name
+        stale_names.update({f"{report.slug}.html", f"{report.slug}.md"})
+    for name in sorted(stale_names):
+        stale_path = namespace_dir / name
         if stale_path.exists():
             stale_path.unlink()
-    report_paths = [write_strategy_report(report, output_dir) for report in reports]
-    index_path = write_strategy_index(reports, output_dir)
-    return [index_path, *report_paths]
+
+    index_paths: list[Path] = []
+    for report in reports:
+        study_dir = write_research_bundle(report, reports_root=root)
+        png = report.figures[0].png if report.figures else None
+        if png:
+            (namespace_dir / f"{report.slug}_performance.png").write_bytes(png)
+        index_paths.append(study_dir / "index.html")
+    write_research_catalog(root)
+    return index_paths
 
 
 def main() -> None:

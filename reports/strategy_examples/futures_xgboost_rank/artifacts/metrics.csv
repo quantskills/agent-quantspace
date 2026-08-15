@@ -1,0 +1,16 @@
+metric,value
+2024_return,0.2089
+2025_return,0.5439
+2026_return,0.1005
+active_day_ratio,1.0
+ann_return,0.346
+ann_volatility,0.1743
+avg_daily_turnover,0.1986
+calmar_ratio,2.3685
+max_drawdown,0.1461
+month_num,29.0688
+sharpe_ratio,1.9847
+sortino_ratio,3.0541
+total_return,1.0539
+total_transaction_cost,0.0464
+trade_days,584.0

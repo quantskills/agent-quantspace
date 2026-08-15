@@ -20,8 +20,8 @@ helpers.
   demo's explicit symbol list.
 - `run_strategy_reports.py`: orchestrates three cross-sectional examples and two
   time-series examples from existing daily Parquet files, including an 18-proxy
-  global-asset ETF/LOF Top-3 rotation, then writes HTML reports and PNG
-  charts through `skills.report.strategy_markdown`.
+  global-asset ETF/LOF Top-3 rotation, then writes HTML research bundles and PNG
+  charts through `write_research_bundle`.
 - `import_panda_data_demo.py`: imports PandaData bars into local
   `DataManager` storage.
 
