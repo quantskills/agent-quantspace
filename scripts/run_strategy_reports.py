@@ -285,9 +285,15 @@ def generate_reports(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     reports = build_reports(data_root)
-    owned_names = {"README.md"}
+    owned_names = {"index.html", "README.md"}
     for report in reports:
-        owned_names.update({f"{report.slug}.md", f"{report.slug}_performance.png"})
+        owned_names.update(
+            {
+                f"{report.slug}.html",
+                f"{report.slug}.md",
+                f"{report.slug}_performance.png",
+            }
+        )
     for name in sorted(owned_names):
         stale_path = output_dir / name
         if stale_path.exists():

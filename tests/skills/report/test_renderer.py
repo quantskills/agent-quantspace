@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from skills.report.renderer import ReportRenderer, png_to_data_uri
+from skills.report.renderer import ReportRenderer, png_to_data_uri, relative_catalog_href
 
 
 def test_png_to_data_uri_encodes_png_bytes() -> None:
@@ -17,6 +17,8 @@ def test_report_renderer_renders_known_template(tmp_path) -> None:
 
     assert "Demo" in html
     assert path.read_text(encoding="utf-8") == html
+    assert "返回目录" in html
+    assert 'href="catalog.html"' in html
 
 
 def test_factor_report_uses_artifact_namespace(tmp_path) -> None:
@@ -36,3 +38,13 @@ def test_factor_report_uses_artifact_namespace(tmp_path) -> None:
 
     assert "Namespace:" in html
     assert "macro_weekly" in html
+    assert "返回目录" in html
+    assert 'href="catalog.html"' in html
+
+
+def test_relative_catalog_href_is_posix(tmp_path) -> None:
+    study_dir = tmp_path / "lesson_09" / "if_ma10_atr"
+    study_dir.mkdir(parents=True)
+    href = relative_catalog_href(study_dir, tmp_path)
+    assert href == "../../catalog.html"
+    assert "\\" not in href

@@ -1,4 +1,4 @@
-"""Markdown report helpers for public strategy examples."""
+"""HTML report helpers for public strategy examples."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from skills.report.charts import plot_backtest_performance
+from skills.report.renderer import ReportRenderer, relative_catalog_href
 
 
 @dataclass
@@ -25,6 +26,7 @@ class StrategyReport:
     metrics: dict[str, Any]
     result_df: pd.DataFrame
     notes: list[str]
+    sample_start: str | None = None
 
 
 def _fmt(value: Any) -> str:
@@ -39,108 +41,114 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
-def _metrics_table(metrics: dict[str, Any]) -> str:
-    rows = ["| Metric | Value |", "|---|---:|"]
-    for key in sorted(metrics):
-        rows.append(f"| `{key}` | {_fmt(metrics[key])} |")
-    return "\n".join(rows)
+def _sample_start(report: StrategyReport) -> str:
+    if report.sample_start:
+        return str(report.sample_start)
+    if report.result_df.empty:
+        return ""
+    return str(pd.Timestamp(report.result_df.index.min()).date())
 
 
-def _tail_table(df: pd.DataFrame, columns: list[str], rows: int = 5) -> str:
+def _tail_html(df: pd.DataFrame, columns: list[str], rows: int = 5) -> str:
     available = [column for column in columns if column in df.columns]
     if not available or df.empty:
-        return "_No result rows._"
+        return ""
     view = df[available].tail(rows).copy()
     view.index = pd.to_datetime(view.index).strftime("%Y-%m-%d")
-    header = "| Date | " + " | ".join(available) + " |"
-    divider = "|---|" + "|".join("---:" for _ in available) + "|"
-    lines = [header, divider]
-    for idx, row in view.iterrows():
-        values = " | ".join(_fmt(row[column]) for column in available)
-        lines.append(f"| {idx} | {values} |")
-    return "\n".join(lines)
+    view.index.name = "Date"
+    formatted = view.copy()
+    for column in formatted.columns:
+        formatted[column] = [_fmt(value) for value in formatted[column].tolist()]
+    return formatted.to_html()
 
 
-def write_strategy_report(report: StrategyReport, output_dir: str | Path) -> Path:
-    """Write one strategy Markdown report and its PNG performance chart."""
+def _metric_rows(metrics: dict[str, Any]) -> list[tuple[str, str]]:
+    return [(str(key), _fmt(metrics[key])) for key in sorted(metrics)]
+
+
+def _catalog_href(output_dir: Path) -> str:
+    return relative_catalog_href(output_dir, output_dir.parent)
+
+
+def write_strategy_report(
+    report: StrategyReport,
+    output_dir: str | Path,
+    *,
+    chart_png: bytes | None = None,
+) -> Path:
+    """Write one strategy HTML report and its PNG performance chart."""
     path_dir = Path(output_dir)
     path_dir.mkdir(parents=True, exist_ok=True)
-    chart_name = f"{report.slug}_performance.png"
-    chart_path = path_dir / chart_name
-    chart_path.write_bytes(
-        plot_backtest_performance(report.result_df, title=f"{report.title} Performance")
+    png = chart_png or plot_backtest_performance(
+        report.result_df, title=f"{report.title} Performance"
     )
+    chart_path = path_dir / f"{report.slug}_performance.png"
+    chart_path.write_bytes(png)
 
-    path = path_dir / f"{report.slug}.md"
-    content = f"""# {report.title}
-
-## Summary
-
-- Domain: `{report.domain}`
-- Type: {report.strategy_type}
-- Label: {report.label}
-
-{report.description}
-
-## Performance Chart
-
-![Performance Chart]({chart_name})
-
-## Metrics
-
-{_metrics_table(report.metrics)}
-
-## Notes
-
-{chr(10).join(f"- {note}" for note in report.notes)}
-
-## Recent Result Rows
-
-{_tail_table(report.result_df, ["return", "raw_return", "cum_return", "drawdown", "turnover"])}
-"""
-    path.write_text(content, encoding="utf-8")
+    renderer = ReportRenderer(output_dir=path_dir)
+    html = renderer.render(
+        "strategy_example",
+        {
+            "title": report.title,
+            "domain": report.domain,
+            "strategy_type": report.strategy_type,
+            "label": report.label,
+            "description": report.description,
+            "chart_png": png,
+            "metrics": _metric_rows(report.metrics),
+            "notes": list(report.notes),
+            "tail_html": _tail_html(
+                report.result_df,
+                ["return", "raw_return", "cum_return", "drawdown", "turnover"],
+            ),
+            "catalog_href": _catalog_href(path_dir),
+        },
+    )
+    path = renderer.save(html, f"{report.slug}.html")
+    stale_md = path_dir / f"{report.slug}.md"
+    if stale_md.exists():
+        stale_md.unlink()
     return path
 
 
 def write_strategy_index(reports: list[StrategyReport], output_dir: str | Path) -> Path:
-    """Write the strategy report index markdown file."""
+    """Write the strategy example index HTML file."""
     path_dir = Path(output_dir)
     path_dir.mkdir(parents=True, exist_ok=True)
-    rows = [
-        "| Strategy | Domain | Type | Start | Sharpe | Total Return | Max Drawdown |",
-        "|---|---|---|---:|---:|---:|---:|",
-    ]
+    rows = []
     for report in reports:
         metrics = report.metrics
-        start = (
-            pd.Timestamp(report.result_df.index.min()).date() if not report.result_df.empty else ""
-        )
         rows.append(
-            "| "
-            + " | ".join(
-                [
-                    f"[{report.title}]({report.slug}.md)",
-                    report.domain,
-                    report.strategy_type,
-                    str(start),
-                    _fmt(metrics.get("sharpe_ratio", np.nan)),
-                    _fmt(metrics.get("total_return", np.nan)),
-                    _fmt(metrics.get("max_drawdown", np.nan)),
-                ]
-            )
-            + " |"
+            {
+                "title": report.title,
+                "href": f"{report.slug}.html",
+                "domain": report.domain,
+                "strategy_type": report.strategy_type,
+                "start": _sample_start(report),
+                "sharpe": _fmt(metrics.get("sharpe_ratio", np.nan)),
+                "total_return": _fmt(metrics.get("total_return", np.nan)),
+                "max_drawdown": _fmt(metrics.get("max_drawdown", np.nan)),
+            }
         )
-
-    path = path_dir / "README.md"
-    path.write_text(
-        "# Strategy Example Reports\n\n"
-        "These reports are generated from PandaData daily listed-fund and futures bars saved under "
-        "`data/market/1d/`. They are compact public examples, not proof of "
-        "long-term production robustness.\n\n"
-        "Run `uv run python -m scripts.run_strategy_reports` after refreshing local "
-        "PandaData Parquet files.\n\n" + "\n".join(rows) + "\n",
-        encoding="utf-8",
+    renderer = ReportRenderer(output_dir=path_dir)
+    html = renderer.render(
+        "strategy_index",
+        {
+            "title": "Strategy Example Reports",
+            "intro": (
+                "These reports are generated from PandaData daily listed-fund and "
+                "futures bars saved under data/market/1d/. They are compact public "
+                "examples, not proof of long-term production robustness."
+            ),
+            "reproduce_command": "uv run python -m scripts.run_strategy_reports",
+            "rows": rows,
+            "catalog_href": _catalog_href(path_dir),
+        },
     )
+    path = renderer.save(html, "index.html")
+    stale_readme = path_dir / "README.md"
+    if stale_readme.exists():
+        stale_readme.unlink()
     return path
 
 

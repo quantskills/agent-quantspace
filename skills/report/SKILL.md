@@ -19,7 +19,7 @@ objects, and the caller fills `ResearchReport` then calls
 | Path | Entry | Output | Use for |
 |------|-------|--------|---------|
 | Complete research archive | `ResearchReport` + `write_research_bundle` | `reports/<namespace>/<slug>/index.html` | Takeaway research document |
-| Public example card | `StrategyReport` + `write_strategy_report` | `reports/strategy_examples/*.md` | Compact public demos |
+| Public example card | `StrategyReport` + `write_strategy_report` | `reports/strategy_examples/*.html` | Compact public demos |
 | Dashboard preview | `ReportRenderer` + `factor_report` / `backtest_report` / `signal_digest` | one HTML file | Quick look, not an archive |
 
 Charts are inlined as base64 data URIs via the `png_data_uri` Jinja filter.
@@ -124,7 +124,7 @@ path = renderer.save(html, "macro_weekly_2026-05-08.html")
 Pass a template name with or without `.html`. Relative output paths resolve
 against `reports/`; absolute paths are respected as-is.
 
-## Public Markdown cards
+## Public HTML cards
 
 ```python
 from skills.report.strategy_markdown import StrategyReport, write_strategy_report
@@ -143,8 +143,8 @@ report = StrategyReport(
 path = write_strategy_report(report, "reports/strategy_examples")
 ```
 
-Keep this path for `scripts/run_strategy_reports`. Do not upgrade those cards
-into nine-section HTML unless explicitly requested.
+Keep this path for `scripts/run_strategy_reports`. Cards are compact HTML,
+not the nine-section research archive.
 
 ## Available charts
 
@@ -166,9 +166,34 @@ into nine-section HTML unless explicitly requested.
 All helpers return `bytes` (PNG). The headless `Agg` backend is pinned at
 import time so reports render without a display.
 
+Importing `skills.report.charts` (or calling `charts.configure_cjk_matplotlib()`)
+selects a system Han font so Chinese titles in PNG files render on macOS
+(PingFang / Hiragino Sans GB), Windows (Microsoft YaHei / SimHei from
+`%WINDIR%\\Fonts`), and Linux (Noto / Source Han / WenQuanYi). On Windows the
+file is registered with `fontManager.addfont` and applied by file path, not by
+font name alone — that is what makes `msyh.ttc` work with matplotlib. Custom
+figures should go through `charts.fig_to_png(fig)` instead of `savefig`. If no
+CJK font is installed (for example an English Windows image without the
+Chinese language pack), charts still save; glyphs may fall back to boxes.
+
+## Windows and paths
+
+- Matplotlib Chinese: load `msyh.ttc` / `simhei.ttf` from `%WINDIR%\\Fonts`
+  (case-insensitive), register the file, set `Microsoft YaHei` / `微软雅黑`
+  aliases, and disable `axes.unicode_minus`.
+- Write HTML/JSON/Markdown as UTF-8 with `\n` newlines. Catalog reads tolerate
+  a UTF-8 BOM (`utf-8-sig`).
+- Study directories use `pathlib.Path` (`reports_root / namespace / slug`).
+- Catalog `href` values are POSIX (`namespace/slug/index.html`) so they work
+  in browsers on Windows.
+
 ## Template conventions
 
 - Inline CSS only — reports must render standalone without external assets.
 - Header band uses `#4f81bd`; table header background `#f4f4f4`.
+- Body font stack includes PingFang / YaHei / Noto so HTML Chinese is visible
+  on macOS and Windows.
+- Every HTML report includes a relative link back to `catalog.html`
+  (`../../catalog.html` from `namespace/slug/index.html`).
 - Optional chart blocks are wrapped in `{% if chart %} … {% endif %}`.
 - Safe-render pre-built tables via `{{ table.html | safe }}`.

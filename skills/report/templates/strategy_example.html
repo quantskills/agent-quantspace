@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>{{ title or "Backtest Report" }}</title>
+<title>{{ title or "Strategy Example" }}</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Zen Hei", sans-serif; margin: 2em; color: #222; }
   h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
@@ -21,48 +21,64 @@
   .catalog-nav { margin: 0 0 1.2em; }
   .catalog-nav a { color: #4f81bd; text-decoration: none; }
   .catalog-nav a:hover { text-decoration: underline; }
+  .empty { color: #888; }
+  footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #ccc; color: #666; font-size: .9em; }
 </style>
 </head>
 <body>
 {% include "catalog_nav.html" %}
-<h1>{{ title or "Backtest Report" }}</h1>
-<p class="meta">Strategy: <code>{{ strategy }}</code> &middot; Period: {{ period or "—" }} &middot; Generated: {{ as_of }}</p>
+<h1>{{ title or "Strategy Example" }}</h1>
+<p class="meta">
+  Domain: <code>{{ domain }}</code>
+  &middot; Type: {{ strategy_type }}
+  &middot; Label: {{ label }}
+</p>
+{% if description %}<p>{{ description }}</p>{% endif %}
 
+<h2>Performance Chart</h2>
+{% if chart_png %}
+<figure class="chart">
+  <img src="{{ chart_png | png_data_uri }}" alt="{{ title }} performance">
+</figure>
+{% else %}
+<p class="empty">No performance chart.</p>
+{% endif %}
+
+<h2>Metrics</h2>
 {% if metrics %}
-<h2>Performance Summary</h2>
-<div class="metric-grid">
-  {% for label, value in metrics.items() %}
-  <div class="metric">
-    <div class="label">{{ label }}</div>
-    <div class="value">{{ value }}</div>
-  </div>
-  {% endfor %}
-</div>
+<table>
+  <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+  <tbody>
+    {% for key, value in metrics %}
+    <tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No metrics.</p>
 {% endif %}
 
-{% if equity_chart %}
-<h2>Equity Curve</h2>
-<div class="chart"><img src="{{ equity_chart | png_data_uri }}" alt="equity curve"></div>
-{% endif %}
-
-{% if drawdown_chart %}
-<h2>Drawdown</h2>
-<div class="chart"><img src="{{ drawdown_chart | png_data_uri }}" alt="drawdown"></div>
-{% endif %}
-
-{% if regime_chart %}
-<h2>Regime Overlay</h2>
-<div class="chart"><img src="{{ regime_chart | png_data_uri }}" alt="regime states"></div>
-{% endif %}
-
-{% if trades_html %}
-<h2>Trades</h2>
-{{ trades_html | safe }}
-{% endif %}
-
-{% if notes %}
 <h2>Notes</h2>
-<p>{{ notes }}</p>
+{% if notes %}
+<ul>
+  {% for note in notes %}
+  <li>{{ note }}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">—</p>
 {% endif %}
+
+<h2>Recent Result Rows</h2>
+{% if tail_html %}
+{{ tail_html | safe }}
+{% else %}
+<p class="empty">No result rows.</p>
+{% endif %}
+
+<footer>
+  <a href="{{ catalog_href | default('../catalog.html') }}">← 返回目录</a>
+  &middot; public example
+</footer>
 </body>
 </html>

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>{{ title or "研究报告" }}</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #222; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Zen Hei", sans-serif; margin: 2em; color: #222; }
   h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
   h2 { margin-top: 2em; color: #4f81bd; }
   table { border-collapse: collapse; margin: 1em 0; }
@@ -22,9 +22,13 @@
   pre { background: #f4f7fb; padding: .8em 1em; overflow-x: auto; }
   footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #ccc; color: #666; font-size: .9em; }
   .empty { color: #888; }
+  .catalog-nav { margin: 0 0 1.2em; }
+  .catalog-nav a { color: #4f81bd; text-decoration: none; }
+  .catalog-nav a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+{% include "catalog_nav.html" %}
 <h1>{{ title or "研究报告" }}</h1>
 <p class="meta">
   <code>{{ namespace }}/{{ slug }}</code>
@@ -165,7 +169,8 @@
 <p class="meta">visibility=<code>{{ visibility }}</code>{% if visibility == "private" %}（默认不提交到公开仓库）{% endif %}</p>
 
 <footer>
-  metrics_source: <code>{{ metrics_source }}</code>
+  <a href="{{ catalog_href | default('../../catalog.html') }}">← 返回目录</a>
+  &middot; metrics_source: <code>{{ metrics_source }}</code>
   &middot; visibility: <code>{{ visibility }}</code>
   &middot; as_of: {{ as_of or "—" }}
 </footer>

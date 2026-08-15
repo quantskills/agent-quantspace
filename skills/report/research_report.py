@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from skills.report.renderer import ReportRenderer
+from skills.report.renderer import ReportRenderer, relative_catalog_href
 from skills.store.workspace import resolve_workspace_paths
 
 _SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -156,17 +156,23 @@ def write_research_bundle(
         robustness_notes=robustness_notes,
         other_notes=other_notes,
         written_files=written_files,
+        catalog_href=relative_catalog_href(study_dir, root),
     )
     renderer = ReportRenderer(output_dir=root)
     html = renderer.render("research_report", context)
     params_text = json.dumps(_params_payload(report), ensure_ascii=False, indent=2) + "\n"
 
-    renderer.save(html, f"{report.namespace}/{report.slug}/index.html")
-    (study_dir / "params.json").write_text(params_text, encoding="utf-8")
+    renderer.save(html, Path(report.namespace) / report.slug / "index.html")
+    (study_dir / "params.json").write_text(params_text, encoding="utf-8", newline="\n")
     if metrics_rows is not None:
         artifacts_dir = study_dir / "artifacts"
         artifacts_dir.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(metrics_rows).to_csv(artifacts_dir / "metrics.csv", index=False)
+        pd.DataFrame(metrics_rows).to_csv(
+            artifacts_dir / "metrics.csv",
+            index=False,
+            encoding="utf-8",
+            lineterminator="\n",
+        )
     return study_dir
 
 
@@ -188,7 +194,7 @@ def list_research_studies(reports_root: str | Path | None = None) -> list[dict[s
         if not (study_dir / "index.html").is_file():
             continue
         try:
-            payload = json.loads(params_path.read_text(encoding="utf-8"))
+            payload = json.loads(params_path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError:
             continue
         if not isinstance(payload, dict):
@@ -227,6 +233,7 @@ def write_research_catalog(
     (root / "catalog.json").write_text(
         json.dumps(records, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return catalog_html
 
@@ -341,6 +348,7 @@ def _bundle_context(
     robustness_notes: list[str],
     other_notes: list[str],
     written_files: list[str],
+    catalog_href: str,
 ) -> dict[str, Any]:
     has_robustness = bool(robustness_tables or robustness_notes)
     return {
@@ -374,6 +382,7 @@ def _bundle_context(
         "as_of": report.as_of,
         "notes": other_notes,
         "written_files": written_files,
+        "catalog_href": catalog_href,
     }
 
 
@@ -423,11 +432,11 @@ def _public_example_records(root: Path) -> list[dict[str, Any]]:
     if not folder.is_dir():
         return []
     records: list[dict[str, Any]] = []
-    for path in sorted(folder.glob("*.md")):
-        if path.name in {"README.md", "README-zh.md"}:
+    for path in sorted(folder.glob("*.html")):
+        if path.name in {"index.html", "catalog.html", "README.html"}:
             continue
         try:
-            title = _markdown_title(path)
+            title = _html_title(path)
         except OSError:
             continue
         records.append(
@@ -454,14 +463,13 @@ def _public_example_records(root: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _markdown_title(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            heading = stripped[2:].strip()
-            if heading:
-                return heading
+def _html_title(path: Path) -> str:
+    text = path.read_text(encoding="utf-8-sig")
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        heading = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+        if heading:
+            return heading
     return path.stem
 
 

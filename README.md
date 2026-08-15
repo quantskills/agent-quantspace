@@ -20,7 +20,7 @@ AI 想要下载的数据、验证的市场假设、因子灵感、机器学习 l
 
 QuantSpace 自带一整套可被 AI 调用的 skills：获取数据，本地自动化管理 Parquet 数据
 并可用 DuckDB 查询，计算和分析因子，开发规则类与机器学习策略，做组合构建和向量化
-回测，再把绩效图表和 Markdown 报告沉淀下来。`strategy` 提供横截面与时序策略的通用
+回测，再把绩效图表和 HTML 报告沉淀下来。`strategy` 提供横截面与时序策略的通用
 类型和目标权重原语，`backtest` 负责统一执行与组合构建，`ml` 负责机器学习训练和预测。
 目录下的 `SKILL.md` 会把协作规则写进项目，让新代码优先复用既有模块，而不是散落在一次性的脚本里。
 
@@ -63,7 +63,7 @@ quantspace/
     backtest/             向量化执行、权重、过滤器、成本
     ml/                   ML 辅助模块和可选模型引擎
     research/             因子筛选和参数扫描
-    report/               HTML/Markdown 报告渲染和图表工具
+    report/               HTML 报告渲染和图表工具
     factor_mining/        AI 多因子挖掘契约、端口与跨平台角色协议
   strategies/
     cross_sectional/      具体横截面 factors、rules、ML 与 workflows
@@ -88,7 +88,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
-| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告、公开 Markdown 卡片和图表工具 |
+| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告、公开 HTML 卡片和图表工具 |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、四端口、Phase 02/03 适配器、Phase 04 Research Controller 与跨平台角色任务协议 |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
@@ -300,7 +300,7 @@ XGBoost 示例。策略逻辑放在 `strategies/`；通用选取和 target-weigh
 </tr>
 </table>
 
-> 上述区间收益来自 `reports/strategy_examples/` 下的公开示例报告，基于历史行情回测，受数据窗口、参数与样本范围影响，**不构成收益承诺或投资建议**。完整指标见对应的 `*.md` 报告。
+> 上述区间收益来自 `reports/strategy_examples/` 下的公开示例报告，基于历史行情回测，受数据窗口、参数与样本范围影响，**不构成收益承诺或投资建议**。完整指标见对应的 `*.html` 报告。
 
 ## 文档索引
 

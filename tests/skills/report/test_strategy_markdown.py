@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-def test_strategy_markdown_writes_report_and_index(tmp_path) -> None:
+def test_strategy_html_writes_report_and_index(tmp_path) -> None:
     from skills.report.strategy_markdown import (
         StrategyReport,
         write_strategy_index,
@@ -36,10 +36,20 @@ def test_strategy_markdown_writes_report_and_index(tmp_path) -> None:
     index_path = write_strategy_index([report], tmp_path)
 
     content = report_path.read_text(encoding="utf-8")
-    assert "![Performance Chart](demo_performance.png)" in content
-    assert (tmp_path / "demo_performance.png").exists()
+    assert report_path.name == "demo.html"
+    assert "data:image/png;base64," in content
+    assert "<h2>Performance Chart</h2>" in content
+    assert "<h2>Metrics</h2>" in content
+    assert 'href="../catalog.html"' in content
+    assert "返回目录" in content
+    assert (tmp_path / "demo_performance.png").is_file()
+    assert not (tmp_path / "demo.md").exists()
+
     index_content = index_path.read_text(encoding="utf-8")
-    assert "[Demo Strategy](demo.md)" in index_content
+    assert index_path.name == "index.html"
+    assert 'href="demo.html"' in index_content
+    assert "Demo Strategy" in index_content
     assert "listed-fund and futures bars" in index_content
     assert "uv run python -m scripts.run_strategy_reports" in index_content
     assert "python scripts/" not in index_content
+    assert not (tmp_path / "README.md").exists()

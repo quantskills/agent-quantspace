@@ -81,7 +81,7 @@ quantspace/
     backtest/             vectorized execution, weighting, filters, costs
     ml/                   ML helpers and optional model engines
     research/             factor screening, parameter sweeps, comparisons
-    report/               HTML/Markdown report rendering and charts
+    report/               HTML report rendering and charts
     factor_mining/        AI factor-mining contracts, ports, and cross-platform role protocol
   strategies/
     cross_sectional/      cross-sectional strategy
@@ -108,7 +108,7 @@ writing new research code.
 | `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
-| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports, public Markdown cards, and chart helpers |
+| `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports, public HTML cards, and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, four ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role task protocol |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public

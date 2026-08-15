@@ -59,12 +59,12 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
 
     names = {path.name for path in report_paths}
     assert names == {
-        "README.md",
-        "csi300_if_ma10_atr_reversion.md",
-        "csi300_if_xgboost_triple_barrier.md",
-        "futures_cross_sectional_reversal.md",
-        "futures_xgboost_rank.md",
-        "global_asset_etf_top3.md",
+        "index.html",
+        "csi300_if_ma10_atr_reversion.html",
+        "csi300_if_xgboost_triple_barrier.html",
+        "futures_cross_sectional_reversal.html",
+        "futures_xgboost_rank.html",
+        "global_asset_etf_top3.html",
     }
     combined = "\n".join(path.read_text(encoding="utf-8") for path in report_paths)
     assert "CFFEX.IF99" in combined
@@ -87,12 +87,13 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
         "global_asset_etf_top3_performance.png",
     }
     for path in report_paths:
-        if path.name == "README.md":
+        if path.name == "index.html":
             continue
         chart_name = f"{path.stem}_performance.png"
         report = path.read_text(encoding="utf-8")
-        assert f"![Performance Chart]({chart_name})" in report
-        assert report.index("## Summary") < report.index("## Performance Chart")
-        assert report.index("## Performance Chart") < report.index("## Metrics")
-        assert report.index("## Metrics") < report.index("## Notes")
+        assert "data:image/png;base64," in report
+        assert (output_dir / chart_name).is_file()
+        assert report.index("<h2>Performance Chart</h2>") < report.index("<h2>Metrics</h2>")
+        assert report.index("<h2>Metrics</h2>") < report.index("<h2>Notes</h2>")
+        assert 'href="../catalog.html"' in report
     assert unrelated.read_text(encoding="utf-8") == "keep"

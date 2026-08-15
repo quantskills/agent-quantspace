@@ -18,13 +18,28 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from skills.report.fonts import apply_cjk_font, configure_cjk_matplotlib  # noqa: E402
 
-def _fig_to_png(fig, *, dpi: int = 100) -> bytes:
+configure_cjk_matplotlib()
+
+
+def fig_to_png(fig, *, dpi: int = 100) -> bytes:
+    """Save a matplotlib figure to PNG bytes and close it.
+
+    Applies a system CJK font so Chinese titles and labels render on macOS,
+    Windows, and Linux when a Han-capable font is installed.
+    """
+    configure_cjk_matplotlib()
+    apply_cjk_font(fig)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", dpi=dpi)
     plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
+
+
+def _fig_to_png(fig, *, dpi: int = 100) -> bytes:
+    return fig_to_png(fig, dpi=dpi)
 
 
 def plot_equity_curve(returns: pd.Series, title: str = "Equity Curve") -> bytes:

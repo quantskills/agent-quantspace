@@ -7,6 +7,7 @@ PNG ``bytes`` and base64-encoded inline so reports are single-file artifacts.
 from __future__ import annotations
 
 import base64
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,18 @@ def png_to_data_uri(png: bytes | None) -> str:
         return ""
     b64 = base64.b64encode(png).decode("ascii")
     return f"data:image/png;base64,{b64}"
+
+
+def relative_catalog_href(from_dir: str | Path, reports_root: str | Path) -> str:
+    """POSIX href from ``from_dir`` to ``reports_root/catalog.html``.
+
+    Study pages live at ``<namespace>/<slug>/``, so this is typically
+    ``../../catalog.html``. Dashboard files saved at the reports root get
+    ``catalog.html``. Windows backslashes are never used in the href.
+    """
+    catalog = Path(reports_root) / "catalog.html"
+    relative = os.path.relpath(os.fspath(catalog), start=os.fspath(from_dir))
+    return Path(relative).as_posix()
 
 
 class ReportRenderer:
@@ -55,7 +68,7 @@ class ReportRenderer:
         self.template_dir = Path(template_dir) if template_dir else TEMPLATE_DIR
         self.output_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR
         self.env = Environment(
-            loader=FileSystemLoader(str(self.template_dir)),
+            loader=FileSystemLoader(os.fspath(self.template_dir)),
             autoescape=select_autoescape(["html"]),
         )
         self.env.filters["png_data_uri"] = png_to_data_uri
@@ -65,7 +78,8 @@ class ReportRenderer:
         if not template_name.endswith(".html"):
             template_name = f"{template_name}.html"
         template = self.env.get_template(template_name)
-        return template.render(**context)
+        payload = {"catalog_href": "catalog.html", **context}
+        return template.render(**payload)
 
     def save(self, html: str, output_path: str | Path) -> Path:
         """Write HTML to ``output_path``.
@@ -77,7 +91,7 @@ class ReportRenderer:
         if not path.is_absolute():
             path = self.output_dir / path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(html, encoding="utf-8")
+        path.write_text(html, encoding="utf-8", newline="\n")
         return path
 
     def to_pdf(self, html: str, output_path: str | Path) -> Path:
@@ -93,5 +107,5 @@ class ReportRenderer:
         if not path.is_absolute():
             path = self.output_dir / path
         path.parent.mkdir(parents=True, exist_ok=True)
-        HTML(string=html).write_pdf(str(path))
+        HTML(string=html).write_pdf(os.fspath(path))
         return path

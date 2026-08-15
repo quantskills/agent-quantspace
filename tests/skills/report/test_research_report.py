@@ -93,6 +93,8 @@ def test_write_research_bundle_happy_path(tmp_path: Path) -> None:
     assert "data:image/png;base64," in html
     assert "本报告未做" in html
     assert 'lang="zh-CN"' in html
+    assert 'href="../../catalog.html"' in html
+    assert html.count("返回目录") >= 2
 
     params = json.loads(params_path.read_text(encoding="utf-8"))
     assert params["metrics"] == {"sharpe_ratio": 1.5, "max_drawdown": -0.25}
@@ -198,7 +200,10 @@ def test_write_research_catalog_links_study_and_visibility(tmp_path: Path) -> No
     write_research_bundle(_make_report(), reports_root=tmp_path)
     examples = tmp_path / "strategy_examples"
     examples.mkdir()
-    (examples / "demo.md").write_text("# Demo Card\n\nPublic example.\n", encoding="utf-8")
+    (examples / "demo.html").write_text(
+        "<html><body><h1>Demo Card</h1><p>Public example.</p></body></html>\n",
+        encoding="utf-8",
+    )
     readme = tmp_path / "README.md"
     readme.write_text("keep me\n", encoding="utf-8")
 
@@ -208,7 +213,7 @@ def test_write_research_catalog_links_study_and_visibility(tmp_path: Path) -> No
     assert "lesson_09/if_ma10_atr/index.html" in html
     assert "private" in html
     assert "public_example" in html
-    assert "strategy_examples/demo.md" in html
+    assert "strategy_examples/demo.html" in html
     assert (tmp_path / "catalog.json").is_file()
     assert readme.read_text(encoding="utf-8") == "keep me\n"
     assert not (tmp_path / "strategy_examples" / "index.html").exists()
@@ -230,3 +235,25 @@ def test_public_example_visibility_still_writes_namespace_slug(tmp_path: Path) -
     assert study_dir == tmp_path / "lesson_09" / "if_ma10_atr"
     assert (study_dir / "index.html").is_file()
     assert not (tmp_path / "strategy_examples").exists()
+
+
+def test_written_files_use_lf_and_cjk_font_stack(tmp_path: Path) -> None:
+    study_dir = write_research_bundle(_make_report(), reports_root=tmp_path)
+    html_bytes = (study_dir / "index.html").read_bytes()
+    params_bytes = (study_dir / "params.json").read_bytes()
+    html = html_bytes.decode("utf-8")
+    assert b"\r\n" not in html_bytes
+    assert b"\r\n" not in params_bytes
+    assert "Microsoft YaHei" in html
+    assert "PingFang SC" in html
+    assert "Hiragino Sans GB" in html
+
+
+def test_list_research_studies_reads_utf8_bom(tmp_path: Path) -> None:
+    study_dir = write_research_bundle(_make_report(), reports_root=tmp_path)
+    params_path = study_dir / "params.json"
+    params_path.write_bytes(b"\xef\xbb\xbf" + params_path.read_bytes())
+    studies = list_research_studies(tmp_path)
+    assert studies[0]["slug"] == "if_ma10_atr"
+    assert studies[0]["index_html"] == "lesson_09/if_ma10_atr/index.html"
+    assert "\\" not in studies[0]["index_html"]
