@@ -9,10 +9,11 @@ from typing import Any, Literal
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LinearRegression
 from xgboost import XGBRegressor
 
-ModelKind = Literal["lasso", "rf", "xgboost"]
+ModelKind = Literal["ols", "lasso", "rf", "xgboost"]
+SUPPORTED_MODELS: tuple[ModelKind, ...] = ("ols", "lasso", "rf", "xgboost")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,8 @@ def make_regressor(
     rf_n_jobs: int | None = None,
 ) -> Any:
     """Build a frozen-default regressor for lesson-07 cross-sectional ML."""
+    if model == "ols":
+        return LinearRegression()
     if model == "lasso":
         return Lasso(alpha=1e-3, random_state=random_state)
     if model == "rf":
@@ -96,6 +99,7 @@ def make_regressor(
 __all__ = [
     "FoldTransformResult",
     "ModelKind",
+    "SUPPORTED_MODELS",
     "default_rf_n_jobs",
     "fit_fold_transform",
     "make_regressor",

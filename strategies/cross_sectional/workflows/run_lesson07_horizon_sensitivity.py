@@ -30,7 +30,7 @@ import pandas as pd  # noqa: E402
 
 from skills.backtest import VectorBacktester
 from skills.compute.features import make_logdiff_panel_features
-from skills.ml.pca_fold import ModelKind
+from skills.ml.pca_fold import ModelKind, SUPPORTED_MODELS
 from skills.report.charts import plot_equity_comparison
 from skills.store.data_manager import DataManager
 from skills.strategy.cross_sectional import hold_weights_on_calendar
@@ -43,7 +43,7 @@ from strategies.cross_sectional.ml_rank import (
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT = ROOT / "reports" / "lesson_07_etf18_horizon_sensitivity"
-MODELS: tuple[ModelKind, ...] = ("lasso", "rf", "xgboost")
+MODELS: tuple[ModelKind, ...] = SUPPORTED_MODELS
 HORIZONS: tuple[int, ...] = (1, 5, 10, 22)
 
 N_PCA = 50
@@ -358,6 +358,39 @@ def _limit_blas_threads() -> None:
         os.environ.setdefault(name, "1")
 
 
+def _merge_keyed_csv(
+    path: Path,
+    new_df: pd.DataFrame,
+    *,
+    keys: tuple[str, ...],
+) -> pd.DataFrame:
+    """Replace matching key rows in an existing CSV, keeping other models' results."""
+    if new_df.empty and path.is_file():
+        return pd.read_csv(path).sort_values(list(keys)).reset_index(drop=True)
+    if new_df.empty:
+        return new_df
+    if path.is_file():
+        old = pd.read_csv(path)
+        key_set = set(map(tuple, new_df.loc[:, list(keys)].itertuples(index=False, name=None)))
+        keep = [
+            tuple(row) not in key_set
+            for row in old.loc[:, list(keys)].itertuples(index=False, name=None)
+        ]
+        combined = pd.concat([old.loc[keep], new_df], ignore_index=True)
+    else:
+        combined = new_df
+    return combined.sort_values(list(keys)).reset_index(drop=True)
+
+
+def _models_with_equity(output: Path, *, horizons: Sequence[int]) -> list[str]:
+    """Prefer SUPPORTED_MODELS order for models that have equity files on all horizons."""
+    present: list[str] = []
+    for model in SUPPORTED_MODELS:
+        if all((output / f"equity_h{h}_{model}.parquet").is_file() for h in horizons):
+            present.append(model)
+    return present
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Lesson 07 horizon × model sensitivity.")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
@@ -379,7 +412,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--models",
         default=",".join(MODELS),
-        help="Comma-separated models: lasso,rf,xgboost",
+        help="Comma-separated models: ols,lasso,rf,xgboost",
     )
     return parser.parse_args(argv)
 
@@ -395,7 +428,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     horizons = tuple(int(x) for x in str(args.horizons).split(",") if x.strip())
     models = tuple(x.strip() for x in str(args.models).split(",") if x.strip())
     for model in models:
-        if model not in MODELS:
+        if model not in SUPPORTED_MODELS:
             raise ValueError(f"unsupported model: {model!r}")
     workers = max(1, int(args.workers))
 
@@ -448,14 +481,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     jobs: list[dict[str, Any]] = []
     n_cached_pairs = 0
     for horizon in horizons:
-        if args.resume:
-            cached_models = {
-                model: _load_cached_job(output, horizon=horizon, model=model) for model in models
-            }
-            if all(cached_models[model] is not None for model in models):
-                for model in models:
-                    cached = cached_models[model]
-                    assert cached is not None
+        models_to_run: list[str] = []
+        for model in models:
+            if args.resume:
+                cached = _load_cached_job(output, horizon=horizon, model=model)
+                if cached is not None:
                     comparison_rows.append(cached["comparison"])
                     ml_rows.append(cached["ml_overall"])
                     n_cached_pairs += 1
@@ -473,21 +503,23 @@ def main(argv: Sequence[str] | None = None) -> None:
                         ),
                         flush=True,
                     )
-                continue
-        jobs.append(
-            {
-                "horizon": horizon,
-                "models": list(models),
-                "output": str(output),
-                "panel_path": str(panel_path),
-                "features_path": str(features_path),
-                "min_train": int(args.min_train),
-                "retrain_step": int(args.retrain_step),
-                "n_pca": int(args.n_pca),
-                "top_n": int(args.top_n),
-                "rf_n_jobs": rf_n_jobs,
-            }
-        )
+                    continue
+            models_to_run.append(model)
+        if models_to_run:
+            jobs.append(
+                {
+                    "horizon": horizon,
+                    "models": models_to_run,
+                    "output": str(output),
+                    "panel_path": str(panel_path),
+                    "features_path": str(features_path),
+                    "min_train": int(args.min_train),
+                    "retrain_step": int(args.retrain_step),
+                    "n_pca": int(args.n_pca),
+                    "top_n": int(args.top_n),
+                    "rf_n_jobs": rf_n_jobs,
+                }
+            )
     print(
         json.dumps(
             {
@@ -549,17 +581,27 @@ def main(argv: Sequence[str] | None = None) -> None:
     panel_path.unlink(missing_ok=True)
     features_path.unlink(missing_ok=True)
 
-    comparison = pd.DataFrame(comparison_rows).sort_values(["horizon", "model"]).reset_index(drop=True)
+    comparison = _merge_keyed_csv(
+        output / "comparison.csv",
+        pd.DataFrame(comparison_rows),
+        keys=("horizon", "model"),
+    )
+    ml_metrics = _merge_keyed_csv(
+        output / "ml_overall_metrics.csv",
+        pd.DataFrame(ml_rows),
+        keys=("horizon", "model"),
+    )
     comparison.to_csv(output / "comparison.csv", index=False)
-    ml_metrics = pd.DataFrame(ml_rows).sort_values(["horizon", "model"]).reset_index(drop=True)
     ml_metrics.to_csv(output / "ml_overall_metrics.csv", index=False)
 
+    chart_models = _models_with_equity(output, horizons=horizons) or list(models)
     equity_parts = [
-        pd.read_parquet(output / f"equity_h{h}_{m}.parquet") for h in horizons for m in models
+        pd.read_parquet(output / f"equity_h{h}_{m}.parquet") for h in horizons for m in chart_models
     ]
     equities = pd.concat(equity_parts, ignore_index=True)
     equities.to_parquet(output / "equities_long.parquet")
     chart_start = str(comparison["oos_start"].min())
+    model_title = "/".join(chart_models)
 
     for horizon in horizons:
         subset = equities[equities["horizon"] == horizon].copy()
@@ -570,15 +612,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             plot_equity_comparison(
                 plot_df,
                 start=chart_start,
-                title=f"horizon={horizon}d · lasso/rf/xgboost · signal_lag=0",
+                title=f"horizon={horizon}d · {model_title} · signal_lag=0",
             )
         )
 
     (output / "performance_by_horizon.png").write_bytes(
-        _plot_horizon_panels(equities, start=chart_start, models=models, horizons=horizons)
+        _plot_horizon_panels(equities, start=chart_start, models=chart_models, horizons=horizons)
     )
     (output / "performance_by_model.png").write_bytes(
-        _plot_model_panels(equities, start=chart_start, models=models, horizons=horizons)
+        _plot_model_panels(equities, start=chart_start, models=chart_models, horizons=horizons)
     )
     (output / "heatmap_ann_return.png").write_bytes(
         _plot_metric_heatmap(
@@ -586,7 +628,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             value="ann_return",
             title="Annualized return by model × horizon",
             fmt=".1%",
-            models=models,
+            models=chart_models,
             horizons=horizons,
         )
     )
@@ -596,7 +638,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             value="sharpe_ratio",
             title="Sharpe by model × horizon",
             fmt=".2f",
-            models=models,
+            models=chart_models,
             horizons=horizons,
         )
     )
@@ -606,15 +648,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             value="rank_ic",
             title="OOS Rank IC by model × horizon",
             fmt=".3f",
-            models=models,
+            models=chart_models,
             horizons=horizons,
         )
     )
 
     fig, ax = plt.subplots(figsize=(9, 4.2))
     x = np.arange(len(horizons))
-    width = 0.25
-    for i, model in enumerate(models):
+    width = 0.8 / max(len(chart_models), 1)
+    offset0 = (len(chart_models) - 1) / 2.0
+    for i, model in enumerate(chart_models):
         vals = [
             float(
                 comparison.loc[
@@ -623,7 +666,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             for h in horizons
         ]
-        ax.bar(x + (i - 1) * width, vals, width=width, label=model)
+        ax.bar(x + (i - offset0) * width, vals, width=width, label=model)
     ax.set_xticks(x, [str(h) for h in horizons])
     ax.set_xlabel("Horizon (days)")
     ax.set_ylabel("Ann. return")
@@ -644,15 +687,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "",
         f"- 样本区间：{sample_start} 至 {sample_end}",
         f"- horizons：{', '.join(str(h) for h in horizons)}（purge=horizon）",
-        f"- models：{', '.join(models)}",
+        f"- models：{', '.join(chart_models)}",
         f"- Top {args.top_n} 等权；`signal_lag={SIGNAL_LAG}`（close 出信号并同日 close 成交）",
         f"- 成本：佣金 {COMMISSION * 10_000:g}bp + 滑点 {SLIPPAGE_BP:g}bp",
         f"- 并行：ProcessPoolExecutor workers={workers}",
         "",
         "## 图",
         "",
-        "- `performance_by_horizon.png` — 每个 horizon 一张，三模型净值",
-        "- `performance_by_model.png` — 每个模型一张，四 horizon 净值",
+        f"- `performance_by_horizon.png` — 每个 horizon 一张，{len(chart_models)} 模型净值",
+        f"- `performance_by_model.png` — 每个模型一张，{len(horizons)} horizon 净值",
         "- `heatmap_ann_return.png` / `heatmap_sharpe.png` / `heatmap_rank_ic.png`",
         "- `bars_ann_return.png`",
         "",
@@ -666,6 +709,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "output": str(output),
                 "elapsed_sec": round(elapsed, 1),
                 "workers": workers,
+                "models": list(chart_models),
                 "comparison": comparison[
                     ["model", "horizon", "ann_return", "sharpe_ratio", "max_drawdown", "annual_turnover"]
                 ].to_dict("records"),

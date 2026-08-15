@@ -44,10 +44,12 @@ def test_fit_fold_transform_does_not_use_standard_scaler(monkeypatch) -> None:
 
 
 def test_make_regressor_builds_frozen_defaults() -> None:
+    ols = make_regressor("ols", random_state=7)
     lasso = make_regressor("lasso", random_state=7)
     rf = make_regressor("rf", random_state=7, rf_n_jobs=4)
     xgb = make_regressor("xgboost", random_state=7)
 
+    assert ols.__class__.__name__ == "LinearRegression"
     assert lasso.alpha == pytest.approx(1e-3)
     assert rf.n_estimators == 200
     assert rf.max_depth == 6

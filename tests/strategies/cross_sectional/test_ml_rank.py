@@ -195,7 +195,7 @@ def test_expanding_pca_model_scores_uses_expanding_purged_folds(monkeypatch) -> 
     assert captured["pred_dates"][0] > 0
 
 
-@pytest.mark.parametrize("model", ["lasso", "rf", "xgboost"])
+@pytest.mark.parametrize("model", ["ols", "lasso", "rf", "xgboost"])
 def test_expanding_pca_model_scores_schema_consistent_across_models(monkeypatch, model: str) -> None:
     dates = pd.date_range("2024-01-01", periods=10, name="eob")
     symbols = ["A", "B"]
@@ -344,7 +344,7 @@ def test_expanding_pca_multi_model_scores_shares_one_pca_per_fold(monkeypatch) -
 
     results = ml_rank.expanding_pca_multi_model_scores(
         panel,
-        models=("lasso", "rf", "xgboost"),
+        models=("ols", "lasso", "rf", "xgboost"),
         horizon=2,
         min_train=6,
         retrain_step=4,
@@ -352,4 +352,4 @@ def test_expanding_pca_multi_model_scores_shares_one_pca_per_fold(monkeypatch) -
     )
     n_folds = len(next(iter(results.values())).fold_metrics)
     assert pca_calls["n"] == n_folds
-    assert set(results) == {"lasso", "rf", "xgboost"}
+    assert set(results) == {"ols", "lasso", "rf", "xgboost"}

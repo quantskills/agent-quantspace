@@ -75,7 +75,7 @@ for fold in folds:
 from skills.ml.pca_fold import fit_fold_transform, make_regressor
 
 transform = fit_fold_transform(train_X, pred_X, n_pca=50, random_state=42)
-model = make_regressor("lasso")  # or "rf" / "xgboost"
+model = make_regressor("lasso")  # or "ols" / "rf" / "xgboost"
 model.fit(transform.train_X, train_y)
 pred = model.predict(transform.pred_X)
 ```
@@ -92,7 +92,7 @@ from strategies.cross_sectional.ml_rank import (
 features = make_logdiff_panel_features(panel)  # reuse across horizons
 # Prefer multi-model so each fold's PCA is fit once:
 results = expanding_pca_multi_model_scores(
-    panel, models=("lasso", "rf", "xgboost"), horizon=20, features=features
+    panel, models=("ols", "lasso", "rf", "xgboost"), horizon=20, features=features
 )
 # Or a single model:
 result = expanding_pca_model_scores(panel, model="rf", horizon=20, features=features)

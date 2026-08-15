@@ -21,7 +21,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `workflows/run_lesson06_multifactor.py`：可复现 Horizon/Lagged IC、相关性、
   调仓周期与五种多因子组合的研究 workflow。
 - `workflows/run_lesson07_etf18_logdiff_pca_ml.py`：18 ETF LogDiff + expanding
-  PCA + lasso/rf/xgboost 横截面 rank 对照与 Top 3 等权回测。
+  PCA + ols/lasso/rf/xgboost 横截面 rank 对照与 Top 3 等权回测。
 
 因子帧构建、选取、风控和 `ModularBacktester` 位于
 `skills.strategy.cross_sectional`；执行和收益核算由

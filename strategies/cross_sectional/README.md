@@ -23,7 +23,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `workflows/run_lesson06_multifactor.py`: reproducible Horizon/Lagged IC,
   correlation, rebalance, and five-method multi-factor experiment.
 - `workflows/run_lesson07_etf18_logdiff_pca_ml.py`: 18-ETF LogDiff + expanding
-  PCA + lasso/rf/xgboost rank comparison with equal-weight Top-3 backtest.
+  PCA + ols/lasso/rf/xgboost rank comparison with equal-weight Top-3 backtest.
 
 Factor-frame construction, selection, risk controls, and `ModularBacktester`
 live in `skills.strategy.cross_sectional`. Execution and return accounting live

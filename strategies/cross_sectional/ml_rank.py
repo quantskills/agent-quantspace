@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 from skills.backtest.weighting import risk_parity
 from skills.compute.features import make_logdiff_panel_features
-from skills.ml.pca_fold import ModelKind, fit_fold_transform, make_regressor
+from skills.ml.pca_fold import ModelKind, SUPPORTED_MODELS, fit_fold_transform, make_regressor
 from skills.ml.walk_forward import date_level_mask, expanding_purged_folds
 from skills.strategy.cross_sectional import top_n_weights
 
@@ -135,7 +135,7 @@ def _finalize_model_result(
 def expanding_pca_multi_model_scores(
     panel: pd.DataFrame,
     *,
-    models: Sequence[ModelKind] = ("lasso", "rf", "xgboost"),
+    models: Sequence[ModelKind] = ("ols", "lasso", "rf", "xgboost"),
     horizon: int = 20,
     min_train: int = 250,
     retrain_step: int = DEFAULT_RETRAIN_STEP,
@@ -149,7 +149,7 @@ def expanding_pca_multi_model_scores(
     if not model_list:
         raise ValueError("models cannot be empty.")
     for model in model_list:
-        if model not in ("lasso", "rf", "xgboost"):
+        if model not in SUPPORTED_MODELS:
             raise ValueError(f"unsupported model: {model!r}")
 
     if features is None:

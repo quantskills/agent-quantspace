@@ -35,7 +35,7 @@ from strategies.cross_sectional.ml_rank import (
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT = ROOT / "reports" / "lesson_07_etf18_logdiff_pca_ml"
-MODELS: tuple[ModelKind, ...] = ("lasso", "rf", "xgboost")
+MODELS: tuple[ModelKind, ...] = ("ols", "lasso", "rf", "xgboost")
 
 N_PCA = 50
 MIN_TRAIN = 250
@@ -245,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         plot_equity_comparison(
             equities,
             start=chart_start,
-            title="Lesson 07 · lasso / rf / xgboost · Top 3 equal weight",
+            title="Lesson 07 · ols / lasso / rf / xgboost · Top 3 equal weight",
         )
     )
     (output / "performance_comparison_drawdown.png").write_bytes(

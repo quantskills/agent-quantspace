@@ -23,7 +23,7 @@ panel OHLCV -> factors/rules/ML ranks -> weights -> VectorBacktester -> metrics
 - `strategies.cross_sectional.factors`: generic example factors.
 - `strategies.cross_sectional.asset_class_rotation`: explicit 18-proxy global-asset ETF/LOF universe and Top-3 composite-momentum weights.
 - `strategies.cross_sectional.rules`: rule-based cross-sectional weights.
-- `strategies.cross_sectional.ml_rank`: rank labels and expanding PCA model scores/weights (`lasso` / `rf` / `xgboost`; default Top-N equal weight) built on the `skills.compute.features` LogDiff panel.
+- `strategies.cross_sectional.ml_rank`: rank labels and expanding PCA model scores/weights (`ols` / `lasso` / `rf` / `xgboost`; default Top-N equal weight) built on the `skills.compute.features` LogDiff panel.
 - `strategies.cross_sectional.workflows`: runnable public workflows.
 - `skills.strategy.cross_sectional`: factor frames, selection, exits, risk controls, and research orchestration.
 - `skills.backtest`: shared vectorized execution, costs, and metrics.
