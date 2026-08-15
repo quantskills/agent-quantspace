@@ -17,7 +17,7 @@ raw OHLCV bars -> features/rules/public labels -> weights -> VectorBacktester
 |------|--------|--------|
 | Features | `strategies.time_series.features` | `from strategies.time_series.features import make_price_volume_features` |
 | Labels | `skills.compute.label_maker` | `from skills.compute.label_maker import TripleBarrierLabelMaker` |
-| Rule weights | `strategies.time_series.rules` | `from strategies.time_series.rules import ma_reversion_atr_stop_weights` |
+| Rule weights | `strategies.time_series.rules` | `from strategies.time_series.rules import ma_reversion_atr_stop_weights, ma_golden_death_cross_weights` |
 | Cash-flow index trend rule | `strategies.time_series.cashflow_trend` | `from strategies.time_series.cashflow_trend import cashflow_trend_weights` |
 | Cash-flow volatility/recovery rules | `strategies.time_series.cashflow_vol_recovery` | `from strategies.time_series.cashflow_vol_recovery import cashflow_vol_recovery_weights` |
 | Cash-flow Donchian/ATR rule | `strategies.time_series.cashflow_donchian_atr` | `from strategies.time_series.cashflow_donchian_atr import donchian_atr_weights` |
@@ -50,6 +50,8 @@ result = VectorBacktester(
 
 ## Design Notes
 
+- `ma_golden_death_cross_weights` is a long-only dual moving-average rule:
+  hold +1 while the short MA is above the long MA, and flatten on a death cross.
 - Public time-series labels use `TripleBarrierLabelMaker` from `skills.compute`.
 - Strategy-specific code maps features, rules, and model outputs to target weights.
 - Return accounting and metrics use `skills.backtest.VectorBacktester`.
