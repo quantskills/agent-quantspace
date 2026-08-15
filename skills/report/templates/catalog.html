@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>{{ title or "研究报告目录" }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2em; color: #222; }
+  h1 { border-bottom: 2px solid #4f81bd; padding-bottom: .3em; }
+  h2 { margin-top: 2em; color: #4f81bd; }
+  table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: .4em .8em; text-align: right; }
+  th { background: #f4f4f4; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .meta { color: #666; font-size: .9em; }
+  .empty { color: #888; }
+</style>
+</head>
+<body>
+<h1>{{ title or "研究报告目录" }}</h1>
+<p class="meta">共 {{ study_count }} 条 &middot; Generated: {{ as_of or "—" }}</p>
+
+{% if studies %}
+<table>
+  <thead>
+    <tr>
+      <th>namespace</th>
+      <th>slug</th>
+      <th>title</th>
+      <th>sample</th>
+      <th>sharpe</th>
+      <th>max_drawdown</th>
+      <th>visibility</th>
+      <th>link</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for study in studies %}
+    <tr>
+      <td><code>{{ study.namespace }}</code></td>
+      <td><code>{{ study.slug }}</code></td>
+      <td>{{ study.title }}</td>
+      <td>{{ study.sample or "—" }}</td>
+      <td>{% if study.sharpe is not none %}{{ study.sharpe }}{% else %}—{% endif %}</td>
+      <td>{% if study.max_drawdown is not none %}{{ study.max_drawdown }}{% else %}—{% endif %}</td>
+      <td>{{ study.visibility }}</td>
+      <td>
+        {% if study.index_html %}
+        <a href="{{ study.index_html }}">{{ study.index_html }}</a>
+        {% else %}
+        —
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">暂无研究报告</p>
+{% endif %}
+</body>
+</html>

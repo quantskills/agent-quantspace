@@ -26,6 +26,7 @@ PUBLIC_MODULES = [
     "skills.research",
     "skills.report",
     "skills.report.charts",
+    "skills.report.research_report",
     "skills.report.strategy_markdown",
     "skills.factor_mining",
     "skills.factor_mining.contracts",

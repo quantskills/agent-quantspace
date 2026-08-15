@@ -78,7 +78,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | research | `from skills.research import screen_all_indicators` | Screening and parameter sweeps |
-| report | `from skills.report import ReportRenderer` | HTML/Markdown report rendering and chart helpers |
+| report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports, public Markdown cards, and chart helpers |
 | factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, ResearchController` | AI factor-mining contracts, ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role protocol |
 
 Coding-agent compatibility is declared here and in README/README.en.md
