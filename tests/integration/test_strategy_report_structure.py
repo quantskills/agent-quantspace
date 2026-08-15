@@ -14,7 +14,7 @@ def test_generated_strategy_reports_have_html_and_png_artifacts(
         reports_root=tmp_path,
     )
 
-    assert len(paths) == 5
+    assert len(paths) == 4
     for report_path in paths:
         slug = report_path.parent.name
         image_path = tmp_path / "strategy_examples" / f"{slug}_performance.png"

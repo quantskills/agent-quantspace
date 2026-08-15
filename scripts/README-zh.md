@@ -13,7 +13,7 @@
 ## 公开脚本
 
 - `generate_sample_data.py`：为 demo 的显式品种列表生成确定性的合成 OHLCV 数据。
-- `run_strategy_reports.py`：基于已有日线 Parquet 编排三个横截面示例和两个时序示例，其中包括覆盖 18 个资产代理的 ETF/LOF Top 3 轮动，并经 `write_research_bundle` 写出 HTML 研究报告和 PNG 图表。
+- `run_strategy_reports.py`：基于已有日线 Parquet 编排两个横截面示例和两个时序示例，并经 `write_research_bundle` 写出 HTML 研究报告和 PNG 图表。
 - `import_panda_data_demo.py`：将 PandaData bar 导入本地 `DataManager` 存储。
 
 ## 使用方式

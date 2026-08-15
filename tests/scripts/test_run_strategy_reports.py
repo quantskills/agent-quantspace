@@ -13,7 +13,6 @@ _SLUGS = {
     "csi300_if_xgboost_triple_barrier",
     "futures_cross_sectional_reversal",
     "futures_xgboost_rank",
-    "global_asset_etf_top3",
 }
 
 
@@ -75,8 +74,6 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
     assert "trade_days" in combined
     assert "triple-barrier" in combined
     assert "rank label" in combined
-    assert "18 listed ETF/LOF proxies" in combined
-    assert "Top 3" in combined
     assert "MA80" not in combined
     assert "inverse-vol basket" not in combined.lower()
 
@@ -94,4 +91,4 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
     assert unrelated.read_text(encoding="utf-8") == "keep"
     catalog = (tmp_path / "catalog.html").read_text(encoding="utf-8")
     assert "public_example" in catalog
-    assert "strategy_examples/global_asset_etf_top3/index.html" in catalog
+    assert "strategy_examples/futures_cross_sectional_reversal/index.html" in catalog

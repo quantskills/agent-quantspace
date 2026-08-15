@@ -110,7 +110,7 @@ names are declarations, not a product whitelist.
 
 - `uv run python -m scripts.run_strategy_reports` reads existing PandaData daily Parquet files from `data/market/1d/` and accepts `--data-root` for another local data root.
 - Reports are written below the resolved reports root as `strategy_examples/<slug>/index.html` plus PNG performance charts.
-- The five public examples are: time-series rule, time-series XGBoost triple-barrier ML, cross-sectional futures rule, cross-sectional XGBoost rank ML, and global-asset ETF/LOF Top-3 momentum rotation.
+- The four public examples are: time-series rule, time-series XGBoost triple-barrier ML, cross-sectional futures rule, and cross-sectional XGBoost rank ML.
 - Strategy report scripts should call `DataManager.read_symbols`, concrete strategy modules, `VectorBacktester`, and `write_research_bundle`; do not add reusable research implementations to scripts.
 
 ## Python Environment

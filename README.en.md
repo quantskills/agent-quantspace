@@ -288,15 +288,14 @@ uv run python -m scripts.run_strategy_reports
 ```
 
 This thin orchestration script reads existing PandaData daily Parquet files from
-`data/market/1d/` and writes five public strategy reports plus performance PNGs
+`data/market/1d/` and writes four public strategy reports plus performance PNGs
 to `reports/strategy_examples/`. The cross-sectional family contains a futures
-rule, a futures XGBoost ranker, and an 18-proxy global-asset ETF/LOF Top-3
-rotation; the time-series family contains one rule example and one XGBoost
-example. Strategy logic lives under `strategies/`; storage,
-vectorized execution, portfolio weighting, ML helpers, and report rendering live
-under `skills/`.
+rule and a futures XGBoost ranker; the time-series family contains one rule
+example and one XGBoost example. Strategy logic lives under `strategies/`;
+storage, vectorized execution, portfolio weighting, ML helpers, and report
+rendering live under `skills/`.
 
-Below are the five public example performance charts produced by the script
+Below are the four public example performance charts produced by the script
 (backtested on real historical data, **for demonstration only — not indicative of
 future returns and not investment advice**):
 
@@ -319,12 +318,6 @@ future returns and not investment advice**):
 <td width="50%" align="center">
 <img src="reports/strategy_examples/futures_xgboost_rank_performance.png" width="100%"><br>
 <sub><b>Futures XGBoost Rank</b><br/>ML / cross-sectional · sample 2024 +18.7% · 2025 +45.7%</sub>
-</td>
-</tr>
-<tr>
-<td colspan="2" align="center">
-<img src="reports/strategy_examples/global_asset_etf_top3_performance.png" width="50%"><br>
-<sub><b>Global Asset ETF/LOF Top-3 Momentum Rotation</b><br/>Rule / cross-sectional · 18 public asset proxies · sample cumulative +32.1%</sub>
 </td>
 </tr>
 </table>

@@ -16,7 +16,6 @@ matplotlib.use("Agg", force=True)
 @pytest.fixture(scope="session")
 def strategy_report_data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from scripts.run_strategy_reports import (
-        ASSET_CLASS_ETF_SYMBOLS,
         CSI300_FUTURE_SYMBOL,
         GOLD_FUTURE_SYMBOL,
         ML_FUTURE_SYMBOLS,
@@ -26,7 +25,6 @@ def strategy_report_data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     root = tmp_path_factory.mktemp("strategy-report-data")
     symbols = [
-        *ASSET_CLASS_ETF_SYMBOLS,
         *RULE_FUTURE_SYMBOLS,
         *ML_FUTURE_SYMBOLS,
         CSI300_FUTURE_SYMBOL,

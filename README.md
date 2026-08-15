@@ -264,12 +264,12 @@ uv run python -m scripts.run_strategy_reports
 
 这个薄编排脚本会读取 `data/market/1d/` 下已有的 PandaData 日线 Parquet；可用
 `--data-root` 指向另一份本地数据，并在解析后的 reports root 的 `strategy_examples/` 下写出
-5 份公开策略报告和绩效图。横截面策略族包含期货规则、
-期货 XGBoost 排序和 18 类资产 ETF/LOF Top 3 轮动，时序策略族包含一个规则类示例和一个
+4 份公开策略报告和绩效图。横截面策略族包含期货规则和
+期货 XGBoost 排序，时序策略族包含一个规则类示例和一个
 XGBoost 示例。策略逻辑放在 `strategies/`；通用选取和 target-weight 类型位于
 `skills.strategy`；存储、向量化执行、回测指标、ML helper 和报告渲染位于其他 `skills/`。
 
-下面是脚本生成的 5 份公开示例绩效图（基于真实历史行情回测，**仅用于演示框架能力，不代表未来收益，也不构成任何投资建议**）：
+下面是脚本生成的 4 份公开示例绩效图（基于真实历史行情回测，**仅用于演示框架能力，不代表未来收益，也不构成任何投资建议**）：
 
 <table>
 <tr>
@@ -290,12 +290,6 @@ XGBoost 示例。策略逻辑放在 `strategies/`；通用选取和 target-weigh
 <td width="50%" align="center">
 <img src="reports/strategy_examples/futures_xgboost_rank_performance.png" width="100%"><br>
 <sub><b>期货 XGBoost 排序</b><br/>ML / 横截面 · 示例区间 2024 +18.7% · 2025 +45.7%</sub>
-</td>
-</tr>
-<tr>
-<td colspan="2" align="center">
-<img src="reports/strategy_examples/global_asset_etf_top3_performance.png" width="50%"><br>
-<sub><b>全球大类资产 ETF/LOF Top 3 动量轮动</b><br/>规则 / 横截面 · 18 个公开资产代理 · 示例累计 +32.1%</sub>
 </td>
 </tr>
 </table>
