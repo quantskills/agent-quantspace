@@ -8,8 +8,8 @@ volume``）→ 与输入索引逐项相等且顺序一致的 float64 ``Series``�
 ``volume * close`` 近似（PandaData 日频复权口径）。
 
 所有因子均为 volume/liquidity 族，不复用已有指标
-（roc/ma/ma_vol/ma_vol_ratio/orb/orb_relvol/stand_orb_relvol/er*/trend_score*
-等见 skills/compute/indicators.py 与 strategies/cross_sectional/factors.py）。
+（roc/ma/orb_relvol/er/trend_score 等见 skills/compute/indicators.py 与
+strategies/cross_sectional/factors.py）。
 """
 
 from __future__ import annotations

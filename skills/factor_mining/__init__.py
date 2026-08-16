@@ -2,7 +2,7 @@
 
 from skills.factor_mining.adapters import (
     ADAPTER_SCHEMA_VERSION,
-    ALLOWLIST_VERSION,
+    FORMULA_RESOLVER_VERSION,
     AnalyzeAdapter,
     DataManagerArtifactStore,
     FactorExecutionAdapter,
@@ -105,7 +105,7 @@ from skills.factor_mining.state import (
 
 __all__ = [
     "ADAPTER_SCHEMA_VERSION",
-    "ALLOWLIST_VERSION",
+    "FORMULA_RESOLVER_VERSION",
     "SCHEMA_VERSION",
     "AcceptanceCriteria",
     "AgentTaskResult",

@@ -109,7 +109,7 @@ writing new research code.
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
-| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, four ports, Phase 02/03 adapters, Phase 04 Research Controller, and cross-platform role task protocol |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, four ports, Research Controller, and cross-platform role task protocol |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and

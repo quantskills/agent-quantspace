@@ -11,6 +11,12 @@ ports, and this role/task protocol. It does **not** implement factor math, IC /
 turnover / cost statistics, static leakage checks, backtests, platform SDKs, or
 strategy-domain logic.
 
+Generator roles may create arbitrary Python factor implementations in the
+appropriate `strategies/<domain>/mined_factors/` package. A `FactorSpec` points
+to the generated callable by importable module/name; factor execution is not
+restricted to `skills.compute.indicators`. Generated functions may reuse
+`skills.compute`, pandas/numpy, or implement completely new formulas.
+
 ## Dependency direction
 
 ```text
@@ -132,11 +138,11 @@ re-calling ports.
 
 | Adapter | Port | Notes |
 |---------|------|-------|
-| `FactorExecutionAdapter` | `FactorExecutionPort` | Requires an injected `ArtifactStorePort`. Normalizes two-level panels, resolves the frozen `skills.compute.indicators` allowlist / constrained expressions, runs `Factor(..., dropna=False)`, applies `lag`, restores index semantics, then persists values/mask and returns real `ArtifactRef`s |
+| `FactorExecutionAdapter` | `FactorExecutionPort` | Requires an injected `ArtifactStorePort`. Normalizes two-level panels, resolves any importable Python `function_ref` or structured expression, fingerprints the referenced implementation, runs `Factor(..., dropna=False)`, applies `lag`, restores index semantics, then persists values/mask and returns real `ArtifactRef`s |
 | `DataManagerArtifactStore` | `ArtifactStorePort` | JSON artifacts under `data/factors/<namespace>/artifacts/` with path-traversal guards; optional wide pivots via public `DataManager.factor_filename` / `save_factor` |
 | `AnalyzeAdapter` | `AnalyzePort` | Requires injected `ResolveProtocol(protocol_id) -> ProtocolSnapshot` (no guessed defaults). Validates brief/factor/execution identity and protocol↔brief/spec consistency. Calls `AnalyzeFacade`; maps native findings to Phase 01 checks via a table-driven `FailureCode` map. Evidence hashes are recomputed from Phase01-visible fields; native extras need injected `persist_artifact` or surface as `ADAPTER_MAPPING_LOSS`. Skipped cascade findings never mask the root hard failure. |
 
-`skills.compute.wrappers.Factor` never writes artifacts. The execution adapter does write through the configured store when producing a successful `FactorExecutionResult`. Successful results carry first-class `brief_ref`, `data_version`, `split_id`, and immutable `values_content_hash` / `valid_mask_content_hash` (canonical `series_to_payload` digests) inside the envelope identity. Failed results set those content hashes to `None`. Compute/store adapters must not import `strategies` or `skills.analyze`. The analyze mapping adapter may import `skills.analyze` only. Phase 02 supports `missing_policy=keep_nan`, `output_dtype=float64`, and `index_restore_policy=restore_original_names_and_order` only.
+`skills.compute.wrappers.Factor` never writes artifacts. The execution adapter does write through the configured store when producing a successful `FactorExecutionResult`. Successful results carry first-class `brief_ref`, `data_version`, `split_id`, and immutable `values_content_hash` / `valid_mask_content_hash` (canonical `series_to_payload` digests) inside the envelope identity. Failed results set those content hashes to `None`. Compute/store adapters must not statically depend on a particular `strategies` module or import `skills.analyze`; the formula resolver dynamically imports the caller-selected `FunctionRef`. The analyze mapping adapter may import `skills.analyze` only. Phase 02 supports `missing_policy=keep_nan`, `output_dtype=float64`, and `index_restore_policy=restore_original_names_and_order` only.
 
 `AnalyzeAdapter.preflight` runs before Phase 02 execution and uses the official
 `build_prefix_recompute_capability(factor=spec)` compile path (no execution yet).
@@ -162,8 +168,9 @@ issuers only prevent public-API misuse.
 - `EvaluationReport` stores deterministic `MetricFact` / `RuleCheck` / failure
   only. Agent rationale and accept/reject decisions live in `ReviewReport`,
   `PoolDecision`, and `ResearchDecision`.
-- `FactorSpec` formulas are `function_ref` or constrained `expression` plus
-  JSON params. Free-text formulas and arbitrary callables are forbidden.
+- `FactorSpec` formulas are an unrestricted importable Python `function_ref` or
+  a structured `expression` plus JSON params. Generated Python source belongs
+  in `strategies/` and is referenced by module/name instead of embedded text.
 - Role fields are ordinary `role_id` strings. Python must not copy the role
   catalog below as an enum, registry, or platform whitelist.
 
@@ -238,6 +245,9 @@ Every spawned task must include:
 
 Every structured return must include envelope ids, status, one structured output
 or failure, evidence/artifact refs, budget consumption, and handoff target.
+When a Generator creates Python source, the structured output remains the
+`FactorSpec`; the generated module/test files are source artifacts referenced by
+the spec's `function_ref` and reported in the task's artifact refs.
 
 ---
 
@@ -276,11 +286,11 @@ do_not_spawn_when: budget exhausted; required fields missing; sealed OOS stage; 
 task_template: |
   Goal: generate a finite set of FactorSpec objects in the trend/momentum family only.
   Inputs: ResearchBrief projection; authorized success/failure knowledge refs for this family.
-  Must check: required fields present; formula is function_ref or constrained expression; params JSON-serializable; no free-text executable code.
+  Must check: required fields present; generate a new Python factor when the hypothesis is not covered by existing code; function follows the Factor single-symbol input/output contract; params are JSON-serializable.
   Forbidden: other families; metric invention; sealed OOS; modifying Brief standards.
   Output: one or more FactorSpec objects within budget.
 required_inputs: ResearchBrief
-allowed_tools: read-only authorized knowledge/artifact refs
+allowed_tools: authorized knowledge/artifact refs; workspace read/write for the assigned strategies domain and matching tests
 forbidden_actions: review decisions; pool acceptance; metric calculation; sealed OOS access
 output_contract: FactorSpec
 stop_conditions: family budget exhausted; no new non-duplicate hypothesis; required fields unavailable
@@ -297,11 +307,11 @@ do_not_spawn_when: budget exhausted; required fields missing; sealed OOS stage.
 task_template: |
   Goal: generate a finite set of FactorSpec objects in the mean-reversion/price-structure family only.
   Inputs: ResearchBrief projection; authorized family knowledge refs.
-  Must check: required fields; constrained formula; JSON params; falsification tests listed.
+  Must check: required fields; generate a new Python factor when useful; Factor callable contract; JSON params; falsification tests listed.
   Forbidden: other families; metrics; sealed OOS; Brief mutation.
   Output: FactorSpec set within budget.
 required_inputs: ResearchBrief
-allowed_tools: read-only authorized knowledge/artifact refs
+allowed_tools: authorized knowledge/artifact refs; workspace read/write for the assigned strategies domain and matching tests
 forbidden_actions: review decisions; pool acceptance; metric calculation; sealed OOS access
 output_contract: FactorSpec
 stop_conditions: family budget exhausted; no new hypothesis family; fields unavailable
@@ -318,11 +328,11 @@ do_not_spawn_when: budget exhausted; required fields missing; sealed OOS stage.
 task_template: |
   Goal: generate a finite set of FactorSpec objects in the volume/liquidity family only.
   Inputs: ResearchBrief projection; authorized family knowledge refs.
-  Must check: required fields; constrained formula; JSON params; availability/missing rules.
+  Must check: required fields; generate a new Python factor when useful; Factor callable contract; JSON params; availability/missing rules.
   Forbidden: other families; metrics; sealed OOS; Brief mutation.
   Output: FactorSpec set within budget.
 required_inputs: ResearchBrief
-allowed_tools: read-only authorized knowledge/artifact refs
+allowed_tools: authorized knowledge/artifact refs; workspace read/write for the assigned strategies domain and matching tests
 forbidden_actions: review decisions; pool acceptance; metric calculation; sealed OOS access
 output_contract: FactorSpec
 stop_conditions: family budget exhausted; no new hypothesis family; fields unavailable
@@ -339,11 +349,11 @@ do_not_spawn_when: budget exhausted; required fields missing; sealed OOS stage.
 task_template: |
   Goal: generate a finite set of FactorSpec objects in the volatility/risk/regime family only.
   Inputs: ResearchBrief projection; authorized family knowledge refs.
-  Must check: required fields; constrained formula; regime applicability; falsification tests.
+  Must check: required fields; generate a new Python factor when useful; Factor callable contract; regime applicability; falsification tests.
   Forbidden: other families; metrics; sealed OOS; Brief mutation.
   Output: FactorSpec set within budget.
 required_inputs: ResearchBrief
-allowed_tools: read-only authorized knowledge/artifact refs
+allowed_tools: authorized knowledge/artifact refs; workspace read/write for the assigned strategies domain and matching tests
 forbidden_actions: review decisions; pool acceptance; metric calculation; sealed OOS access
 output_contract: FactorSpec
 stop_conditions: family budget exhausted; no new hypothesis family; fields unavailable
@@ -425,5 +435,6 @@ re-enter preflight → compute → evaluate → independent review.
 - No IC, grouped return, turnover, cost, or robustness calculations in this skill.
 - No static/leakage/data-quality checker implementations in this skill.
 - No vendor Agent SDK, product whitelist, or platform command adapter.
-- No second experiment directory and no import of `strategies/`.
+- No second experiment directory and no static dependency on a specific
+  `strategies/` module; `FunctionRef` resolves caller-selected import paths at runtime.
 - Role definitions above are authoritative; Python carries `role_id` strings only.

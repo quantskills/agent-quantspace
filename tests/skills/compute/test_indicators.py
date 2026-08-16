@@ -36,7 +36,38 @@ def test_discover_indicators_includes_public_callables() -> None:
 
     assert "roc" in registry
     assert "ma" in registry
+    assert "orb_relvol" in registry
     assert callable(registry["trend_score"])
+
+
+def test_discover_indicators_excludes_removed_formulas() -> None:
+    registry = indicators.discover_indicators()
+    removed = {
+        "momentum_acceleration",
+        "momentum_weighted",
+        "high_vol_odds",
+        "ma_vol",
+        "ma_vol_ratio",
+        "stand_orb_relvol",
+        "orb",
+        "er_enhanced",
+        "er_adaptive",
+        "er_directional",
+        "rsrs",
+        "rsrs_v1",
+        "rsrs_v2",
+        "rsrs_v3",
+        "rsrs_norm",
+        "bollinger_reversal",
+        "mean_reversion",
+        "price_drawdown",
+        "atr_stop",
+        "volatility_regime",
+        "volatility_inv",
+        "fund_premium_rate",
+    }
+
+    assert removed.isdisjoint(registry)
 
 
 def test_trend_score_is_annualized_log_slope_times_r_squared() -> None:

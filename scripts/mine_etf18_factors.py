@@ -4,8 +4,8 @@
 （Sequential single-agent fallback 模式）：
 
 - Supervisor: 编排研究流程、预算、停止/继续决策
-- 4 个 Generator 角色: 从 trend/momentum、mean_reversion、volume/liquidity、
-  volatility/risk 四个因子族提出 FactorSpec 候选
+- 3 个 Generator 角色: 从 trend/momentum、mean_reversion、volume/liquidity
+  三个因子族提出 FactorSpec 候选
 - 2 个 Reviewer 角色: 基于确定性 IC 证据做方法论与泄漏评审
 - PoolSynthesizer: 按池增量价值决定 accept/watch/reject
 
@@ -18,27 +18,20 @@
 
 from __future__ import annotations
 
-import itertools
 from dataclasses import dataclass, field
 
 import pandas as pd
 
 from skills.analyze.factor_analysis import IC_stat
 from skills.compute.indicators import (
-    bollinger_reversal,
     cci,
     donchian_channel,
     er,
-    ma_vol_ratio,
-    mean_reversion,
     mom_skip,
-    price_drawdown,
     roc,
     rsi,
     rsi_divergence,
     trend_score_v2,
-    volatility_inv,
-    volatility_regime,
     williams_r,
 )
 from skills.compute.wrappers import Factor
@@ -64,7 +57,7 @@ REBALANCE_N = 5  # IC 评估调仓周期 (5 个交易日)
 
 
 # ---------------------------------------------------------------------------
-# FactorSpec 候选 (4 个 Generator 角色产出)
+# FactorSpec 候选 (3 个 Generator 角色产出)
 # ---------------------------------------------------------------------------
 
 
@@ -167,22 +160,6 @@ def _mean_reversion_candidates() -> list[FactorCandidate]:
             params={"period": 14},
         ),
         FactorCandidate(
-            factor_id="mr_bollinger_20",
-            family="mean_reversion",
-            hypothesis="20 日布林带反转：触及下轨后均值回归",
-            direction="negative",
-            func=bollinger_reversal,
-            params={"period": 20},
-        ),
-        FactorCandidate(
-            factor_id="mr_mean_reversion_20",
-            family="mean_reversion",
-            hypothesis="20 日均值回归因子：偏离均值后回归",
-            direction="negative",
-            func=mean_reversion,
-            params={"period": 20},
-        ),
-        FactorCandidate(
             factor_id="mr_rsi_div_14_60",
             family="mean_reversion",
             hypothesis="RSI 背离：价格新高但 RSI 未新高 → 反转",
@@ -196,14 +173,6 @@ def _mean_reversion_candidates() -> list[FactorCandidate]:
 def _volume_liquidity_candidates() -> list[FactorCandidate]:
     """volume_liquidity_generator 角色：量能/流动性族候选。"""
     return [
-        FactorCandidate(
-            factor_id="vol_ratio_5_20",
-            family="volume_liquidity",
-            hypothesis="5/20 日量比：放量上涨资产延续 (正向量价确认)",
-            direction="positive",
-            func=ma_vol_ratio,
-            params={"period_short": 5, "period_long": 20},
-        ),
         FactorCandidate(
             factor_id="ts_donchian_20",
             family="volume_liquidity",
@@ -239,59 +208,12 @@ def _volume_liquidity_candidates() -> list[FactorCandidate]:
     ]
 
 
-def _volatility_risk_candidates() -> list[FactorCandidate]:
-    """volatility_risk_regime_generator 角色：波动/风险/状态族候选。"""
-    return [
-        FactorCandidate(
-            factor_id="vol_regime_10_60",
-            family="volatility_risk",
-            hypothesis="波动率状态(短/长)：低波动资产风险溢价 (反向)",
-            direction="negative",
-            func=volatility_regime,
-            params={"short_period": 10, "long_period": 60},
-        ),
-        FactorCandidate(
-            factor_id="vol_inv_20",
-            family="volatility_risk",
-            hypothesis="20 日波动率倒数：低波动溢价 (低波动资产跑赢)",
-            direction="positive",
-            func=volatility_inv,
-            params={"period": 20},
-        ),
-        FactorCandidate(
-            factor_id="vol_inv_60",
-            family="volatility_risk",
-            hypothesis="60 日波动率倒数：中长期低波动溢价",
-            direction="positive",
-            func=volatility_inv,
-            params={"period": 60},
-        ),
-        FactorCandidate(
-            factor_id="risk_drawdown_20",
-            family="volatility_risk",
-            hypothesis="20 日回撤：小回撤资产风险控制好 (正向)",
-            direction="positive",
-            func=price_drawdown,
-            params={"period": 20},
-        ),
-        FactorCandidate(
-            factor_id="risk_drawdown_60",
-            family="volatility_risk",
-            hypothesis="60 日回撤：中长期回撤控制",
-            direction="positive",
-            func=price_drawdown,
-            params={"period": 60},
-        ),
-    ]
-
-
 def all_candidates() -> list[FactorCandidate]:
-    """汇总 4 个 Generator 角色的全部候选。"""
+    """汇总 3 个 Generator 角色的全部候选。"""
     return (
         _trend_momentum_candidates()
         + _mean_reversion_candidates()
         + _volume_liquidity_candidates()
-        + _volatility_risk_candidates()
     )
 
 
@@ -480,8 +402,8 @@ def run() -> None:
     )
     print()
 
-    # ---- Generator: 4 族候选 ----
-    print("[2/4] Generating factor candidates (4 families) ...")
+    # ---- Generator: 3 族候选 ----
+    print("[2/4] Generating factor candidates (3 families) ...")
     candidates = all_candidates()
     families = {}
     for c in candidates:

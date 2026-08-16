@@ -95,7 +95,7 @@ def test_factor_execution_adapter_preserves_panel_lag_and_warmup_nan(tmp_path) -
     meta = payload["metadata"]
     assert meta["lag"] == 1
     assert meta["missing_policy"] == "keep_nan"
-    assert meta["allowlist_version"]
+    assert meta["formula_resolver_version"] == "2.0.0"
     assert "start" in meta and "end" in meta
     assert "input_index_schema" in meta and "output_index_schema" in meta
 
@@ -149,27 +149,47 @@ def test_execution_rejects_identity_and_panel_type_mismatches(tmp_path) -> None:
     assert result3.failure.code is FailureCode.INVALID_PARAMETERS
 
 
-def test_execution_maps_disallowed_function_without_leaking_panel_values(tmp_path) -> None:
+def test_execution_accepts_generated_strategy_function(tmp_path) -> None:
     panel = make_panel(("AAA",), periods=5)
     spec = make_factor_spec(
         formula=StructuredFormula(
             kind=FormulaKind.FUNCTION_REF,
             function_ref=FunctionRef(
-                module="skills.compute.indicators",
-                name="not_allowlisted",
+                module="strategies.cross_sectional.mined_factors.mean_reversion",
+                name="mr_quantile_deviation",
             ),
-            params={"period": 2},
+            params={"period": 3, "q": 0.5},
+        ),
+        required_fields=("close",),
+        window=3,
+        warmup=2,
+        content_hash="",
+    )
+    adapter, store, _dm = _execution_stack(tmp_path, panel, spec)
+    result = adapter.execute(_request_for(spec, request_id="req-2", execution_id="exec-2"))
+    assert result.failure is None
+    assert result.values_ref is not None
+    values = load_execution_series(store, result.values_ref)
+    assert values.index.equals(panel.index)
+
+
+def test_execution_maps_unresolvable_function_without_leaking_panel_values(tmp_path) -> None:
+    panel = make_panel(("AAA",), periods=5)
+    spec = make_factor_spec(
+        formula=StructuredFormula(
+            kind=FormulaKind.FUNCTION_REF,
+            function_ref=FunctionRef(module="does.not.exist", name="factor"),
+            params={},
         ),
         required_fields=("close",),
         content_hash="",
     )
     adapter, _store, _dm = _execution_stack(tmp_path, panel, spec)
-    result = adapter.execute(_request_for(spec, request_id="req-2", execution_id="exec-2"))
+    result = adapter.execute(_request_for(spec, request_id="req-3", execution_id="exec-3"))
     assert result.failure is not None
-    assert result.failure.code is FailureCode.FUNCTION_NOT_ALLOWED
+    assert result.failure.code is FailureCode.INVALID_REFERENCE
     assert result.values_ref is None
     assert "100.0" not in result.failure.message
-    assert result.failure.details.get("cause_type")
 
 
 def test_artifact_store_path_safety_namespaces_and_checksums(tmp_path) -> None:

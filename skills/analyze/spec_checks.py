@@ -7,55 +7,6 @@ from typing import Any
 
 from skills.analyze.contracts import Finding, FindingSeverity, SpecSnapshot
 
-# Mirror of Phase 02 frozen indicator names. analyze does not import factor_mining;
-# callers may inject a narrower/wider allowlist via ``allowed_functions``.
-DEFAULT_INDICATOR_NAMES: frozenset[str] = frozenset(
-    {
-        "atr_stop",
-        "bias_momentum",
-        "bollinger_reversal",
-        "cci",
-        "daily_return",
-        "donchian_channel",
-        "er",
-        "er_adaptive",
-        "er_directional",
-        "er_enhanced",
-        "fund_premium_rate",
-        "high_vol_odds",
-        "ma",
-        "ma_cross",
-        "ma_vol",
-        "ma_vol_ratio",
-        "mean_reversion",
-        "mom_skip",
-        "momentum_acceleration",
-        "momentum_weighted",
-        "orb",
-        "orb_relvol",
-        "price_above_ma",
-        "price_drawdown",
-        "roc",
-        "rsi",
-        "rsi_divergence",
-        "rsrs",
-        "rsrs_norm",
-        "rsrs_v1",
-        "rsrs_v2",
-        "rsrs_v3",
-        "slowkdj",
-        "stand_orb_relvol",
-        "supertrend",
-        "trend_score",
-        "trend_score_v2",
-        "trend_score_v2_skip",
-        "volatility_inv",
-        "volatility_regime",
-        "williams_r",
-    }
-)
-DEFAULT_FUNCTION_MODULE = "skills.compute.indicators"
-
 _BINOPS = frozenset({"add", "sub", "mul", "truediv"})
 _CMPOPS = frozenset({"gt", "ge", "lt", "le", "eq", "ne"})
 _NODE_KEYS: dict[str, frozenset[str]] = {
@@ -66,28 +17,6 @@ _NODE_KEYS: dict[str, frozenset[str]] = {
     "compare": frozenset({"type", "op", "left", "right"}),
     "call": frozenset({"type", "module", "name", "kwargs"}),
 }
-_FORBIDDEN_NAME_FRAGMENTS = (
-    "eval",
-    "exec",
-    "import",
-    "__",
-    "open",
-    "os.",
-    "sys.",
-    "subprocess",
-    "socket",
-    "requests",
-    "urllib",
-    "pathlib",
-    "getenv",
-    "environ",
-    "random",
-    "time.time",
-    "datetime.now",
-    "globals",
-    "locals",
-    "builtin",
-)
 _MAX_DEPTH = 32
 _MAX_NODES = 128
 
@@ -115,7 +44,6 @@ def _walk_expression(
     depth: int,
     counter: list[int],
     findings: list[Finding],
-    allowed_functions: frozenset[tuple[str, str]],
     allowed_fields: Sequence[str] | None,
 ) -> None:
     counter[0] += 1
@@ -167,18 +95,6 @@ def _walk_expression(
             )
         )
         return
-    text = str(node).lower()
-    for frag in _FORBIDDEN_NAME_FRAGMENTS:
-        if frag in text and node_type not in {"field", "param", "const"}:
-            findings.append(
-                _finding(
-                    "SPEC_FORBIDDEN_CAPABILITY",
-                    passed=False,
-                    message=f"forbidden capability fragment {frag!r}",
-                )
-            )
-            return
-
     if node_type == "field":
         name = node.get("name")
         if not isinstance(name, str) or not name:
@@ -233,7 +149,6 @@ def _walk_expression(
             depth=depth + 1,
             counter=counter,
             findings=findings,
-            allowed_functions=allowed_functions,
             allowed_fields=allowed_fields,
         )
         _walk_expression(
@@ -241,29 +156,25 @@ def _walk_expression(
             depth=depth + 1,
             counter=counter,
             findings=findings,
-            allowed_functions=allowed_functions,
             allowed_fields=allowed_fields,
         )
     elif node_type == "call":
         module = node.get("module")
         name = node.get("name")
-        if not isinstance(module, str) or not isinstance(name, str):
+        if (
+            not isinstance(module, str)
+            or not module
+            or not isinstance(name, str)
+            or not name
+        ):
             findings.append(
                 _finding(
-                    "SPEC_FUNCTION_NOT_ALLOWED",
+                    "SPEC_INVALID_FUNCTION_REF",
                     passed=False,
-                    message="call nodes require module and name strings",
+                    message="call nodes require non-empty module and name strings",
                 )
             )
             return
-        if (module, name) not in allowed_functions:
-            findings.append(
-                _finding(
-                    "SPEC_FUNCTION_NOT_ALLOWED",
-                    passed=False,
-                    message=f"function {module}.{name} is not allowlisted",
-                )
-            )
         kwargs = node.get("kwargs", {})
         if not isinstance(kwargs, Mapping):
             findings.append(
@@ -282,7 +193,6 @@ def _walk_expression(
                     depth=depth + 1,
                     counter=counter,
                     findings=findings,
-                    allowed_functions=allowed_functions,
                     allowed_fields=allowed_fields,
                 )
 
@@ -324,14 +234,10 @@ def _check_call_kwargs_causality(
 def validate_spec(
     spec: SpecSnapshot,
     *,
-    allowed_functions: frozenset[tuple[str, str]] | None = None,
     allowed_fields: Sequence[str] | None = None,
     protocol_fields: Sequence[str] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    allow = allowed_functions or frozenset(
-        (DEFAULT_FUNCTION_MODULE, name) for name in DEFAULT_INDICATOR_NAMES
-    )
     fields = protocol_fields if protocol_fields is not None else allowed_fields
 
     if not isinstance(spec.window, int) or isinstance(spec.window, bool) or spec.window <= 0:
@@ -390,16 +296,6 @@ def validate_spec(
         )
 
     for key, value in spec.params.items():
-        text = f"{key}={value}".lower()
-        for frag in _FORBIDDEN_NAME_FRAGMENTS:
-            if frag in text:
-                findings.append(
-                    _finding(
-                        "SPEC_FORBIDDEN_CAPABILITY",
-                        passed=False,
-                        message=f"forbidden capability in params: {frag}",
-                    )
-                )
         key_l = str(key).lower()
         if key_l in {"period", "window", "n", "lookback"}:
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -520,24 +416,13 @@ def validate_spec(
                     message="function_ref requires module and name",
                 )
             )
-        elif (spec.function_module, spec.function_name) not in allow:
-            findings.append(
-                _finding(
-                    "SPEC_FUNCTION_NOT_ALLOWED",
-                    passed=False,
-                    message=(
-                        f"function {spec.function_module}.{spec.function_name} "
-                        "is not allowlisted"
-                    ),
-                )
-            )
         else:
             findings.append(
                 _finding(
-                    "SPEC_FUNCTION_ALLOWLIST",
+                    "SPEC_FUNCTION_REFERENCE",
                     passed=True,
                     severity=FindingSeverity.INFO,
-                    message="function_ref is allowlisted",
+                    message="function_ref is structurally valid",
                 )
             )
         if spec.expression is not None:
@@ -564,7 +449,6 @@ def validate_spec(
                 depth=0,
                 counter=counter,
                 findings=findings,
-                allowed_functions=allow,
                 allowed_fields=fields,
             )
     else:
@@ -575,18 +459,6 @@ def validate_spec(
                 message=f"unsupported formula_kind {spec.formula_kind!r}",
             )
         )
-
-    # Free-python / eval path markers on params or expression string dumps.
-    blob = f"{spec.params}|{spec.expression}|{spec.function_name}".lower()
-    for token in ("eval(", "exec(", "__import__", "open(", "os.system"):
-        if token in blob:
-            findings.append(
-                _finding(
-                    "SPEC_FORBIDDEN_CAPABILITY",
-                    passed=False,
-                    message=f"forbidden free-python token {token!r}",
-                )
-            )
 
     if not any(
         (not f.passed) and f.severity is FindingSeverity.HARD_FAIL for f in findings
@@ -603,7 +475,5 @@ def validate_spec(
 
 
 __all__ = [
-    "DEFAULT_FUNCTION_MODULE",
-    "DEFAULT_INDICATOR_NAMES",
     "validate_spec",
 ]

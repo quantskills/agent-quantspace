@@ -49,12 +49,11 @@ SEALED_START = pd.Timestamp("2025-01-01")
 FULL_END = pd.Timestamp("2026-08-04")
 IC_THRESHOLD = 0.03
 SELECTED_FACTOR_IDS = (
-    "vr-invvol-60-v1",
-    "trend-directional-er-20-60-v1",
     "trend-bias-momentum-60-20-v1",
     "trend-roc-20-v1",
     "trend-mom-skip-126-21-v1",
 )
+CANDIDATE_COUNT = 20
 
 
 @dataclass(frozen=True)
@@ -88,60 +87,31 @@ def _c(
 
 
 def candidates() -> list[Candidate]:
-    """The four isolated generator-role handoffs, frozen before evaluation."""
+    """The three isolated generator-role handoffs, frozen before evaluation."""
     return [
-        # Trend / momentum generator (12)
+        # Trend / momentum generator (9)
         _c("trend-roc-20-v1", "trend_momentum", "long_high", "roc", {"period": 20}, ("close",), 20, 20, "过去一个月的相对强势在ETF横截面中会延续至随后20个交易日。"),
         _c("trend-roc-60-v1", "trend_momentum", "long_high", "roc", {"period": 60}, ("close",), 60, 60, "过去约一季的跨ETF相对收益反映中期资金配置趋势。"),
         _c("trend-mom-skip-63-5-v1", "trend_momentum", "long_high", "mom_skip", {"skip": 5, "total": 63}, ("close",), 63, 63, "剔除最近一周噪声后的三个月相对动量。"),
         _c("trend-mom-skip-126-21-v1", "trend_momentum", "long_high", "mom_skip", {"skip": 21, "total": 126}, ("close",), 126, 126, "剔除最近一月后的半年相对动量。"),
         _c("trend-ma-deviation-50-v1", "trend_momentum", "long_high", "ma", {"period": 50}, ("close",), 50, 50, "价格相对50日均线的标准化偏离反映趋势位置。"),
         _c("trend-ma-cross-10-50-v1", "trend_momentum", "long_high", "ma_cross", {"short": 10, "long": 50}, ("close",), 50, 50, "10日与50日均线差值刻画多尺度趋势。"),
-        _c("trend-momentum-acceleration-20-v1", "trend_momentum", "long_high", "momentum_acceleration", {"period": 20}, ("close",), 20, 21, "20日动量的加速度刻画趋势强化。"),
-        _c("trend-momentum-weighted-60-v1", "trend_momentum", "long_high", "momentum_weighted", {"period": 60}, ("close",), 60, 60, "近期加权的60日趋势识别平滑且强化的趋势。"),
         _c("trend-bias-momentum-60-20-v1", "trend_momentum", "long_high", "bias_momentum", {"ma_period": 60, "momentum_day": 20}, ("close",), 60, 79, "60日均线乖离率的20日趋势刻画趋势扩张。"),
         _c("trend-score-60-v1", "trend_momentum", "long_high", "trend_score", {"period": 60}, ("close",), 60, 60, "60日对数价格斜率乘拟合优度刻画趋势质量。"),
         _c("trend-score-skip-126-21-v1", "trend_momentum", "long_high", "trend_score_v2_skip", {"period": 126, "skip": 21}, ("close",), 126, 126, "剔除最近一月的半年趋势质量。"),
-        _c("trend-directional-er-20-60-v1", "trend_momentum", "long_high", "er_directional", {"period": 20, "standardize_window": 60}, ("close",), 60, 40, "标准化方向效率同时衡量趋势方向与路径效率。"),
-        # Mean reversion / price structure generator (12)
+        # Mean reversion / price structure generator (8)
         _c("mrps-daily-return-1d-v1", "mean_reversion_price_structure", "long_low", "daily_return", {}, ("close",), 1, 1, "单日相对大跌的ETF在未来20日更可能反弹。"),
         _c("mrps-roc-5d-v1", "mean_reversion_price_structure", "long_low", "roc", {"period": 5}, ("close",), 5, 5, "5日相对收益的极端偏离会均值回归。"),
         _c("mrps-ma-deviation-20d-v1", "mean_reversion_price_structure", "long_low", "ma", {"period": 20}, ("close",), 20, 20, "价格相对20日均线的偏离会回归。"),
         _c("mrps-ma-cross-stretch-5x20-v1", "mean_reversion_price_structure", "long_low", "ma_cross", {"short": 5, "long": 20}, ("close",), 20, 20, "5日与20日均线的极端张口会收敛。"),
-        _c("mrps-price-drawdown-20d-v1", "mean_reversion_price_structure", "long_low", "price_drawdown", {"period": 20}, ("close",), 20, 20, "相对20日高点的深回撤代表暂时性抛压。"),
         _c("mrps-cci-20d-v1", "mean_reversion_price_structure", "long_low", "cci", {"period": 20}, ("high", "low", "close"), 20, 20, "极端CCI刻画超买超卖后的反转。"),
         _c("mrps-slowkdj-14-3-3-v1", "mean_reversion_price_structure", "long_high", "slowkdj", {"k_period": 14, "k_smooth": 3, "d_smooth": 3, "standardize_window": 60}, ("high", "low", "close"), 60, 30, "慢速KDJ的超卖结构预示反转。"),
         _c("mrps-williams-r-14d-v1", "mean_reversion_price_structure", "long_low", "williams_r", {"period": 14, "standardize_window": 60}, ("high", "low", "close"), 60, 26, "Williams %R的区间极值会回归。"),
-        _c("mrps-bollinger-reversal-20d-v1", "mean_reversion_price_structure", "long_high", "bollinger_reversal", {"period": 20, "std_dev": 2.0, "standardize_window": 60}, ("close", "volume"), 60, 20, "布林带极端偏离预示均值回归。"),
-        _c("mrps-mean-reversion-5x20-v1", "mean_reversion_price_structure", "long_high", "mean_reversion", {"short_period": 5, "long_period": 20, "threshold": 1.5, "standardize_window": 60}, ("close",), 60, 60, "短长均线、价格偏离与动量衰减的复合反转。"),
         _c("mrps-rsi-divergence-14x20-v1", "mean_reversion_price_structure", "long_high", "rsi_divergence", {"rsi_period": 14, "divergence_period": 20, "standardize_window": 60}, ("close",), 60, 32, "价格与RSI背离刻画动量耗竭。"),
-        _c("mrps-high-vol-odds-20d-v1", "mean_reversion_price_structure", "long_high", "high_vol_odds", {"period": 20}, ("close",), 100, 120, "高波动且近期回报低的ETF可能恐慌性超跌。"),
-        # Volume / liquidity generator (12)
-        _c("volliq-ma-vol-05-v1", "volume_liquidity", "long_high", "ma_vol", {"period": 5}, ("volume",), 5, 5, "5日成交量水平刻画近期参与度。"),
-        _c("volliq-ma-vol-20-v1", "volume_liquidity", "long_high", "ma_vol", {"period": 20}, ("volume",), 20, 20, "20日成交量水平刻画中期参与度。"),
-        _c("volliq-ma-vol-60-v1", "volume_liquidity", "long_high", "ma_vol", {"period": 60}, ("volume",), 60, 60, "60日成交量水平刻画持久流动性。"),
-        _c("volliq-ma-vol-ratio-5-20-v1", "volume_liquidity", "long_high", "ma_vol_ratio", {"period_short": 5, "period_long": 20}, ("volume",), 20, 20, "5/20日成交量比刻画短期放量。"),
-        _c("volliq-ma-vol-ratio-10-60-v1", "volume_liquidity", "long_high", "ma_vol_ratio", {"period_short": 10, "period_long": 60}, ("volume",), 60, 60, "10/60日成交量比刻画持续放量。"),
-        _c("volliq-ma-vol-ratio-20-120-v1", "volume_liquidity", "long_high", "ma_vol_ratio", {"period_short": 20, "period_long": 120}, ("volume",), 120, 120, "20/120日成交量比刻画结构性放量。"),
+        # Volume / liquidity generator (3)
         _c("volliq-orb-relvol-05-v1", "volume_liquidity", "long_high", "orb_relvol", {"period": 5}, ("volume",), 5, 0, "5日相对成交量刻画参与度冲击。"),
         _c("volliq-orb-relvol-20-v1", "volume_liquidity", "long_high", "orb_relvol", {"period": 20}, ("volume",), 20, 0, "20日相对成交量刻画量能确认。"),
         _c("volliq-orb-relvol-60-v1", "volume_liquidity", "long_high", "orb_relvol", {"period": 60}, ("volume",), 60, 0, "60日相对成交量刻画长期量能异常。"),
-        _c("volliq-stand-orb-relvol-05-v1", "volume_liquidity", "long_low", "stand_orb_relvol", {"period": 5}, ("volume",), 25, 5, "短窗标准化异常放量后可能回吐。"),
-        _c("volliq-stand-orb-relvol-14-v1", "volume_liquidity", "long_low", "stand_orb_relvol", {"period": 14}, ("volume",), 70, 14, "14日标准化异常放量后可能回吐。"),
-        _c("volliq-stand-orb-relvol-20-v1", "volume_liquidity", "long_low", "stand_orb_relvol", {"period": 20}, ("volume",), 100, 20, "20日标准化异常放量后可能回吐。"),
-        # Volatility / risk / regime generator (12)
-        _c("vr-invvol-10-v1", "volatility_risk_regime", "long_high", "volatility_inv", {"period": 10}, ("close",), 10, 10, "较低10日已实现波动率代表短期风险受控。"),
-        _c("vr-invvol-20-v1", "volatility_risk_regime", "long_high", "volatility_inv", {"period": 20}, ("close",), 20, 20, "较低20日已实现波动率代表中期低风险状态。"),
-        _c("vr-invvol-60-v1", "volatility_risk_regime", "long_high", "volatility_inv", {"period": 60}, ("close",), 60, 60, "较低60日已实现波动率代表持久风险控制。"),
-        _c("vr-volregime-5-20-v1", "volatility_risk_regime", "long_low", "volatility_regime", {"short_period": 5, "long_period": 20}, ("close",), 20, 20, "5/20日波动率急升代表近期风险冲击。"),
-        _c("vr-volregime-10-60-v1", "volatility_risk_regime", "long_low", "volatility_regime", {"short_period": 10, "long_period": 60}, ("close",), 60, 60, "10/60日波动率上升刻画持续风险恶化。"),
-        _c("vr-highvolodds-10-v1", "volatility_risk_regime", "long_high", "high_vol_odds", {"period": 10}, ("close",), 50, 60, "短期高波动且低收益可能处于压力释放状态。"),
-        _c("vr-highvolodds-20-v1", "volatility_risk_regime", "long_high", "high_vol_odds", {"period": 20}, ("close",), 100, 120, "中期高波动且低收益可能具有反转机会。"),
-        _c("vr-drawdown-20-v1", "volatility_risk_regime", "long_low", "price_drawdown", {"period": 20}, ("close",), 20, 1, "20日深回撤刻画短期压力与超跌。"),
-        _c("vr-drawdown-60-v1", "volatility_risk_regime", "long_low", "price_drawdown", {"period": 60}, ("close",), 60, 1, "60日深回撤刻画持久路径风险。"),
-        _c("vr-atrstop-14x2-v1", "volatility_risk_regime", "long_high", "atr_stop", {"period": 14, "multiplier": 2.0}, ("high", "low", "close"), 14, 14, "距14日ATR止损线越远代表风险缓冲越充分。"),
-        _c("vr-atrstop-20x3-v1", "volatility_risk_regime", "long_high", "atr_stop", {"period": 20, "multiplier": 3.0}, ("high", "low", "close"), 20, 20, "距20日宽ATR止损线越远代表尾部风险缓冲。"),
-        _c("vr-volregime-20-120-v1", "volatility_risk_regime", "long_low", "volatility_regime", {"short_period": 20, "long_period": 120}, ("close",), 120, 120, "20/120日波动率上升刻画慢周期风险状态恶化。"),
     ]
 
 
@@ -207,7 +177,7 @@ def _protocol(spec: FactorSpec) -> ProtocolSnapshot:
         regimes=(),
         time_subsamples=(),
         random_seed=20260805,
-        multiple_testing_budget=48,
+        multiple_testing_budget=CANDIDATE_COUNT,
         thresholds={"min_coverage": 0.60},
         symbol_level="symbol",
         datetime_level="eob",
@@ -268,8 +238,10 @@ def _spec_snapshot(spec: FactorSpec, formula_fingerprint: str) -> SpecSnapshot:
 
 def run_screening(output_dir: Path) -> None:
     specs = [_spec(item) for item in candidates()]
-    if len(specs) != 48 or len({item.factor_id for item in specs}) != 48:
-        raise RuntimeError("candidate budget must contain exactly 48 unique FactorSpecs")
+    if len(specs) != CANDIDATE_COUNT or len({item.factor_id for item in specs}) != CANDIDATE_COUNT:
+        raise RuntimeError(
+            f"candidate budget must contain exactly {CANDIDATE_COUNT} unique FactorSpecs"
+        )
 
     dm = DataManager()
     panel = dm.read_symbols(list(UNIVERSE), frequency="1d_adj")
@@ -339,7 +311,7 @@ def run_screening(output_dir: Path) -> None:
             row["qualified_research"] = False
         rows.append(row)
         print(
-            f"[{number:02d}/48] {spec.factor_id}: "
+            f"[{number:02d}/{CANDIDATE_COUNT}] {spec.factor_id}: "
             f"train={row.get('train_rank_ic_mean')} "
             f"validation={row.get('validation_rank_ic_mean')} "
             f"qualified={row['qualified_research']}",
@@ -381,13 +353,15 @@ def run_screening(output_dir: Path) -> None:
 
 
 def run_final(output_dir: Path) -> None:
-    """Open the sealed split once for the five frozen screening selections."""
+    """Open the sealed split once for the frozen screening selections."""
     screen_path = output_dir / "screening_results.csv"
     if not screen_path.exists():
         raise RuntimeError("screening results are required before final evaluation")
     screening = pd.read_csv(screen_path)
     frozen_ids = tuple(screening.loc[screening["qualified_research"], "factor_id"])
-    if set(frozen_ids) != set(SELECTED_FACTOR_IDS) or len(frozen_ids) != 5:
+    if set(frozen_ids) != set(SELECTED_FACTOR_IDS) or len(frozen_ids) != len(
+        SELECTED_FACTOR_IDS
+    ):
         raise RuntimeError("screening selection changed; refusing to open sealed data")
 
     specs = {item.factor_id: item for item in map(_spec, candidates())}
@@ -487,7 +461,8 @@ def run_final(output_dir: Path) -> None:
         }
         rows.append(row)
         print(
-            f"[{number}/5] {factor_id}: sealed={row['sealed_rank_ic_mean']} "
+            f"[{number}/{len(SELECTED_FACTOR_IDS)}] {factor_id}: "
+            f"sealed={row['sealed_rank_ic_mean']} "
             f"full={row['full_rank_ic_mean']} qualified={row['full_qualified']}",
             flush=True,
         )

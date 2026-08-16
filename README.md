@@ -89,7 +89,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告和图表工具 |
-| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、四端口、Phase 02/03 适配器、Phase 04 Research Controller 与跨平台角色任务协议 |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、任意本地 Python 因子生成/解析、四端口、Research Controller 与跨平台角色任务协议 |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
 target-weight 原语；具体因子、特征、规则、模型行为和 workflow 放在 `strategies/`。

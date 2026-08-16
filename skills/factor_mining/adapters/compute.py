@@ -13,7 +13,7 @@ from skills.factor_mining.adapters.execution_identity import (
     execution_envelope_identity_from_parts,
 )
 from skills.factor_mining.adapters.formula import (
-    ALLOWLIST_VERSION,
+    FORMULA_RESOLVER_VERSION,
     FormulaAdapterError,
     compile_formula,
 )
@@ -47,7 +47,10 @@ from skills.factor_mining.contracts import (
 )
 from skills.factor_mining.ports import ArtifactStorePort
 
-CODE_VERSION = f"factor_mining.adapters.compute@{ADAPTER_SCHEMA_VERSION}"
+CODE_VERSION = (
+    f"factor_mining.adapters.compute@{ADAPTER_SCHEMA_VERSION}"
+    f"+resolver-{FORMULA_RESOLVER_VERSION}"
+)
 
 _SUPPORTED_MISSING_POLICY = "keep_nan"
 _SUPPORTED_OUTPUT_DTYPE = "float64"
@@ -162,7 +165,7 @@ class FactorExecutionAdapter:
             {
                 "request_id": request.request_id,
                 "adapter_schema_version": ADAPTER_SCHEMA_VERSION,
-                "allowlist_version": ALLOWLIST_VERSION,
+                "formula_resolver_version": FORMULA_RESOLVER_VERSION,
             }
         )
         factor_ref = request.factor_ref
@@ -265,7 +268,7 @@ class FactorExecutionAdapter:
                 "sort_policy": "lexicographic_symbol_eob",
                 "duplicate_policy": "reject_duplicate_logical_keys",
                 "conversion_policy": "to_datetime_reject_nat_and_collisions",
-                "allowlist_version": ALLOWLIST_VERSION,
+                "formula_resolver_version": FORMULA_RESOLVER_VERSION,
                 "adapter_schema_version": ADAPTER_SCHEMA_VERSION,
                 "start": eob.min().isoformat() if len(eob) else "",
                 "end": eob.max().isoformat() if len(eob) else "",
@@ -486,7 +489,7 @@ class FactorExecutionAdapter:
     ) -> FactorExecutionResult:
         details: dict[str, Any] = {
             "adapter_schema_version": ADAPTER_SCHEMA_VERSION,
-            "allowlist_version": ALLOWLIST_VERSION,
+            "formula_resolver_version": FORMULA_RESOLVER_VERSION,
         }
         if cause is not None:
             details["cause_type"] = type(cause).__name__

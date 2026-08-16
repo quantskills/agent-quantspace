@@ -193,11 +193,9 @@ class AnalyzeFacade:
         *,
         backtester_factory: BacktesterFactory | None = None,
         prefix_recompute: PrefixRecomputeFactory | BoundPrefixRecompute | None = None,
-        allowed_functions: frozenset[tuple[str, str]] | None = None,
     ) -> None:
         self._backtester_factory = backtester_factory
         self._prefix_recompute = prefix_recompute
-        self._allowed_functions = allowed_functions
 
     def preflight(
         self,
@@ -216,7 +214,6 @@ class AnalyzeFacade:
         )
         spec_findings = validate_spec(
             spec,
-            allowed_functions=self._allowed_functions,
             allowed_fields=allowed_fields,
             protocol_fields=protocol.required_fields,
         )

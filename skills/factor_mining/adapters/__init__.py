@@ -11,9 +11,8 @@ from skills.factor_mining.adapters.compute import (
     load_execution_series,
 )
 from skills.factor_mining.adapters.formula import (
-    ALLOWLIST_VERSION,
-    allowlist_manifest,
-    allowlisted_functions,
+    FORMULA_RESOLVER_VERSION,
+    callable_implementation_hash,
     compile_formula,
     resolve_function_ref,
 )
@@ -32,16 +31,15 @@ from skills.factor_mining.adapters.store import (
 
 __all__ = [
     "ADAPTER_SCHEMA_VERSION",
-    "ALLOWLIST_VERSION",
     "CODE_VERSION",
+    "FORMULA_RESOLVER_VERSION",
     "AnalyzeAdapter",
     "DataManagerArtifactStore",
     "FactorExecutionAdapter",
     "NormalizedPanel",
-    "allowlist_manifest",
-    "allowlisted_functions",
     "build_factor_cache_key",
     "build_prefix_recompute_capability",
+    "callable_implementation_hash",
     "compile_formula",
     "inspect_panel",
     "load_execution_series",

@@ -1,15 +1,18 @@
-"""Versioned allowlist resolution and constrained expression compilation."""
+"""Unrestricted Python function resolution and expression compilation."""
 
 from __future__ import annotations
 
+import hashlib
+import importlib
 import inspect
 import math
+import sys
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from skills.compute import indicators as compute_indicators
 from skills.factor_mining.contracts import (
     FailureCode,
     FormulaKind,
@@ -18,54 +21,7 @@ from skills.factor_mining.contracts import (
     content_hash,
 )
 
-ALLOWLIST_VERSION = "1.0.0"
-INDICATOR_MODULE = "skills.compute.indicators"
-
-# Frozen Phase 02 top-level FunctionRef manifest. New public indicators are NOT
-# auto-admitted; bump ALLOWLIST_VERSION and extend this tuple explicitly.
-_FROZEN_INDICATOR_NAMES: tuple[str, ...] = (
-    "atr_stop",
-    "bias_momentum",
-    "bollinger_reversal",
-    "cci",
-    "daily_return",
-    "donchian_channel",
-    "er",
-    "er_adaptive",
-    "er_directional",
-    "er_enhanced",
-    "fund_premium_rate",
-    "high_vol_odds",
-    "ma",
-    "ma_cross",
-    "ma_vol",
-    "ma_vol_ratio",
-    "mean_reversion",
-    "mom_skip",
-    "momentum_acceleration",
-    "momentum_weighted",
-    "orb",
-    "orb_relvol",
-    "price_above_ma",
-    "price_drawdown",
-    "roc",
-    "rsi",
-    "rsi_divergence",
-    "rsrs",
-    "rsrs_norm",
-    "rsrs_v1",
-    "rsrs_v2",
-    "rsrs_v3",
-    "slowkdj",
-    "stand_orb_relvol",
-    "supertrend",
-    "trend_score",
-    "trend_score_v2",
-    "trend_score_v2_skip",
-    "volatility_inv",
-    "volatility_regime",
-    "williams_r",
-)
+FORMULA_RESOLVER_VERSION = "2.0.0"
 
 _BINOPS = frozenset({"add", "sub", "mul", "truediv"})
 _CMPOPS = frozenset({"gt", "ge", "lt", "le", "eq", "ne"})
@@ -104,40 +60,65 @@ class FormulaAdapterError(Exception):
         self.message = message
 
 
-def allowlist_manifest() -> tuple[tuple[str, str], ...]:
-    """Return the frozen ``(module, name)`` FunctionRef manifest."""
-    return tuple((INDICATOR_MODULE, name) for name in _FROZEN_INDICATOR_NAMES)
+def resolve_function_ref(
+    ref: FunctionRef, *, reload_module: bool = False
+) -> Callable[..., Any]:
+    """Resolve any importable Python callable referenced by module and name.
 
-
-def allowlisted_functions() -> dict[tuple[str, str], Callable[..., Any]]:
-    """Resolve the frozen allowlist to callables (indicators only)."""
-    mapping: dict[tuple[str, str], Callable[..., Any]] = {}
-    for module, name in allowlist_manifest():
-        func = getattr(compute_indicators, name, None)
-        if not callable(func):
-            raise FormulaAdapterError(
-                FailureCode.FUNCTION_NOT_ALLOWED,
-                f"allowlisted function missing from module: {module}.{name}",
-            )
-        mapping[(module, name)] = func
-    return mapping
-
-
-def resolve_function_ref(ref: FunctionRef) -> Callable[..., Any]:
-    """Resolve a FunctionRef against the frozen indicator allowlist only."""
-    if ref.module.startswith("strategies"):
+    ``name`` may be a dotted attribute path inside the imported module.  The
+    local-project factor-mining workflow intentionally has no module allowlist:
+    generated strategy modules and third-party research functions are valid.
+    """
+    try:
+        importlib.invalidate_caches()
+        was_loaded = ref.module in sys.modules
+        module = importlib.import_module(ref.module)
+        if reload_module and was_loaded and getattr(module, "__file__", None):
+            module = importlib.reload(module)
+        target: Any = module
+    except Exception as exc:  # noqa: BLE001 - normalize import failures
         raise FormulaAdapterError(
-            FailureCode.FUNCTION_NOT_ALLOWED,
-            "function refs must not point into strategies/",
-        )
-    key = (ref.module, ref.name)
-    table = allowlisted_functions()
-    if key not in table:
+            FailureCode.INVALID_REFERENCE,
+            f"function module could not be imported: {ref.module}",
+        ) from exc
+    try:
+        for part in ref.name.split("."):
+            if not part:
+                raise AttributeError("empty attribute")
+            target = getattr(target, part)
+    except AttributeError as exc:
         raise FormulaAdapterError(
-            FailureCode.FUNCTION_NOT_ALLOWED,
-            f"function not allowlisted: {ref.module}.{ref.name}",
+            FailureCode.INVALID_REFERENCE,
+            f"function reference could not be resolved: {ref.module}.{ref.name}",
+        ) from exc
+    if not callable(target):
+        raise FormulaAdapterError(
+            FailureCode.INVALID_REFERENCE,
+            f"function reference is not callable: {ref.module}.{ref.name}",
         )
-    return table[key]
+    return target
+
+
+def callable_implementation_hash(func: Callable[..., Any]) -> str:
+    """Hash the callable's defining module/source for reproducible execution."""
+    try:
+        source_path = inspect.getsourcefile(func) or inspect.getfile(func)
+    except (OSError, TypeError):
+        source_path = None
+    if source_path:
+        path = Path(source_path)
+        if path.is_file():
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        source = inspect.getsource(func)
+    except (OSError, TypeError):
+        source = ""
+    identity = {
+        "module": getattr(func, "__module__", ""),
+        "qualname": getattr(func, "__qualname__", getattr(func, "__name__", "")),
+        "source": source,
+    }
+    return content_hash(identity)
 
 
 def _jsonable_params(params: Mapping[str, Any]) -> dict[str, Any]:
@@ -168,7 +149,7 @@ def bind_parameters(
     if not parameters:
         raise FormulaAdapterError(
             FailureCode.INVALID_PARAMETERS,
-            "allowlisted function has no bindable parameters",
+            "factor function has no bindable parameters",
         )
     frame_param = parameters[0]
     if frame_param.name in plain:
@@ -234,15 +215,16 @@ def callable_fingerprint(
     *,
     module: str,
     name: str,
+    implementation_hash: str,
     params: Mapping[str, Any],
     adapter_schema_version: str,
 ) -> str:
     payload = {
-        "allowlist_version": ALLOWLIST_VERSION,
-        "allowlist_manifest": list(allowlist_manifest()),
+        "formula_resolver_version": FORMULA_RESOLVER_VERSION,
         "adapter_schema_version": adapter_schema_version,
         "module": module,
         "name": name,
+        "implementation_hash": implementation_hash,
         "params": _jsonable_params(params),
     }
     return content_hash(payload)
@@ -255,14 +237,53 @@ def expression_fingerprint(
     adapter_schema_version: str,
 ) -> str:
     payload = {
-        "allowlist_version": ALLOWLIST_VERSION,
-        "allowlist_manifest": list(allowlist_manifest()),
+        "formula_resolver_version": FORMULA_RESOLVER_VERSION,
         "adapter_schema_version": adapter_schema_version,
         "kind": "expression",
         "expression": dict(expression),
         "params": _jsonable_params(params),
+        "callables": _expression_callable_identities(expression),
     }
     return content_hash(payload)
+
+
+def _expression_callable_identities(
+    expression: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    identities: dict[tuple[str, str], dict[str, str]] = {}
+    for ref in _expression_function_refs(expression):
+        func = resolve_function_ref(ref)
+        identities[(ref.module, ref.name)] = {
+            "module": ref.module,
+            "name": ref.name,
+            "implementation_hash": callable_implementation_hash(func),
+        }
+    return [identities[key] for key in sorted(identities)]
+
+
+def _expression_function_refs(
+    expression: Mapping[str, Any],
+) -> tuple[FunctionRef, ...]:
+    refs: dict[tuple[str, str], FunctionRef] = {}
+    stack: list[Mapping[str, Any]] = [expression]
+    while stack:
+        node = stack.pop()
+        ntype = node.get("type")
+        if ntype in {"binop", "compare"}:
+            for key in ("left", "right"):
+                child = node.get(key)
+                if isinstance(child, Mapping):
+                    stack.append(child)
+        elif ntype == "call":
+            module = str(node.get("module") or "")
+            name = str(node.get("name") or "")
+            refs[(module, name)] = FunctionRef(module=module, name=name)
+            kwargs = node.get("kwargs")
+            if isinstance(kwargs, Mapping):
+                stack.extend(
+                    value for value in kwargs.values() if isinstance(value, Mapping)
+                )
+    return tuple(refs[key] for key in sorted(refs))
 
 
 def _require_mapping(node: Any, *, label: str) -> Mapping[str, Any]:
@@ -371,10 +392,15 @@ def validate_expression(
         elif ntype == "call":
             module = node.get("module")
             name = node.get("name")
-            if module != INDICATOR_MODULE or not isinstance(name, str):
+            if (
+                not isinstance(module, str)
+                or not module
+                or not isinstance(name, str)
+                or not name
+            ):
                 raise FormulaAdapterError(
-                    FailureCode.FUNCTION_NOT_ALLOWED,
-                    "expression calls are limited to allowlisted indicators",
+                    FailureCode.INVALID_REFERENCE,
+                    "expression calls require non-empty module and function names",
                 )
             resolve_function_ref(FunctionRef(module=module, name=name))
             raw_kwargs = node.get("kwargs", {})
@@ -479,7 +505,7 @@ def _eval_node(
         if not isinstance(result, pd.Series):
             raise FormulaAdapterError(
                 FailureCode.INVALID_OUTPUT_TYPE,
-                "indicator call must return a Series",
+                "factor function call must return a Series",
             )
         return result.astype("float64", copy=False)
     raise FormulaAdapterError(
@@ -501,11 +527,12 @@ def compile_formula(
 
     if formula.kind is FormulaKind.FUNCTION_REF:
         assert formula.function_ref is not None
-        target = resolve_function_ref(formula.function_ref)
+        target = resolve_function_ref(formula.function_ref, reload_module=True)
         bound = bind_parameters(target, params)
         fingerprint = callable_fingerprint(
             module=formula.function_ref.module,
             name=formula.function_ref.name,
+            implementation_hash=callable_implementation_hash(target),
             params=bound,
             adapter_schema_version=adapter_schema_version,
         )
@@ -518,6 +545,13 @@ def compile_formula(
     if formula.kind is FormulaKind.EXPRESSION:
         assert formula.expression is not None
         expression = dict(formula.expression)
+        validate_expression(
+            expression,
+            allowed_fields=allowed_fields,
+            params=params,
+        )
+        for ref in _expression_function_refs(expression):
+            resolve_function_ref(ref, reload_module=True)
         validate_expression(
             expression,
             allowed_fields=allowed_fields,

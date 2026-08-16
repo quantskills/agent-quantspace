@@ -43,7 +43,7 @@ from skills.analyze.attribution_counterfactual import performance_metrics
 | Module family | Purpose |
 |---------------|---------|
 | `facade` / `contracts` | Deterministic Phase 03 entrypoint and analyze-native snapshots |
-| `validation` / `spec_checks` / `causality` | Panel, formula safety, and prefix-causality checks |
+| `validation` / `spec_checks` / `causality` | Panel, formula structure, parameter, and prefix-causality checks |
 | `factor_evaluation` / `factor_robustness` / `factor_incremental` | IC/quantiles/turnover, robustness, pool incremental |
 | `factor_analysis` | Legacy IC statistics, grouped returns, winsorization helpers |
 | `factor_information` | Horizon/Lag IC surfaces, HAC summaries, rank correlation, rolling correlation, and Top-N overlap |
@@ -94,6 +94,11 @@ seals arbitrary callables with hash strings. Process trust boundary: private
 helpers remain importable in-process; orchestration policy must only use the
 Phase02 adapter builder. Evaluate additionally requires an issued recompute to
 reproduce evaluated values (`CAUSALITY_RECOMPUTE_VALUE_MISMATCH`).
+
+`FunctionRef` has no module allowlist. It may point to generated strategy code,
+`skills.compute`, or another importable local dependency. Analyze checks the
+research contract—fields, parameter/window/lag consistency, output alignment,
+and time causality—rather than treating the local Python module as untrusted.
 
 **Trust boundary (resolvers / artifact loaders).** Production
 `resolve_brief` / `resolve_factor` / `resolve_execution` / `load_series` ports

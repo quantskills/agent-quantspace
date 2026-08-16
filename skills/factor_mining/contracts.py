@@ -103,7 +103,6 @@ class FailureCode(str, Enum):
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
     FORBIDDEN_INPUT = "FORBIDDEN_INPUT"
     UNSUPPORTED_FORMULA = "UNSUPPORTED_FORMULA"
-    FUNCTION_NOT_ALLOWED = "FUNCTION_NOT_ALLOWED"
     INVALID_PARAMETERS = "INVALID_PARAMETERS"
     INVALID_PANEL_TYPE = "INVALID_PANEL_TYPE"
     INVALID_INDEX_SCHEMA = "INVALID_INDEX_SCHEMA"
@@ -532,7 +531,7 @@ class ResearchBrief:
 
 @dataclass(frozen=True)
 class FunctionRef:
-    """Versioned reference to an allowlisted compute function."""
+    """Versioned reference to any importable Python factor callable."""
 
     module: str
     name: str
@@ -540,12 +539,15 @@ class FunctionRef:
     def __post_init__(self) -> None:
         _require_non_empty("module", self.module)
         _require_non_empty("name", self.name)
-        if self.module.startswith("strategies"):
-            raise ValueError("function refs must not point into strategies/")
 
 @dataclass(frozen=True)
 class StructuredFormula:
-    """Constrained formula representation. Free-text and callables are forbidden."""
+    """Executable formula represented by a Python reference or expression AST.
+
+    Generated Python source is stored in an importable module (normally below
+    ``strategies/``) and referenced with ``FunctionRef`` rather than embedded in
+    the serialized contract.
+    """
 
     kind: FormulaKind
     function_ref: FunctionRef | None = None

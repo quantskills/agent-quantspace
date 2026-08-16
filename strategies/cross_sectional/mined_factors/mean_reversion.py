@@ -5,15 +5,14 @@
 - 输出: float64 Series，索引与输入完全相同且顺序一致，NaN 用于 warm-up
 
 所有因子均为 mean-reversion / price-structure 族全新假设，不复用
-indicators.py / factors.py 已存在的因子（roc/ma/mean_reversion/bollinger/
-williams_r/rsi/cci/supertrend/donchian 等）。
+indicators.py / factors.py 已存在的因子（roc/ma/williams_r/rsi/cci/
+supertrend/donchian 等）。
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-
 
 # =============================================================================
 # 工具
@@ -62,8 +61,7 @@ def mr_quantile_deviation(group: pd.DataFrame, period: int = 60, q: float = 0.5)
     本因子用 (close - rolling_quantile) / (rolling_max - rolling_min) 衡量
     偏离方向，正值偏大→看空（取负），形成反转信号。
 
-    与现有 mean_reversion（基于 z-score）不同：分位数偏离对厚尾更稳健，
-    不受极端值放大影响。
+    分位数偏离对厚尾更稳健，不受极端值放大影响。
     """
     close = group["close"].astype(float)
     idx = group.index
@@ -235,8 +233,7 @@ def mr_tail_extreme(group: pd.DataFrame, period: int = 60, k: float = 2.0) -> pd
     std），市场过度反应，后续倾向于反转。本因子用收益相对滚动 std
     的偏离（带符号）取反作为信号。极端正收益→看空；极端负收益→看多。
 
-    与现有 bollinger_reversal（基于价格带位置）不同：本因子直接度量
-    收益分布的厚尾极端性，并显式建模尾部反转。
+    本因子直接度量收益分布的厚尾极端性，并显式建模尾部反转。
     """
     close = group["close"].astype(float)
     idx = group.index
@@ -278,8 +275,7 @@ def mr_price_volume_divergence(
     反弹。本因子用 (price_rank - volume_rank) 作为背离信号，正值→
     价格强于量→看空；负值→价格弱于量→看多。
 
-    与现有 ma_vol_ratio（量比）不同：背离因子度量价格与量在窗口
-    内的相对分位结构，而非量本身的均值比率。
+    背离因子度量价格与量在窗口内的相对分位结构，而非量本身的均值比率。
     """
     close = group["close"].astype(float)
     volume = group["volume"].astype(float)
@@ -312,8 +308,7 @@ def mr_vwap_deviation(group: pd.DataFrame, period: int = 20) -> pd.Series:
     倾向反弹。本因子用 (close - rolling_vwap) / rolling_vwap 作为
     偏离度，取负作为反转信号。
 
-    与现有 mean_reversion（基于简单均线 z-score）不同：VWAP 偏离
-    度量成交成本结构，对机构行为更敏感。
+    VWAP 偏离度量成交成本结构，对机构行为更敏感。
     """
     close = group["close"].astype(float)
     volume = group["volume"].astype(float)

@@ -106,13 +106,13 @@ def test_phase03_custom_panel_to_evaluation_report(tmp_path) -> None:
         formula=StructuredFormula(
             kind=FormulaKind.FUNCTION_REF,
             function_ref=FunctionRef(
-                module="skills.compute.indicators",
-                name="roc",
+                module="strategies.cross_sectional.mined_factors.mean_reversion",
+                name="mr_quantile_deviation",
             ),
-            params={"period": 2},
+            params={"period": 3, "q": 0.5},
         ),
         required_fields=("close",),
-        window=2,
+        window=3,
         warmup=2,
         lag=0,
     )

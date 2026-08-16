@@ -31,9 +31,7 @@ from skills.analyze.factor_information import (
 from skills.backtest import VectorBacktester
 from skills.compute.indicators import (
     er,
-    ma_vol_ratio,
     mom_skip,
-    rsrs_v3,
     trend_score,
     trend_score_v2_skip,
 )
@@ -106,15 +104,7 @@ FACTOR_SPECS = {
         "old_session",
         "12-1 动量趋势",
     ),
-    "rsrs20": (rsrs_v3, {"period": 20}, 1, "old_session", "RSRS 阻力支撑"),
     "er14": (er, {"period": 14}, 1, "old_session", "价格路径效率"),
-    "volume_ratio5_20": (
-        ma_vol_ratio,
-        {"period_short": 5, "period_long": 20},
-        1,
-        "old_session",
-        "短长成交量比",
-    ),
     "quantile_reversion60": (
         mr_quantile_deviation,
         {"period": 60, "q": 0.5},

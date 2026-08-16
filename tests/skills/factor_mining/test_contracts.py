@@ -135,13 +135,17 @@ def test_canonical_json_rejects_nan_inf_and_non_string_keys() -> None:
         canonical_json({1: "x"})  # type: ignore[dict-item]
 
 
-def test_factor_spec_rejects_free_text_and_strategies_function_ref() -> None:
-    with pytest.raises(ValueError, match="strategies"):
-        StructuredFormula(
-            kind=FormulaKind.FUNCTION_REF,
-            function_ref=FunctionRef(module="strategies.cross_sectional.factors", name="x"),
-            params={},
-        )
+def test_factor_spec_accepts_strategy_function_ref_and_rejects_incomplete_formula() -> None:
+    formula = StructuredFormula(
+        kind=FormulaKind.FUNCTION_REF,
+        function_ref=FunctionRef(
+            module="strategies.cross_sectional.mined_factors.mean_reversion",
+            name="mr_quantile_deviation",
+        ),
+        params={"period": 20, "q": 0.5},
+    )
+    assert formula.function_ref is not None
+    assert formula.function_ref.module.startswith("strategies.")
     with pytest.raises(ValueError, match="function_ref"):
         StructuredFormula(kind=FormulaKind.FUNCTION_REF, function_ref=None, params={})
     with pytest.raises(ValueError, match="expression"):

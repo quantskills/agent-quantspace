@@ -1280,3 +1280,20 @@ def test_skipped_does_not_mask_root_failure() -> None:
 def test_spec_static_checks_ok() -> None:
     findings = validate_spec(make_spec(), allowed_fields=("close",))
     assert any(f.name == "SPEC_STRUCTURE_OK" for f in findings)
+
+
+def test_spec_static_checks_do_not_restrict_function_module() -> None:
+    findings = validate_spec(
+        make_spec(
+            function_module=(
+                "strategies.cross_sectional.mined_factors.mean_reversion"
+            ),
+            function_name="mr_quantile_deviation",
+        ),
+        allowed_fields=("close",),
+    )
+    assert any(f.name == "SPEC_FUNCTION_REFERENCE" for f in findings)
+    assert not any(
+        (not finding.passed) and finding.severity is FindingSeverity.HARD_FAIL
+        for finding in findings
+    )

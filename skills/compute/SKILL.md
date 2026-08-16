@@ -10,7 +10,7 @@ Compute derived values from OHLCV data. This skill is organized in reusable, str
 | Layer | Module | Contents |
 |-------|--------|----------|
 | **Utils** | `skills.compute.utils` | Math primitives: `safe_divide`, `rolling_zscore`, `calculate_atr`, `clip_outliers`, etc. |
-| **Indicators** | `skills.compute.indicators` | 41 public technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
+| **Indicators** | `skills.compute.indicators` | 19 public technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
 | **Features** | `skills.compute.features` | Strategy-agnostic OHLCV feature builders such as `make_logdiff_features` |
 
 Also: label makers (`label_maker.py`), compact generic factor examples, and the `Factor` wrapper.
@@ -21,10 +21,14 @@ Shared market-structure helpers used by strategy domains:
 - `skills.compute.regime.split_by_regime(df, regimes=None)` — lithium-cycle date slicing for DatetimeIndex or MultiIndex inputs.
 
 **Strategy-specific factors and feature engineering** live in `strategies/`, not here — except generic single-instrument OHLCV transforms such as log-difference grids, which belong in `skills.compute.features`.
+The factor-mining workflow may generate new Python factor functions directly in
+`strategies/<domain>/mined_factors/`; they only need to satisfy the `Factor`
+callable contract below. They do not need to be added to
+`skills.compute.indicators` or to any allowlist.
 
 ## Prerequisites
 
-- **Python**: `pandas`, `numpy`; some indicators use `statsmodels`.
+- **Python**: `pandas`, `numpy`.
 - **Imports**:
   - `from skills.compute.indicators import trend_score, rsi, er`
   - `from skills.compute.utils import safe_divide, calculate_atr`
@@ -49,15 +53,13 @@ from skills.compute.utils import safe_divide, rolling_zscore, calculate_atr, cli
 from skills.compute.indicators import trend_score, rsi, er, supertrend
 ```
 
-41 public functions organized by category:
+19 public functions organized by category:
 
-- **Price/Momentum**: `roc`, `ma`, `daily_return`, `ma_cross`, `price_above_ma`, `momentum_acceleration`, `momentum_weighted`, `bias_momentum`, `mom_skip`, `high_vol_odds`
-- **Trend**: `rsrs`, `rsrs_v1`–`v3`, `rsrs_norm`, `trend_score`, `trend_score_v2`, `trend_score_v2_skip`, `supertrend`, `donchian_channel`
-- **Volume**: `ma_vol`, `ma_vol_ratio`, `orb`, `orb_relvol`, `stand_orb_relvol`
-- **Efficiency**: `er`, `er_enhanced`, `er_adaptive`, `er_directional`
+- **Price/Momentum**: `roc`, `ma`, `daily_return`, `ma_cross`, `price_above_ma`, `bias_momentum`, `mom_skip`
+- **Trend**: `trend_score`, `trend_score_v2`, `trend_score_v2_skip`, `supertrend`, `donchian_channel`
+- **Volume**: `orb_relvol`
+- **Efficiency**: `er`
 - **Oscillators**: `cci`, `slowkdj`, `williams_r`, `rsi`, `rsi_divergence`
-- **Mean-reversion**: `bollinger_reversal`, `mean_reversion`, `price_drawdown`
-- **Volatility/Risk**: `atr_stop`, `volatility_regime`, `volatility_inv`, `fund_premium_rate`
 
 ### `Factor` wrapper (`skills.compute.wrappers`)
 

@@ -20,8 +20,8 @@ def vr_downside_semivariance_premium(
     投资者真实厌恶的尾部损失。下行半方差越低，说明资产在下跌行情中抗跌
     能力越强，长期风险溢价越高。用滚动窗口内仅取负收益计算的半方差倒数
     作为因子，区分「低下行风险」与「低总波动」——后者会被上行波动拉高而
-    失真。与 volatility_inv（1/std，上行下行不分）不同，本因子只奖励下行
-    稳健的品种。NaN 用于 warm-up，输出 tanh 压缩至 [-1, 1]。
+    失真。本因子只奖励下行稳健的品种。NaN 用于 warm-up，输出 tanh 压缩至
+    [-1, 1]。
     """
     close = group["close"].astype(float)
     ret = close.pct_change()
@@ -46,10 +46,9 @@ def vr_vol_quantile_rank(
 
     经济假设：当前实现波动率在自身长期分布中的分位位置刻画了风险 regime。
     处于历史低分位（如 <20%）时为低波动 regime，未来风险调整收益更优；
-    高分位（>80%）时风险已释放或拥挤，后续承压。与 volatility_regime（短
-    /长 std 比值，受尺度影响）不同，分位数是 rank-based、跨周期稳定的
-    regime 指标。用滚动短窗 std 在长窗历史 std 序列中的百分位取负（低分位
-    -> 高因子值）。
+    高分位（>80%）时风险已释放或拥挤，后续承压。分位数是 rank-based、
+    跨周期稳定的 regime 指标。用滚动短窗 std 在长窗历史 std 序列中的
+    百分位取负（低分位 -> 高因子值）。
     """
     close = group["close"].astype(float)
     ret = close.pct_change()
@@ -155,11 +154,9 @@ def vr_var_tail_risk_inverse(
     """历史 VaR 尾部风险倒数因子。
 
     经济假设：左尾 VaR（如 5% 分位收益）直接刻画极端损失风险。VaR 越接近
-    0（损失越小）的资产，尾部风险越低，长期复利效应越显著。与
-    downside_semivariance_premium（二阶矩）和 volatility_inv（全样本 std）
-    不同，本因子是分位数-based，只关心最坏的尾部样本，对「黑天鹅韧性」更
-    敏感。用滚动窗口内收益的 quantile 分位数取倒数（VaR 越接近 0 越好），
-    tanh 压缩。
+    0（损失越小）的资产，尾部风险越低，长期复利效应越显著。本因子是
+    分位数-based，只关心最坏的尾部样本，对「黑天鹅韧性」更敏感。用滚动
+    窗口内收益的 quantile 分位数取倒数（VaR 越接近 0 越好），tanh 压缩。
     """
     close = group["close"].astype(float)
     ret = close.pct_change()
