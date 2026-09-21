@@ -1,13 +1,13 @@
 {
   "namespace": "strategy_examples",
   "slug": "csi300_if_ma10_atr_reversion",
-  "title": "CSI 300 IF MA10 ATR Reversion",
+  "title": "沪深300股指期货 MA10 均值回归与 ATR 止损",
   "kind": "public_example",
   "domain": "time_series",
   "visibility": "public_example",
   "tags": [
-    "time_series",
-    "Rule-based futures"
+    "时间序列",
+    "期货规则策略"
   ],
   "sample_start": "2024-01-02",
   "sample_end": "2026-07-01",

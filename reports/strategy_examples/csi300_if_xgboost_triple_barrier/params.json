@@ -1,13 +1,13 @@
 {
   "namespace": "strategy_examples",
   "slug": "csi300_if_xgboost_triple_barrier",
-  "title": "CSI 300 IF XGBoost Triple-Barrier",
+  "title": "沪深300股指期货 XGBoost 三重障碍策略",
   "kind": "public_example",
   "domain": "time_series",
   "visibility": "public_example",
   "tags": [
-    "time_series",
-    "XGBoost futures"
+    "时间序列",
+    "期货 XGBoost 策略"
   ],
   "sample_start": "2024-09-13",
   "sample_end": "2026-06-04",

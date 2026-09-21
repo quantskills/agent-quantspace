@@ -103,11 +103,14 @@ def _public_example(
     domain: str,
     strategy_type: str,
     label: str,
-    description: str,
+    question: str,
+    hypothesis: str,
     universe: list[str],
     metrics: dict[str, Any],
     result_df: pd.DataFrame,
     notes: list[str],
+    caveats: list[str],
+    next_steps: list[str],
 ) -> ResearchReport:
     sample_start, sample_end = _sample_range(result_df)
     png = charts.plot_backtest_performance(result_df, title=f"{title} Performance")
@@ -119,14 +122,14 @@ def _public_example(
         namespace=PUBLIC_NAMESPACE,
         slug=slug,
         title=title,
-        question=description,
+        question=question,
         universe=list(universe),
         frequency=FREQUENCY,
         sample_start=sample_start,
         sample_end=sample_end,
         in_sample_end=None,
         out_of_sample_start=None,
-        hypothesis=description,
+        hypothesis=hypothesis,
         method_notes=list(notes),
         execution={
             "trade_at": "close",
@@ -142,10 +145,8 @@ def _public_example(
             ReportFigure(name="equity", caption="Equity and drawdown", png=png)
         ],
         tables=tables,
-        caveats=["Public example only; not a live trading recommendation."],
-        next_steps=[
-            f"Re-run with `{REPRODUCE_COMMAND}` after refreshing local Parquet files."
-        ],
+        caveats=list(caveats),
+        next_steps=list(next_steps),
         reproduce_command=REPRODUCE_COMMAND,
         visibility="public_example",
         domain=domain,
@@ -178,11 +179,8 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> ResearchReport:
         domain="cross_sectional",
         strategy_type="Rule-based futures",
         label="none",
-        description=(
-            "A non-precious futures rotation example. It ranks stock-index, industrial, "
-            "agricultural, and energy futures by 120-day moving-average gap reversal "
-            "strength, then holds the two most stretched contracts with risk-parity weights."
-        ),
+        question="跨品种价格相对长期均线的偏离，能否支持剔除贵金属后的期货反转轮动？",
+        hypothesis="跌得相对均线更深的合约可能回归；选取偏离最大的两个品种，再按波动率倒数分配权重，以免高波动品种主导组合。这是待检验的回归假设。",
         universe=list(RULE_FUTURE_SYMBOLS),
         metrics=metrics,
         result_df=execution.result_df,
@@ -193,6 +191,14 @@ def _futures_cross_sectional_reversal(dm: DataManager) -> ResearchReport:
             "The top two contracts are rebalanced every three trading days with 60-day risk-parity weights.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
             "Transaction cost assumptions are commission 2bp plus slippage 2bp.",
+        ],
+        caveats=[
+            "金价相关性只是样本期的线性相关，不能证明收益来源独立于黄金或其他共同风险。",
+            "尚无动量排序、等权重及不同交易成本的对照，无法把收益单独归因于反转排序。",
+        ],
+        next_steps=[
+            "比较动量排序和等权重基线，分市场阶段检查结果。",
+            "检验主力合约换月、流动性及手续费和滑点变化对收益的影响。",
         ],
     )
 
@@ -214,11 +220,8 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> ResearchReport:
         domain="time_series",
         strategy_type="Rule-based futures",
         label="none",
-        description=(
-            "A single-instrument time-series rule example that holds CFFEX CSI 300 "
-            "index futures when price is below its 10-day moving average, with an ATR "
-            "trailing stop controlling exits."
-        ),
+        question="IF 跌破 MA10 后的反弹机会，能否覆盖交易成本和 ATR 跟踪止损带来的影响？",
+        hypothesis="短期跌破均线可能出现均值回归，因而在价格低于 MA10 时持有 IF；ATR 止损在价格继续下跌时限制持仓风险。回归机会和止损效果都需要对照验证。",
         universe=[CSI300_FUTURE_SYMBOL],
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
@@ -229,6 +232,14 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> ResearchReport:
             "Exit rule: leave the position when close falls below the highest price since entry minus 2.0 times ATR(14).",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
             "Transaction cost assumptions are commission 2bp plus slippage 2bp.",
+        ],
+        caveats=[
+            "只研究单一期货品种与所列样本区间，不能把历史收益外推到其他市场。",
+            "没有持有 IF、无止损版本及参数邻域对照，无法确认收益来自入场还是止损规则。",
+        ],
+        next_steps=[
+            "加入持有 IF 与移除 ATR 止损的对照，并检查 MA 与 ATR 参数邻域。",
+            "检验手续费、滑点及分阶段收益的敏感度。",
         ],
     )
 
@@ -253,11 +264,8 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> ResearchReport:
         domain="time_series",
         strategy_type="XGBoost futures",
         label="triple-barrier",
-        description=(
-            "A real-data time-series ML example. XGBoost classifies triple-barrier states "
-            "from log-difference and price/volume features on CFFEX.IF99, then takes "
-            "long or short IF exposure when the corresponding barrier probability is high."
-        ),
+        question="IF 的量价特征能否预测短期三重障碍方向，并形成有交易价值的方向信号？",
+        hypothesis="对数差分与量价特征可能包含短期方向信息；用 XGBoost 估计三重障碍类别概率，只在上涨和下跌概率差足够大时承担多空风险。模型的预测优势仍待检验。",
         universe=[CSI300_FUTURE_SYMBOL],
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
@@ -267,6 +275,14 @@ def _csi300_if_xgboost_triple_barrier(dm: DataManager) -> ResearchReport:
             "Training uses rows before 2024-01-01; reports show the held-out period.",
             "Signal is the predicted positive-minus-negative barrier probability spread; absolute spread above 0.10 opens a position.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
+        ],
+        caveats=[
+            "单次训练与留出期结果不足以证明模型稳定；类别分布和概率校准未在本报告验证。",
+            "缺少简单规则及不同阈值、交易成本的对照，难以确认机器学习部分的增益。",
+        ],
+        next_steps=[
+            "报告留出期逐类别预测与概率校准，比较简单规则和不同开仓阈值。",
+            "分阶段检验交易频率、手续费和滑点对结果的影响。",
         ],
     )
 
@@ -287,11 +303,8 @@ def _futures_xgboost_rank(dm: DataManager) -> ResearchReport:
         domain="cross_sectional",
         strategy_type="XGBoost futures",
         label="rank label",
-        description=(
-            "A real-data cross-sectional ML example. XGBoost predicts each future's "
-            "forward-return rank label and allocates to the top two predicted ranks "
-            "with risk-parity weights."
-        ),
+        question="期货量价变化能否预测未来截面收益排名，并支持前两名的组合配置？",
+        hypothesis="相对价格变化可能包含跨品种排序信息；先在训练样本中标准化并提取 PCA 特征，再由 XGBoost 预测未来收益排名，选取最高的两个合约并按风险平价配置。这只是待验证的预测假设。",
         universe=list(ML_FUTURE_SYMBOLS),
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
@@ -300,6 +313,14 @@ def _futures_xgboost_rank(dm: DataManager) -> ResearchReport:
             "Features are LogDiff OHLC features reduced with train-only StandardScaler + PCA(50).",
             "Training uses expanding walk-forward folds with purge equal to the label horizon.",
             "Weights are run through the shared vectorized VectorBacktester with zero signal lag and forward close-to-close returns.",
+        ],
+        caveats=[
+            "即使按标签跨度清除训练边界，仍需审计合约连续序列、特征生成和交易时点是否存在前视偏差。",
+            "模型排名与风险平价共同决定结果，尚缺简单排序、等权重和成本敏感度对照。",
+        ],
+        next_steps=[
+            "分别比较简单量价排序、等权重和完整模型，并报告逐折样本外表现。",
+            "核对每日换手、换月及费用变化，检查收益能否覆盖实施成本。",
         ],
     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -88,6 +89,14 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
         assert report.index("<h2>研究问题</h2>") < report.index("<h2>证据与指标</h2>")
         assert report.index("<h2>证据与指标</h2>") < report.index("<h2>图表</h2>")
         assert 'href="../../catalog.html"' in report
+        question = re.search(r"<h2>研究问题</h2>\s*<p>(.*?)</p>", report, re.S)
+        hypothesis = re.search(r"<h2>假设与方法</h2>\s*<p>(.*?)</p>", report, re.S)
+        assert question is not None and hypothesis is not None
+        assert question.group(1) != hypothesis.group(1)
+        limitations = report.split("<h2>限制与下一步</h2>", 1)[1].split("<h2>", 1)[0]
+        assert "Public example only" not in limitations
+        assert "Re-run with" not in limitations
+        assert limitations.count("<li>") >= 3
     assert unrelated.read_text(encoding="utf-8") == "keep"
     catalog = (tmp_path / "catalog.html").read_text(encoding="utf-8")
     assert "public_example" in catalog

@@ -1,13 +1,13 @@
 {
   "namespace": "strategy_examples",
   "slug": "futures_cross_sectional_reversal",
-  "title": "Futures Cross-Sectional Reversal",
+  "title": "期货截面反转策略",
   "kind": "public_example",
   "domain": "cross_sectional",
   "visibility": "public_example",
   "tags": [
-    "cross_sectional",
-    "Rule-based futures"
+    "截面策略",
+    "期货规则策略"
   ],
   "sample_start": "2024-01-02",
   "sample_end": "2026-07-01",

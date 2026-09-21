@@ -1,13 +1,13 @@
 {
   "namespace": "strategy_examples",
   "slug": "futures_xgboost_rank",
-  "title": "Futures XGBoost Rank",
+  "title": "期货 XGBoost 排名策略",
   "kind": "public_example",
   "domain": "cross_sectional",
   "visibility": "public_example",
   "tags": [
-    "cross_sectional",
-    "XGBoost futures"
+    "截面策略",
+    "期货 XGBoost 策略"
   ],
   "sample_start": "2024-01-02",
   "sample_end": "2026-06-04",
