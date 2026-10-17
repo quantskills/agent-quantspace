@@ -168,6 +168,13 @@ ic_stat_dict, ic_series = IC_stat(df, rank_IC=True, n=5)
 group_return, turnover = group_stat(df, n=5, g=5, verbose=True)
 ```
 
+`group_stat` semantics: `n` is the rebalance period only (regroup every `n` bars on the
+rebalance-day factor). `group_return` is always **one-bar** forward returns
+(`close.pct_change().shift(-1)`, equal-weight within each group, daily rebalanced to equal
+weight), so `(1 + group_return).cumprod()` is a valid NAV for any `n`. Do not feed it
+`n`-bar returns: that would count each holding window `n` times. `IC_stat(n=...)` is
+different and correctly uses the `n`-bar forward return as its label.
+
 **Time-series stationarity check**
 
 ```python

@@ -388,9 +388,9 @@ def IC_stat(df: pd.DataFrame, rank_IC: bool = True, n=1):
 def group_stat(df, n, g, verbose: bool = False):
     """
     :param df: 因子值 -> unstack
-    :param n: 调仓日 -> int
+    :param n: 调仓周期（每 n 个交易日按调仓日因子重新分组）-> int
     :param g: 分组数量 -> int
-    :return group_return: 各分组日收益率 -> dataframe
+    :return group_return: 各分组逐日收益率（周期内按调仓日成员等权，日度再平衡）-> dataframe
     :return turnover_ratio: 各分组日调仓日换手率 -> dataframe
 
     优化版本：使用向量化操作和索引映射，避免重复的列表推导和isin操作
@@ -407,8 +407,9 @@ def group_stat(df, n, g, verbose: bool = False):
     close_unstack = df["close"].unstack(level="symbol")
     factor_unstack = df["fac_val"].unstack(level="symbol")
 
-    # 计算未来n期收益率
-    future_return = close_unstack.pct_change(n).shift(-n)
+    # 分层收益用逐日前瞻收益（t -> t+1）；n 只决定调仓频率。
+    # 若用 pct_change(n)，周期内 n 行都会带着重叠的 n 日收益，连乘时被重复累计 n 次。
+    future_return = close_unstack.pct_change().shift(-1)
 
     # 3. 合并数据
     merged = (
