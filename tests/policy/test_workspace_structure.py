@@ -21,7 +21,8 @@ def test_public_skill_directories_are_exact() -> None:
     actual = {
         path.name
         for path in (ROOT / "skills").iterdir()
-        if path.is_dir() and path.name != "__pycache__"
+        # skills/cli is the shared command transport, not a Skill.
+        if path.is_dir() and path.name not in {"__pycache__", "cli"}
     }
     assert actual == expected
 

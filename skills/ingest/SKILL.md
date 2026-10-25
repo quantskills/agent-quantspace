@@ -167,3 +167,404 @@ from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
 assert to_panda_data_symbol("SHSE.510300") == "510300.SH"
 assert to_quantspace_symbol("RB_DOMINANT.SHF") == "SHFE.RB99"
 ```
+
+## CLI command reference
+
+<!-- BEGIN GENERATED: qs commands -->
+
+Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+
+### Shared parameter groups
+
+#### `OutputOptions`
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path?` / `null` | Explicit output path outside managed store namespaces. |
+| `--overwrite` | `boolean` / `false` | Allow replacing an existing output artifact. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+
+### `uv run qs ingest bars`
+
+Fetch stock, index, future, fund, HK or US bars; optionally store them.
+
+Priority: P0. Side effects: network, writes-output, writes-store.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--asset` | `stock\|index\|future\|fund\|hk\|us` / `required` | Asset class. Listed ETF and LOF are fund, not stock. |
+| `--symbols` | `list[string]` / `factory` | QuantSpace (SHSE.510300) or native (510300.SH) symbols; repeat flag or comma-separate. |
+| `--symbols-file` | `path?` / `null` | Text lines or JSON list of symbols, instead of symbols. |
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD; defaults to today. |
+| `--freq` | `1d\|1m\|5m\|15m\|60m` / `1d` | Real bar interval sent to PandaData (never 1d_adj). Only stock, index (1m only) and future have minute bars; the provider caps rows per minute request, so split long minute ranges across runs. |
+| `--adjust` | `none\|pre\|post` / `none` | Fund price adjustment: none, pre (forward) or post (backward). Fund only. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+| `--indicator` | `string?` / `null` | Stock pool code for daily stock bars only; empty means all stocks. |
+| `--st` | `boolean` / `true` | Include ST stocks; --no-st excludes them. Daily stock bars only. |
+| `--save-frequency` | `string?` / `null` | Market store directory under data/market, for example 1d or 1d_adj (adjusted 1d bars). Without --write this is a dry run that only reports planned paths. |
+| `--write` | `boolean` / `false` | Write bars into data/market/<save-frequency>/<symbol>.parquet; requires --save-frequency. |
+
+Output data fields: `asset`, `freq`, `adjust`, `start`, `end`, `requested_symbols`, `dry_run`, `saved`, `rows`, `columns`, `symbols`, `no_data`, `output`, `target_frequency`, `planned_paths`, `written_paths`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.bars` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest adj-factor`
+
+Fetch stock adjustment-factor events; optionally store them per symbol.
+
+Priority: P1. Side effects: network, writes-output, writes-store.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `factory` | Stock symbols (QuantSpace or native); empty queries the whole market. |
+| `--symbols-file` | `path?` / `null` | Text lines or JSON list of symbols, instead of symbols. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+| `--write` | `boolean` / `false` | Write one data/adj_factor/<symbol>.parquet per symbol (ex_date index). A bounded --start/--end stores only the events in that range. With neither --output nor --write the command is a dry run: nothing is fetched. |
+
+Output data fields: `scope`, `requested_symbols`, `start`, `end`, `dry_run`, `saved`, `rows`, `columns`, `symbols`, `no_data`, `output`, `planned_paths`, `path_template`, `written_paths`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.adj-factor` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref stock-detail`
+
+Fetch stock basic information (get_stock_detail).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `factory` | Stock symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--market` | `string` / `cn` | Market code passed to get_stock_detail. |
+| `--status` | `integer?` / `null` | Listing status filter. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.stock-detail` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref fund-detail`
+
+Fetch fund and ETF metadata (get_fund_detail).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `factory` | Fund symbols, listed or *.OF. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--exchange` | `list[string]` / `factory` | Exchange filter, SH or SZ. |
+| `--type` | `list[string]` / `factory` | Fund type filter. |
+| `--operation-mode` | `list[string]` / `factory` | Operation mode filter. |
+| `--etf-lof-type` | `list[string]` / `factory` | ETF or LOF subtype; ETF discovers listed ETFs. |
+| `--is-class-fund` | `list[integer]` / `factory` | Class-fund flag filter, 0 or 1. |
+| `--index-fund-type` | `list[string]` / `factory` | Index fund type filter. |
+| `--status` | `list[string]` / `factory` | Listing status filter, e.g. L. |
+| `--fund-status` | `list[string]` / `factory` | Fund status filter. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.fund-detail` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref index-detail`
+
+Fetch index basic information (get_index_detail).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `factory` | Index symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--status` | `integer?` / `null` | Index status filter. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.index-detail` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref index-indicator`
+
+Fetch index valuation indicators (get_index_indicator).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `factory` | Index symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.index-indicator` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref index-weights`
+
+Fetch index constituent weights (get_index_weights).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string` / `required` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--index-symbol` | `list[string]` / `factory` | Index symbols, such as SHSE.000300 (QuantSpace or native). |
+| `--stock-symbol` | `list[string]` / `factory` | Constituent stock symbols to filter by. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.index-weights` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref industry-detail`
+
+Fetch the industry taxonomy (get_industry_detail).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--level` | `list[string]` / `factory` | Industry level filter. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.industry-detail` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref industry-constituents`
+
+Fetch industry constituents (get_industry_constituents).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--industry-code` | `list[string]` / `factory` | Industry code filter. |
+| `--stock-symbol` | `list[string]` / `factory` | Stock symbols whose industries to list. |
+| `--level` | `string?` / `null` | Industry level. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.industry-constituents` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref stock-industry`
+
+Fetch one stock's industry classification (get_stock_industry).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--stock-symbol` | `string` / `required` | One stock symbol, QuantSpace or native. |
+| `--level` | `string?` / `null` | Industry level. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.stock-industry` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref concept-list`
+
+Fetch the concept list (get_concept_list).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--concept` | `list[string]` / `factory` | Concept name or code filter. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.concept-list` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest ref concept-constituents`
+
+Fetch concept constituents (get_concept_constituents).
+
+Priority: P1. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--concept` | `list[string]` / `factory` | Concept name or code filter. |
+| `--concept-stock` | `list[string]` / `factory` | Stock symbols whose concepts to list. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.ref.concept-constituents` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest etf limits`
+
+Fetch ETF creation/redemption limits (get_fund_etf_cr_limits).
+
+Priority: P2. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string` / `required` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--symbols` | `list[string]` / `factory` | ETF symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--exchange` | `list[string]` / `factory` | Exchange filter, SH or SZ. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.etf.limits` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest etf net`
+
+Fetch ETF net creation/redemption and fund flows (get_fund_etf_cr_net).
+
+Priority: P2. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string` / `required` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--symbols` | `list[string]` / `factory` | ETF symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--exchange` | `list[string]` / `factory` | Exchange filter, SH or SZ. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.etf.net` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest etf constituents`
+
+Fetch ETF creation/redemption baskets (get_fund_etf_constituents).
+
+Priority: P2. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string` / `required` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--symbols` | `list[string]` / `factory` | ETF symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--exchange` | `list[string]` / `factory` | Exchange filter, SH or SZ. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.etf.constituents` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest etf list`
+
+Fetch ETF creation/redemption lists (get_fund_etf_cr).
+
+Priority: P2. Side effects: network, writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--start` | `string` / `required` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string` / `required` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--symbols` | `list[string]` / `factory` | ETF symbols; empty returns all. Symbols (QuantSpace or native); repeat flag or comma-separate. |
+| `--exchange` | `list[string]` / `factory` | Exchange filter, SH or SZ. |
+| `--fields` | `list[string]` / `factory` | SDK fields subset; empty returns all columns. |
+
+Output data fields: `endpoint`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.etf.list` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest raw`
+
+Call any public panda_data SDK function, or list them.
+
+Priority: P1. Side effects: network, writes-output.
+
+Positional: `method`.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--method` | `string?` / `null` | Public panda_data SDK function name, such as get_trade_cal. |
+| `--params` | `object` / `factory` | JSON object of keyword arguments passed unchanged to the SDK function. Symbols are NOT converted: use the SDK's native format (510300.SH). Returned symbol columns are converted to QuantSpace format. |
+| `--list` | `boolean` / `false` | List the callable public SDK functions instead of calling one. |
+
+Output data fields: `method`, `methods`, `rows`, `columns`, `output`, `preview`.
+
+Inspect schemas: `uv run qs schema ingest.raw` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs ingest future-ticks`
+
+Run the long-running futures tick downloader; exit 1 when tasks fail.
+
+Priority: P2. Side effects: network, writes-output.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--underlying` | `string` / `SA` | Futures underlying code, such as SA; ignored with --all-underlyings. |
+| `--all-underlyings` | `boolean` / `false` | Download every underlying serially into --output-root. |
+| `--start` | `string?` / `null` | Inclusive start date; defaults to about five years before today. |
+| `--end` | `string?` / `null` | Inclusive end date; defaults to today. |
+| `--output-dir` | `path?` / `null` | Single-underlying output directory, relative to the workspace root. Defaults to data/export/panda_future_ticks/<underlying>. |
+| `--output-root` | `path?` / `null` | Root holding one subdirectory per underlying (all mode: the root itself); all-underlyings mode defaults to data/export/panda_future_ticks. |
+| `--workers` | `integer?` / `null` | Worker processes; the downloader default is min(4, CPU count). |
+| `--symbol-batch-size` | `integer` / `8` | Contract symbols per request batch. |
+| `--progress-every` | `integer` / `1` | Progress report interval, in tasks. |
+| `--max-retries` | `integer` / `3` | Retries per task. |
+| `--retry-sleep` | `number` / `2.0` | Seconds between retries. |
+| `--retry-failed-rounds` | `integer` / `2` | Extra rounds for failed tasks. |
+| `--http-timeout` | `integer` / `60` | HTTP timeout in seconds. |
+| `--stall-timeout` | `integer` / `300` | Seconds without completed futures before the pool is terminated. |
+| `--provider-timeout-threshold` | `integer` / `3` | Timeouts of one symbol-day before it counts as a provider gap. |
+| `--allow-provider-timeout-gaps` | `boolean` / `false` | Treat repeatedly timed-out symbol-days as acceptable gaps. |
+| `--fallback-on-batch-timeout` | `boolean` / `true` | Retry a timed-out batch symbol by symbol; --no-fallback-on-batch-timeout disables it. |
+| `--compression` | `string` / `zstd` | Parquet compression codec. |
+| `--compression-level` | `integer` / `9` | Parquet compression level. |
+| `--overwrite` | `boolean` / `false` | Discard existing tick outputs and download again; otherwise resume. |
+| `--include-dominant` | `boolean` / `false` | Include dominant continuous contracts. |
+| `--refresh-discovery` | `boolean` / `false` | Refresh contract discovery. |
+| `--combine` | `boolean` / `true` | Write combined per-contract files; --no-combine skips them. |
+| `--monthly-output` | `boolean` / `false` | Write monthly output files. |
+| `--month-by-month` | `boolean` / `true` | Run month by month; --no-month-by-month disables it. |
+| `--min-free-disk-gb` | `number` / `100.0` | All-underlyings mode pauses below this free disk space, in GB. |
+| `--limit-tasks` | `integer` / `0` | Debug limit on tasks; 0 means no limit. |
+| `--limit-underlyings` | `integer` / `0` | Debug limit on underlyings; 0 means no limit. |
+| `--priority-underlyings` | `string` / `` | Comma-separated underlyings processed before the rest. |
+| `--data-root` | `path?` / `null` | Managed data root, used only to keep tick output out of its store namespaces; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+
+Output data fields: `underlying`, `all_underlyings`, `output_dir`, `status`, `exit_code`, `argv`.
+
+Inspect schemas: `uv run qs schema ingest.future-ticks` (add `--part input|output` or `--file-field FIELD`).
+
+<!-- END GENERATED: qs commands -->

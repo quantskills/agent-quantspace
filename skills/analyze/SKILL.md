@@ -202,3 +202,193 @@ fig, axes = ts_analysis(
 The input is a price-level series. The combined chart and CSV summarize
 standardized log-return distributions for lags 1 through 34; QQ theoretical
 quantiles are deterministic standard-normal quantiles.
+
+## CLI command reference
+
+<!-- BEGIN GENERATED: qs commands -->
+
+Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+
+### Shared parameter groups
+
+#### `PanelSource`
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--panel` | `path?` / `null` | Parquet/CSV panel, mutually exclusive with symbols or symbols-file. |
+| `--symbols` | `list[string]` / `factory` | QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate. |
+| `--symbols-file` | `path?` / `null` | Text lines or JSON list of QuantSpace symbols. |
+| `--frequency` | `string` / `1d` | Market store directory under data/market, for example 1d or 1d_adj. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | Optional panel field subset. |
+
+### `uv run qs analyze factor-ic`
+
+IC statistics and grouped returns with full_stat.
+
+Priority: P0. Side effects: read-only, writes-output.
+
+Shared parameters: `PanelSource`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--factor` | `path` / `required` | Long factor table indexed by symbol and eob with one value column. |
+| `--horizon` | `integer` / `1` | Rebalance period n in bars. |
+| `--groups` | `integer` / `5` | Number of factor quantile groups g. |
+| `--pearson` | `boolean` / `false` | Use Pearson IC instead of rank IC. |
+| `--out-dir` | `path?` / `null` | Optional directory for ic_series, group_return and turnover Parquet files. |
+| `--overwrite` | `boolean` / `false` | Replace existing output files. |
+
+Output data fields: `ic_stats`, `group_mean_return`, `ic_rows`, `group_rows`, `turnover_rows`.
+
+Inspect schemas: `uv run qs schema analyze.factor-ic` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze ic-surface`
+
+Execution-aligned factor x horizon x lag rank-IC surface with HAC summaries.
+
+Priority: P1. Side effects: read-only, writes-output.
+
+Shared parameters: `PanelSource`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--factors` | `object` / `required` | Wide factor tables (date by symbol) by name, e.g. mom=mom.parquet. |
+| `--price-field` | `string` / `close` | Panel column used as the execution price. |
+| `--horizons` | `list[integer]` / `required` | Forward return horizons in bars. |
+| `--lags` | `list[integer]` / `factory` | Extra signal-use delays in bars; 0 is Horizon IC. |
+| `--signal-lag` | `integer` / `1` | Bars between signal and execution. |
+| `--segments` | `object?` / `null` | Named [start, end] summary windows, e.g. {"is": ["2015-01-01", "2019-12-31"]}; null bounds are open. Omitted means one "full" segment. |
+| `--min-cross-section` | `integer` / `6` | Minimum symbols per date for an IC observation. |
+| `--out-dir` | `path?` / `null` | Optional directory for summary and daily_ic Parquet files. |
+| `--overwrite` | `boolean` / `false` | Replace existing output files. |
+
+Output data fields: `summary`, `daily_rows`.
+
+Inspect schemas: `uv run qs schema analyze.ic-surface` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze perf`
+
+Scalar performance metrics of a return stream.
+
+Priority: P0. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--returns` | `path` / `required` | Dated table of periodic returns, such as a backtest result table. |
+| `--column` | `string` / `return` | Return column in the input table. |
+| `--annualization` | `integer` / `252` | Periods per year. |
+
+Output data fields: `metrics`, `rows`.
+
+Inspect schemas: `uv run qs schema analyze.perf` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze drawdowns`
+
+List peak-to-trough drawdown episodes.
+
+Priority: P1. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--returns` | `path` / `required` | Dated periodic returns table. |
+| `--column` | `string` / `return` | Return column. |
+| `--top-n` | `integer` / `5` | Maximum number of episodes. |
+| `--min-depth` | `number` / `0.0` | Minimum drawdown depth. |
+
+Output data fields: `episodes`, `rows`.
+
+Inspect schemas: `uv run qs schema analyze.drawdowns` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze overfit`
+
+Deflated Sharpe, PBO, Reality Check/SPA, bootstrap and rolling diagnostics.
+
+Priority: P1. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--candidates` | `path` / `required` | Date by candidate returns table. |
+| `--tests` | `list[dsr\|pbo\|pbo-sensitivity\|spa\|bootstrap\|rolling]` / `factory` | Diagnostics: deflated Sharpe, CSCV PBO, PBO split grid, Reality Check and SPA, block bootstrap of the mean return, rolling metric slices. |
+| `--benchmark-col` | `string?` / `null` | Optional benchmark column excluded from candidate tests. |
+| `--n-trials` | `integer?` / `null` | Trial count for the deflated Sharpe; defaults to the candidate column count. |
+| `--benchmark-sr` | `number` / `0.0` | Benchmark Sharpe for the deflated Sharpe. |
+| `--n-splits` | `integer` / `4` | Even number of CSCV blocks for PBO. |
+| `--split-values` | `list[integer]` / `factory` | CSCV block counts for pbo-sensitivity. |
+| `--promotion-threshold` | `number` / `0.2` | PBO threshold reported by pbo-sensitivity. |
+| `--n-bootstrap` | `integer?` / `null` | Bootstrap replications; defaults per function (spa 500, bootstrap 200). |
+| `--block-size` | `integer` / `20` | Bootstrap block length. |
+| `--seed` | `integer?` / `null` | Random seed; omitted leaves the bootstrap unseeded. |
+| `--windows` | `list[integer]` / `factory` | Rolling metric windows. |
+| `--annualization` | `integer` / `252` | Observations per year. |
+
+Output data fields: `results`.
+
+Inspect schemas: `uv run qs schema analyze.overfit` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze stationarity`
+
+Hurst, ADF and KPSS over trailing windows.
+
+Priority: P1. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--series` | `path` / `required` | Dated table such as OHLCV bars or a single series. |
+| `--column` | `string` / `close` | Value column to analyze. |
+| `--windows` | `list[integer]` / `factory` | Trailing windows; the analyze_time_series default is 20, 40, 60. |
+
+Output data fields: `windows`.
+
+Inspect schemas: `uv run qs schema analyze.stationarity` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze preflight`
+
+AnalyzeFacade hard checks of panel, spec and protocol.
+
+Priority: P1. Side effects: read-only.
+
+Shared parameters: `PanelSource`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--spec-json` | `path` / `required` | Analyze-native SpecSnapshot JSON file. |
+| ↳ JSON payload | `qs schema analyze.preflight --file-field spec_json` | Generate a fillable file with `uv run qs analyze preflight --print-template spec_json`. |
+| `--protocol-json` | `path` / `required` | Analyze-native ProtocolSnapshot JSON file. |
+| ↳ JSON payload | `qs schema analyze.preflight --file-field protocol_json` | Generate a fillable file with `uv run qs analyze preflight --print-template protocol_json`. |
+| `--allowed-fields` | `list[string]` / `factory` | Optional permitted input columns. |
+
+Output data fields: `completion_status`, `hard_failed`, `sections`, `failed_findings`, `metrics`.
+
+Inspect schemas: `uv run qs schema analyze.preflight` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze evaluate`
+
+Deterministic AnalyzeFacade evaluation of precomputed factor values.
+
+Priority: P1. Side effects: read-only, writes-output.
+
+Shared parameters: `PanelSource`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--spec-json` | `path` / `required` | Analyze-native SpecSnapshot JSON file. |
+| ↳ JSON payload | `qs schema analyze.evaluate --file-field spec_json` | Generate a fillable file with `uv run qs analyze evaluate --print-template spec_json`. |
+| `--protocol-json` | `path` / `required` | Analyze-native ProtocolSnapshot JSON file. |
+| ↳ JSON payload | `qs schema analyze.evaluate --file-field protocol_json` | Generate a fillable file with `uv run qs analyze evaluate --print-template protocol_json`. |
+| `--allowed-fields` | `list[string]` / `factory` | Optional permitted input columns. |
+| `--values` | `path` / `required` | Long factor values on exactly the panel's (symbol, eob) index, e.g. from `qs compute factor --keep-na`. |
+| `--valid-mask` | `path?` / `null` | Optional long boolean validity table; defaults to non-missing values. |
+| `--backtest` | `boolean` / `true` | Run the formal backtest section; --no-backtest skips it. |
+| `--regime-masks-json` | `path?` / `null` | Optional JSON file mapping regime names to long boolean mask tables. |
+| ↳ JSON payload | `qs schema analyze.evaluate --file-field regime_masks_json` | Generate a fillable file with `uv run qs analyze evaluate --print-template regime_masks_json`. |
+| `--output` | `path?` / `null` | Optional full AnalyzeResult JSON output. |
+| `--overwrite` | `boolean` / `false` | Replace an existing output file. |
+
+Output data fields: `completion_status`, `hard_failed`, `sections`, `failed_findings`, `metrics`.
+
+Inspect schemas: `uv run qs schema analyze.evaluate` (add `--part input|output` or `--file-field FIELD`).
+
+<!-- END GENERATED: qs commands -->

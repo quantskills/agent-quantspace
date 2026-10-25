@@ -200,3 +200,102 @@ Chinese language pack), charts still save; glyphs may fall back to boxes.
   (`../../catalog.html` from `namespace/slug/index.html`).
 - Optional chart blocks are wrapped in `{% if chart %} … {% endif %}`.
 - Safe-render pre-built tables via `{{ table.html | safe }}`.
+
+## CLI command reference
+
+<!-- BEGIN GENERATED: qs commands -->
+
+Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+
+### `uv run qs report list`
+
+List research studies that have index.html and params.json.
+
+Priority: P0. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
+| `--namespace` | `string?` / `null` | Only studies in this namespace. |
+
+Output data fields: `reports_root`, `count`, `studies`.
+
+Inspect schemas: `uv run qs schema report.list` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs report bundle`
+
+Write a nine-section HTML research archive with write_research_bundle.
+
+Priority: P1. Side effects: writes-output.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--namespace` | `string` / `required` | Safe path segment: reports/<namespace>/<slug>/. |
+| `--slug` | `string` / `required` | Safe path segment naming the study directory. |
+| `--title` | `string` / `required` | Report title. |
+| `--question` | `string` / `required` | Testable research question. |
+| `--universe` | `list[string]` / `required` | Symbols studied. |
+| `--frequency` | `string` / `required` | Bar frequency, e.g. 1d. |
+| `--sample-start` | `string` / `required` | Sample start date. |
+| `--sample-end` | `string` / `required` | Sample end date. |
+| `--in-sample-end` | `string?` / `null` | In-sample end, if split. |
+| `--out-of-sample-start` | `string?` / `null` | Out-of-sample start, if split. |
+| `--hypothesis` | `string` / `required` | Why the signal might work and what it predicts. |
+| `--method-notes` | `list[string]` / `required` | Implementation details. |
+| `--execution` | `object` / `required` | Execution conventions such as trade_at, signal_lag, commission, slippage_bp. |
+| `--metrics` | `object` / `required` | Metrics read from a backtest result; never invented. |
+| `--metrics-source` | `string` / `required` | Where metrics came from, e.g. BacktestResult.metrics. |
+| `--figures` | `list[FigureItem]` / `required` | Figures from PNG files; may be empty. |
+| `--tables` | `list[TableItem]` / `required` | Evidence tables; may be empty. |
+| `--caveats` | `list[string]` / `required` | Weaknesses and confounders. |
+| `--next-steps` | `list[string]` / `required` | Concrete follow-up tests. |
+| `--reproduce-command` | `string` / `required` | Command that regenerates the evidence. |
+| `--visibility` | `private\|public_example` / `private` | private by default; public_example for shared examples. |
+| `--domain` | `string` / `` | Strategy domain label. |
+| `--kind` | `research\|dashboard\|public_example` / `research` | Study kind. |
+| `--tags` | `list[string]` / `factory` | Catalog tags. |
+| `--as-of` | `string?` / `null` | As-of date label. |
+| `--notes` | `list[string]` / `factory` | Extra notes; robustness notes render in section 7. |
+| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
+| `--catalog` | `boolean` / `false` | Also rewrite catalog.html and catalog.json afterwards. |
+| `--overwrite` | `boolean` / `false` | Replace an existing study directory. |
+
+Output data fields: `study_dir`, `files`, `catalog`.
+
+Inspect schemas: `uv run qs schema report.bundle` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs report catalog`
+
+Rewrite catalog.html and catalog.json under the reports root.
+
+Priority: P1. Side effects: writes-output.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
+
+Output data fields: `catalog`, `count`.
+
+Inspect schemas: `uv run qs schema report.catalog` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs report chart`
+
+Render one skills.report.charts PNG from a table.
+
+Priority: P1. Side effects: writes-output.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--kind` | `equity-curve\|backtest-performance\|factor-ranking\|ic-heatmap\|horizon-ic\|lagged-ic\|factor-weight-history` / `required` | equity-curve: one return column; backtest-performance: a backtest result table; factor-ranking: a screen ranking; ic-heatmap: factors by periods; horizon-ic and lagged-ic: an ic-surface summary; factor-weight-history: tidy eob/method/factor/weight records, or the wide factor_weights from strategy combine (labelled with params method). |
+| `--table` | `path` / `required` | Input CSV or Parquet table. |
+| `--column` | `string` / `return` | Return column for equity-curve. |
+| `--title` | `string?` / `null` | Chart title; the chart default if omitted. |
+| `--params` | `object` / `factory` | Other keyword arguments of the charts function, e.g. factors=[...] for horizon-ic or value_col for factor-ranking. |
+| `--output` | `path` / `required` | Destination PNG file. |
+| `--overwrite` | `boolean` / `false` | Replace an existing PNG. |
+
+Output data fields: `kind`, `function`, `bytes`.
+
+Inspect schemas: `uv run qs schema report.chart` (add `--part input|output` or `--file-field FIELD`).
+
+<!-- END GENERATED: qs commands -->

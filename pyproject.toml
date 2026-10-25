@@ -10,6 +10,8 @@ dependencies = [
     "scipy",
     "statsmodels",
     "pyarrow",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.14",
 ]
 
 [project.optional-dependencies]
@@ -33,8 +35,18 @@ report = [
 ts = ["tsfresh", "joblib"]
 panda_data = ["panda_data>=0.0.12", "requests>=2.32.0"]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+qs = "skills.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["skills*", "strategies*"]
+
+[tool.setuptools.package-data]
+"*" = ["SKILL.md", "STRATEGY.md", "references/*.md", "templates/*.html"]
 
 [tool.ruff]
 line-length = 100

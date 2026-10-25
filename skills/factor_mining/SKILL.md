@@ -438,3 +438,113 @@ re-enter preflight → compute → evaluate → independent review.
 - No second experiment directory and no static dependency on a specific
   `strategies/` module; `FunctionRef` resolves caller-selected import paths at runtime.
 - Role definitions above are authoritative; Python carries `role_id` strings only.
+
+## CLI command reference
+
+<!-- BEGIN GENERATED: qs commands -->
+
+Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+
+### Shared parameter groups
+
+#### `PanelSource`
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--panel` | `path?` / `null` | Parquet/CSV panel, mutually exclusive with symbols or symbols-file. |
+| `--symbols` | `list[string]` / `factory` | QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate. |
+| `--symbols-file` | `path?` / `null` | Text lines or JSON list of QuantSpace symbols. |
+| `--frequency` | `string` / `1d` | Market store directory under data/market, for example 1d or 1d_adj. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | Optional panel field subset. |
+
+### `uv run qs factor-mining types`
+
+List factor-mining contract types.
+
+Priority: P0. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+
+Output data fields: `schema_version`, `types`.
+
+Inspect schemas: `uv run qs schema factor-mining.types` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs factor-mining schema`
+
+Show a contract JSON Schema.
+
+Priority: P0. Side effects: read-only.
+
+Positional: `type_name`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--type-name` | `string` / `required` | Exported factor-mining contract dataclass name. |
+
+Output data fields: `type_name`, `json_schema`.
+
+Inspect schemas: `uv run qs schema factor-mining.schema` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs factor-mining template`
+
+Generate a fillable contract skeleton.
+
+Priority: P0. Side effects: writes-output.
+
+Positional: `type_name`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--type-name` | `string` / `required` | Exported factor-mining contract dataclass name. |
+| `--output` | `path?` / `null` | Optional plain contract JSON output. |
+| `--overwrite` | `boolean` / `false` | Replace an existing output file. |
+| `--data-root` | `path?` / `null` | Optional output path guard root. |
+
+Output data fields: `type_name`, `template`.
+
+Inspect schemas: `uv run qs schema factor-mining.template` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs factor-mining validate`
+
+Validate a contract and its content hash.
+
+Priority: P0. Side effects: read-only, writes-output.
+
+Positional: `type_name`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--type-name` | `string` / `required` | Exported factor-mining contract dataclass name. |
+| `--file` | `path?` / `null` | JSON contract file; omit or use - for stdin. |
+| `--fill-hash` | `boolean` / `false` | Fill an absent content_hash using the domain constructor. |
+| `--output` | `path?` / `null` | Optional validated JSON output path. |
+| `--overwrite` | `boolean` / `false` | Replace an existing output file. |
+| `--data-root` | `path?` / `null` | Optional output path guard root. |
+
+Output data fields: `type_name`, `value`, `content_hash`.
+
+Inspect schemas: `uv run qs schema factor-mining.validate` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs factor-mining check-function`
+
+Check a factor function's required fields and prefix causality.
+
+Priority: P1. Side effects: read-only.
+
+Shared parameters: `PanelSource`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--function` | `string` / `required` | Importable factor callable as module:name. |
+| `--params` | `object` / `factory` | JSON keyword arguments passed to the factor. |
+| `--required-fields` | `list[string]` / `factory` | Panel columns required by the factor. |
+
+Output data fields: `function`, `rows`, `checked_prefixes`, `required_fields`.
+
+Inspect schemas: `uv run qs schema factor-mining.check-function` (add `--part input|output` or `--file-field FIELD`).
+
+<!-- END GENERATED: qs commands -->

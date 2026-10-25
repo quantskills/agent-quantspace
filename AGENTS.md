@@ -94,6 +94,23 @@ Coding-agent compatibility is declared here and in README/README.en.md
 Runtime collaboration follows `skills/factor_mining/SKILL.md` capability discovery;
 names are declarations, not a product whitelist.
 
+## Agent CLI
+
+Every Skill exposes task commands through `uv run qs <skill> <command>` (or
+`uv run python -m skills ...`). Start with `uv run qs catalog --skill <name>`, then
+read the corresponding `skills/<package>/SKILL.md`; its generated "CLI command
+reference" lists every option. Exact parameters and output fields come from `--help`,
+`uv run qs schema <skill>.<command>`, or `--print-template`. Flags override matching
+keys in `--input-json FILE|-`.
+
+Stdout contains one JSON envelope (`ok`, `command`, `data`, `artifacts`, `warnings`,
+plus `error` on failure); logs and library prints go to stderr. Tables are written as
+Parquet/CSV artifacts, never printed. Outputs refuse to overwrite unless `--overwrite`
+is given and never target managed store namespaces; store writes require `--write`,
+otherwise commands report a dry run or persist nothing. Credentials are read from the
+environment or `.env`, never command flags. Commands call the existing Python APIs
+unchanged. After changing a command model, run `uv run qs docs render`.
+
 ## Strategy Domains
 
 | Domain | Import | Purpose |

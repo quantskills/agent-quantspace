@@ -117,7 +117,8 @@ def test_factor_mining_python_has_no_role_enum_or_platform_sdk() -> None:
                     raise AssertionError(f"suspicious role enum: {path}:{node.name}")
         if _is_analyze_adapter(path):
             forbidden = CORE_FORBIDDEN_IMPORT_PREFIXES
-        elif _is_adapter(path):
+        # CLI is a transport adapter, not a domain contract or port.
+        elif _is_adapter(path) or path == FM_ROOT / "cli.py":
             forbidden = ADAPTER_FORBIDDEN_IMPORT_PREFIXES
         else:
             forbidden = CONTRACT_FORBIDDEN_IMPORT_PREFIXES

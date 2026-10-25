@@ -149,3 +149,181 @@ Public supervised-learning labels:
 ## Factor categories (illustrative)
 
 Momentum/trend, volume, mean reversion, exit filters (`skills.strategy.cross_sectional.exits`), and label makers.
+
+## CLI command reference
+
+<!-- BEGIN GENERATED: qs commands -->
+
+Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+
+### Shared parameter groups
+
+#### `PanelSource`
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--panel` | `path?` / `null` | Parquet/CSV panel, mutually exclusive with symbols or symbols-file. |
+| `--symbols` | `list[string]` / `factory` | QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate. |
+| `--symbols-file` | `path?` / `null` | Text lines or JSON list of QuantSpace symbols. |
+| `--frequency` | `string` / `1d` | Market store directory under data/market, for example 1d or 1d_adj. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+| `--start` | `string?` / `null` | Inclusive start date: YYYY-MM-DD or YYYYMMDD. |
+| `--end` | `string?` / `null` | Inclusive end date: YYYY-MM-DD or YYYYMMDD. |
+| `--fields` | `list[string]` / `factory` | Optional panel field subset. |
+
+#### `OutputOptions`
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path?` / `null` | Explicit output path outside managed store namespaces. |
+| `--overwrite` | `boolean` / `false` | Allow replacing an existing output artifact. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+
+### `uv run qs compute indicators list`
+
+List public indicators with signatures.
+
+Priority: P0. Side effects: read-only.
+
+| Option | Type / default | Description |
+|---|---|---|
+
+Output data fields: `indicators`.
+
+Inspect schemas: `uv run qs schema compute.indicators.list` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute indicators show`
+
+Show one indicator's signature, defaults, and docstring.
+
+Priority: P0. Side effects: read-only.
+
+Positional: `name`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--name` | `string` / `required` | Public indicator name. |
+
+Output data fields: `name`, `signature`, `defaults`, `docstring`.
+
+Inspect schemas: `uv run qs schema compute.indicators.show` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute factor`
+
+Calculate an indicator or module:name factor on a panel.
+
+Priority: P0. Side effects: writes-output.
+
+Shared parameters: `PanelSource`, `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path` / `required` | Destination factor table; values never go to stdout. |
+| `--indicator` | `string?` / `null` | Public indicator name. |
+| `--function` | `string?` / `null` | Importable module:name callable, e.g. a generated mined factor. |
+| `--params` | `object` / `factory` | Factor keyword parameters. |
+| `--call` | `per-symbol\|panel` / `per-symbol` | per-symbol: Factor(func, **params).calculate on each symbol; panel: func(panel, **params) must return a Series aligned to the panel. |
+| `--keep-na` | `boolean` / `false` | Keep warm-up NaN rows (Factor dropna=False). |
+| `--layout` | `long\|wide` / `long` | long: symbol, eob, value columns; wide: eob x symbol like Factor.cal_df. |
+
+Output data fields: `name`, `rows`, `symbols`, `start`, `end`, `nan_ratio`, `output`.
+
+Inspect schemas: `uv run qs schema compute.factor` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute features`
+
+Build model-ready OHLC log-difference features for a panel.
+
+Priority: P1. Side effects: writes-output.
+
+Shared parameters: `PanelSource`, `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path` / `required` | Destination (symbol, eob) feature table. |
+| `--factors` | `list[string]` / `factory` | OHLC columns paired in log differences. |
+| `--lags` | `list[integer]` / `factory` | Lags of the right-hand price. |
+| `--shifts` | `list[integer]?` / `null` | Feature shifts; defaults to default_logdiff_shifts(lookback). |
+| `--lookback` | `integer` / `5` | Lookback used for default shifts. |
+
+Output data fields: `rows`, `features`, `symbols`, `start`, `end`, `output`.
+
+Inspect schemas: `uv run qs schema compute.features` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute labels forward-return`
+
+Create forward-return threshold labels for one symbol.
+
+Priority: P1. Side effects: writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path` / `required` | Destination label table. |
+| `--bars` | `path` / `required` | Single-symbol OHLCV file with a close column. |
+| `--horizon` | `integer` / `1` | Forward bar horizon. |
+| `--up-threshold` | `number` / `0.0` | Label 1 above this forward return. |
+| `--down-threshold` | `number` / `0.0` | Label -1 below minus this magnitude. |
+
+Output data fields: `rows`, `columns`, `output`.
+
+Inspect schemas: `uv run qs schema compute.labels.forward-return` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute labels triple-barrier`
+
+Create triple-barrier labels for one symbol.
+
+Priority: P1. Side effects: writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path` / `required` | Destination label table. |
+| `--bars` | `path` / `required` | Single-symbol OHLCV file with a close column. |
+| `--lookback` | `integer` / `5` | Volatility scaling horizon (L). |
+| `--pt-sl` | `number` / `1.0` | Profit and stop volatility multiplier. |
+| `--t-limit` | `integer` / `10` | Maximum holding bars. |
+
+Output data fields: `rows`, `columns`, `output`.
+
+Inspect schemas: `uv run qs schema compute.labels.triple-barrier` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute resample`
+
+Resample A-share one-minute bars to five-minute bars.
+
+Priority: P1. Side effects: writes-output.
+
+Shared parameters: `OutputOptions`.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--output` | `path` / `required` | Destination 5-minute table. |
+| `--input` | `path` / `required` | A-share one-minute OHLCV file with an eob index or column. |
+
+Output data fields: `rows`, `columns`, `output`.
+
+Inspect schemas: `uv run qs schema compute.resample` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs compute adjust`
+
+Forward-adjust stored raw bars with adj_factor events.
+
+Priority: P1. Side effects: writes-output, writes-store.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--symbols` | `list[string]` / `required` | QuantSpace symbols with raw bars and adj_factor files. |
+| `--frequency` | `string` / `1d` | Raw market store directory, e.g. 1d or 1m. |
+| `--output` | `path?` / `null` | Output file for exactly one symbol, outside managed storage. |
+| `--write` | `boolean` / `false` | Write <frequency>_adj files into managed market storage; otherwise a dry run. |
+| `--overwrite` | `boolean` / `false` | Allow replacing existing output. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+
+Output data fields: `symbols`, `rows`, `saved`, `dry_run`, `target_frequency`, `planned_paths`, `unadjusted`.
+
+Inspect schemas: `uv run qs schema compute.adjust` (add `--part input|output` or `--file-field FIELD`).
+
+<!-- END GENERATED: qs commands -->
