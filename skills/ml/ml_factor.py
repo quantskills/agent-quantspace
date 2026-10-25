@@ -571,10 +571,10 @@ class MLFactorEngine:
 
         if self.cv_metrics_list:
             cv_means = pd.concat([m.loc[["Mean"]] for m in self.cv_metrics_list])
-            summary["cv_metrics_mean"] = cv_means.mean().to_dict()
+            summary["cv_metrics_mean"] = cv_means.mean(numeric_only=True).to_dict()
 
         if self.holdout_metrics_list:
             ho_all = pd.concat(self.holdout_metrics_list)
-            summary["holdout_metrics_mean"] = ho_all.mean().to_dict()
+            summary["holdout_metrics_mean"] = ho_all.mean(numeric_only=True).to_dict()
 
         return summary

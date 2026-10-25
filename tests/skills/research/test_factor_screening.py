@@ -51,6 +51,28 @@ def test_screen_all_indicators_ranks_by_absolute_ic_ir(monkeypatch) -> None:
     assert ranking.loc[0, "IC_IR"] == -5.0
 
 
+def test_screen_all_indicators_without_persist_leaves_the_store_untouched(
+    monkeypatch, tmp_path
+) -> None:
+    store = tmp_path / "store"
+    monkeypatch.setenv("QUANTSPACE_DATA_ROOT", str(store))
+    monkeypatch.setattr(
+        "skills.compute.indicators.discover_indicators",
+        lambda: {"mom": lambda group: group["close"].pct_change(fill_method=None)},
+    )
+
+    ranking = screen_all_indicators(
+        namespace="demo",
+        n=1,
+        g=2,
+        persist=False,
+        data=make_panel(symbols=("AAA", "BBB", "CCC"), periods=40),
+    )
+
+    assert ranking.loc[0, "indicator"] == "mom"
+    assert not store.exists()
+
+
 def test_screen_all_indicators_requires_explicit_data() -> None:
     with pytest.raises(ValueError, match="explicit data"):
         screen_all_indicators(namespace="artifact_namespace", persist=False)

@@ -12,7 +12,10 @@ def test_param_sweep_evaluates_each_parameter(monkeypatch) -> None:
     def factor_func(data, window):
         return data["close"].pct_change(window, fill_method=None)
 
-    def fake_full_stat(stat_df, n):
+    plots = []
+
+    def fake_full_stat(stat_df, n, plot=True):
+        plots.append(plot)
         first_value = stat_df["fac_val"].dropna().iloc[0]
         return (
             {"IC_mean": first_value, "IC_std": 1.0, "IC_IR": first_value, "t_stat": 1.0},
@@ -27,6 +30,8 @@ def test_param_sweep_evaluates_each_parameter(monkeypatch) -> None:
 
     assert result["param_value"].tolist() == [1, 2]
     assert set(result.columns) == {"param_value", "IC_mean", "IC_std", "IC_IR", "t_stat"}
+    # A sweep is a batch evaluation: full_stat must not draw or plt.show() per value.
+    assert plots == [False, False]
 
 
 def test_param_sweep_requires_explicit_data() -> None:

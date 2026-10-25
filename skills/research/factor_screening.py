@@ -77,7 +77,7 @@ def screen_all_indicators(
     from skills.compute.wrappers import Factor
     from skills.store.data_manager import DataManager
 
-    dm = DataManager()
+    dm = DataManager() if persist else None
     if data is None:
         raise ValueError(
             "screen_all_indicators requires explicit data. "

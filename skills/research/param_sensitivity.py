@@ -64,7 +64,7 @@ def param_sweep(
             stat_df["fac_val"] = factor_pivot.stack()
             stat_df.index.names = ["eob", "symbol"]
 
-            ic_stat, _, _, _ = full_stat(stat_df, n=n)
+            ic_stat, _, _, _ = full_stat(stat_df, n=n, plot=False)
 
             results.append(
                 {
