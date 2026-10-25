@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import re
 from pathlib import Path
@@ -216,8 +217,44 @@ def tidy_factor_weights(periods=30):
     )
 
 
+def spy_weight_history(monkeypatch):
+    """Record each call of the real plot_factor_weight_history and the PNG it returns.
+
+    Two independent renders of this stacked-area chart are not byte-stable across process
+    state, so the tests assert on the inputs the CLI hands over and on the bytes of the one
+    render it performed. functools.wraps keeps the signature the CLI inspects for `method`.
+    """
+    real = charts.plot_factor_weight_history
+    calls = []
+
+    @functools.wraps(real)
+    def spy(frame, *args, **kwargs):
+        png = real(frame, *args, **kwargs)
+        calls.append({"frame": frame.copy(), "args": args, "kwargs": kwargs, "png": png})
+        return png
+
+    monkeypatch.setattr(charts, "plot_factor_weight_history", spy)
+    return calls
+
+
+def normalized_weight_records(frame):
+    frame = frame.reset_index() if "eob" not in frame.columns else frame
+    columns = ["eob", "method", "factor", "weight"]
+    return frame[columns].sort_values(columns[:3]).reset_index(drop=True)
+
+
+def assert_single_weight_history_call(calls, output, expected, method):
+    assert len(calls) == 1
+    (call,) = calls
+    assert call["args"] == ()
+    assert call["kwargs"] == ({} if method is None else {"method": method})
+    pd.testing.assert_frame_equal(normalized_weight_records(call["frame"]), expected)
+    assert assert_png(output) == call["png"]
+
+
 @pytest.mark.parametrize("suffix", ["parquet", "csv"])
-def test_chart_factor_weight_history(capsys, tmp_path, suffix):
+def test_chart_factor_weight_history(capsys, tmp_path, monkeypatch, suffix):
+    calls = spy_weight_history(monkeypatch)
     weights = tidy_factor_weights()
     table = tmp_path / f"weights.{suffix}"
     if suffix == "csv":
@@ -230,11 +267,16 @@ def test_chart_factor_weight_history(capsys, tmp_path, suffix):
         "--output", str(output),
     )  # fmt: skip
     assert code == 0, body
-    assert assert_png(output) == charts.plot_factor_weight_history(weights)
+    assert_single_weight_history_call(
+        calls, output, normalized_weight_records(weights), method=None
+    )
 
 
 @pytest.mark.parametrize("method", [None, "rolling_ic"])
-def test_chart_factor_weight_history_from_wide_combine_weights(capsys, tmp_path, method):
+def test_chart_factor_weight_history_from_wide_combine_weights(
+    capsys, tmp_path, monkeypatch, method
+):
+    calls = spy_weight_history(monkeypatch)
     # strategy combine writes one method's weights as a wide eob x factor table.
     wide = pd.DataFrame(
         {"a": [None, 0.4, 0.6, 0.5], "b": [None, 0.6, 0.4, 0.5]},
@@ -252,8 +294,9 @@ def test_chart_factor_weight_history_from_wide_combine_weights(capsys, tmp_path,
     records = wide.stack().rename("weight").dropna().reset_index()
     records.columns = ["eob", "factor", "weight"]
     records.insert(0, "method", method or "max_icir")
-    kwargs = {"method": method} if method else {}
-    assert assert_png(output) == charts.plot_factor_weight_history(records, **kwargs)
+    assert_single_weight_history_call(
+        calls, output, normalized_weight_records(records), method=method
+    )
 
 
 def test_chart_input_errors_and_conflicts(capsys, tmp_path):

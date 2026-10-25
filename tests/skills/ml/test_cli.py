@@ -78,6 +78,7 @@ class FakeFactorEngine:
 
     instances: list[FakeFactorEngine] = []
     importances = True
+    categorical_columns = False
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -91,7 +92,11 @@ class FakeFactorEngine:
 
     def generate(self):
         close = self.kwargs["data"]["close"].unstack("symbol").sort_index()
-        return close.rank(axis=1, pct=True)
+        rank = close.rank(axis=1, pct=True)
+        if self.categorical_columns:
+            # What the real MLFactorEngine returns: symbols as a categorical column index.
+            rank.columns = pd.CategoricalIndex(rank.columns, name="symbol")
+        return rank
 
     def get_feature_importance(self):
         return self.feature_importance_df
@@ -126,6 +131,7 @@ class TextMetricsEngine(MLFactorEngine):
 def fake_engine(monkeypatch):
     FakeFactorEngine.instances = []
     FakeFactorEngine.importances = True
+    FakeFactorEngine.categorical_columns = False
     monkeypatch.setattr("skills.ml.ml_factor.MLFactorEngine", FakeFactorEngine)
     return FakeFactorEngine
 
@@ -195,6 +201,36 @@ def test_factor_rank_builds_the_engine_from_the_inputs_and_writes_the_rank(
     assert data["evaluation"]["out_of_sample"]["ir"] is None
     assert [item["name"] for item in body["artifacts"]] == ["rank", "importance"]
     assert body["warnings"] == []
+
+
+def test_factor_rank_with_categorical_symbol_labels_reads_back_and_feeds_top_n(
+    capsys, tmp_path, panel_file, fake_engine
+):
+    from skills.cli.io import read_frame
+    from skills.strategy.cross_sectional import top_n_weights
+
+    fake_engine.categorical_columns = True
+    panel, panel_path = panel_file
+    output = tmp_path / "rank.parquet"
+    code, body = run(capsys, *rank_argv(panel_path, output))
+    assert code == 0, body
+    rank = fake_engine.instances[0].generate()
+    assert isinstance(rank.columns, pd.CategoricalIndex)
+    # The engine's own frame is untouched; the written file has plain labels.
+    plain = rank.set_axis(pd.Index(list(rank.columns), name="symbol"), axis=1)
+    pd.testing.assert_frame_equal(pd.read_parquet(output), plain)
+    assert not isinstance(read_frame(output).columns, pd.CategoricalIndex)
+    assert body["data"]["columns"] == list(plain.columns)
+
+    capsys.readouterr()
+    targets = tmp_path / "targets.parquet"
+    code = main(
+        ["strategy", "top-n", "--scores", str(output), "--top-n", "2", "--output", str(targets)]
+    )
+    assert code == 0, json.loads(capsys.readouterr().out)
+    pd.testing.assert_frame_equal(
+        pd.read_parquet(targets), top_n_weights(plain, top_n=2), check_freq=False
+    )
 
 
 def test_factor_rank_defaults_and_store_panel_source(capsys, tmp_path, fake_engine):

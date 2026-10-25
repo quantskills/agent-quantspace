@@ -214,12 +214,47 @@ def _publish(path, writer, *, overwrite=False):
         temp.unlink(missing_ok=True)
 
 
+def _plain_labels(labels):
+    """Column labels without categorical dtype, or ``labels`` itself when there is none."""
+    import pandas as pd
+
+    if isinstance(labels, pd.CategoricalIndex):
+        return labels.astype(labels.categories.dtype)
+    if isinstance(labels, pd.MultiIndex) and any(
+        isinstance(level, pd.CategoricalIndex) for level in labels.levels
+    ):
+        return labels.set_levels(
+            [
+                level.astype(level.categories.dtype)
+                if isinstance(level, pd.CategoricalIndex)
+                else level
+                for level in labels.levels
+            ]
+        )
+    return labels
+
+
+def _without_categorical_columns(frame):
+    """Parquet written with categorical column labels cannot be read back by pandas.
+
+    Row labels and category-dtype data columns round-trip, so only column labels are
+    replaced. The caller's frame is never modified.
+    """
+    labels = _plain_labels(frame.columns)
+    if labels is frame.columns:
+        return frame
+    frame = frame.copy(deep=False)
+    frame.columns = labels
+    return frame
+
+
 def write_frame(frame, path, *, overwrite=False, data_root=None, name=None):
     import pandas as pd
 
     path = check_output(path, overwrite=overwrite, data_root=data_root)
     if isinstance(frame, pd.Series):
         frame = frame.to_frame(name=frame.name or "value")
+    frame = _without_categorical_columns(frame)
     if path.suffix.lower() not in (".csv", ".parquet", ".pq"):
         raise ValueError("Table output must end in .parquet or .csv")
 

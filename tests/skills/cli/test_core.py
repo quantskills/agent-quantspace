@@ -350,6 +350,81 @@ def test_write_frame_refuses_overwrite_and_keeps_the_original(tmp_path):
     assert sorted(path.name for path in (tmp_path / "out").iterdir()) == ["a.parquet"]
 
 
+def _wide_frame(columns) -> pd.DataFrame:
+    return pd.DataFrame(
+        np.arange(6.0).reshape(3, 2), index=pd.date_range("2024-01-01", periods=3, name="eob"),
+        columns=columns,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("categories", [["a", "b"], [1, 2]], ids=["str", "int"])
+def test_write_frame_reads_back_categorical_column_labels(tmp_path, categories):
+    from skills.cli.io import read_frame, write_frame
+
+    frame = _wide_frame(pd.CategoricalIndex(categories, name="symbol"))
+    untouched = frame.copy()
+    # The failure being avoided: pandas cannot read categorical column labels back.
+    frame.to_parquet(tmp_path / "direct.parquet")
+    with pytest.raises(TypeError, match="categorical"):
+        pd.read_parquet(tmp_path / "direct.parquet")
+
+    artifact = write_frame(frame, tmp_path / "wide.parquet", name="wide")
+    back = read_frame(tmp_path / "wide.parquet")
+    expected = _wide_frame(pd.Index(categories, name="symbol"))
+    pd.testing.assert_frame_equal(back, expected, check_freq=False)
+    assert not isinstance(back.columns, pd.CategoricalIndex)
+    assert artifact.columns == [str(item) for item in categories]
+    # The caller's frame keeps its categorical labels and values.
+    assert isinstance(frame.columns, pd.CategoricalIndex)
+    pd.testing.assert_frame_equal(frame, untouched)
+
+
+def test_write_frame_reads_back_a_categorical_level_of_multiindex_columns(tmp_path):
+    from skills.cli.io import read_frame, write_frame
+
+    columns = pd.MultiIndex.from_arrays(
+        [pd.CategoricalIndex(["a", "b"], name="symbol"), ["x", "y"]], names=["symbol", "field"]
+    )
+    frame = _wide_frame(columns)
+    write_frame(frame, tmp_path / "multi.parquet")
+    back = read_frame(tmp_path / "multi.parquet")
+    expected = _wide_frame(
+        pd.MultiIndex.from_arrays([["a", "b"], ["x", "y"]], names=["symbol", "field"])
+    )
+    pd.testing.assert_frame_equal(back, expected, check_freq=False)
+    assert isinstance(frame.columns.levels[0], pd.CategoricalIndex)
+
+
+def test_write_frame_csv_with_categorical_column_labels(tmp_path):
+    from skills.cli.io import read_frame, write_frame
+
+    frame = _wide_frame(pd.CategoricalIndex(["a", "b"], name="symbol"))
+    artifact = write_frame(frame, tmp_path / "wide.csv")
+    assert artifact.format == "csv" and artifact.columns == ["a", "b"]
+    assert (tmp_path / "wide.csv").read_text().splitlines()[0] == "eob,a,b"
+    back = read_frame(tmp_path / "wide.csv")
+    np.testing.assert_allclose(back.to_numpy(), frame.to_numpy())
+    assert list(back.columns) == ["a", "b"] and isinstance(frame.columns, pd.CategoricalIndex)
+
+
+def test_write_frame_writes_frames_without_categorical_labels_exactly_as_before(tmp_path):
+    from skills.cli.io import read_frame, write_frame
+
+    frame = _wide_frame(pd.Index(["a", "b"], name="symbol"))
+    frame.to_parquet(tmp_path / "direct.parquet")
+    write_frame(frame, tmp_path / "written.parquet")
+    assert (tmp_path / "written.parquet").read_bytes() == (tmp_path / "direct.parquet").read_bytes()
+    # Row labels and category-dtype data round-trip, so they are left alone.
+    rows = pd.DataFrame(
+        {"kind": pd.Categorical(["u", "v", "u"]), "value": [1.0, 2.0, 3.0]},
+        index=pd.CategoricalIndex(["x", "y", "z"], name="key"),
+    )
+    write_frame(rows, tmp_path / "rows.parquet")
+    back = pd.read_parquet(tmp_path / "rows.parquet")
+    pd.testing.assert_frame_equal(back, rows)
+    assert isinstance(read_frame(tmp_path / "rows.parquet").index, pd.CategoricalIndex)
+
+
 def test_write_json_bytes_and_lines(tmp_path):
     from skills.cli.io import write_bytes, write_json, write_lines
 
