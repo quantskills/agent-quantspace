@@ -19,7 +19,6 @@ SKILLS = (
     "ml",
     "factor-mining",
     "report",
-    "research",
 )
 
 

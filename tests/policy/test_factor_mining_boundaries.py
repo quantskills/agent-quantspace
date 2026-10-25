@@ -28,7 +28,6 @@ CORE_FORBIDDEN_IMPORT_PREFIXES = (
     "cursor",
     "skills.backtest",
     "skills.ml",
-    "skills.research",
 )
 
 ADAPTER_FORBIDDEN_IMPORT_PREFIXES = CORE_FORBIDDEN_IMPORT_PREFIXES + (

@@ -30,8 +30,7 @@ from skills.strategy.time_series import signal_to_single_asset_weights
 ## Boundaries
 
 - `contracts.py` defines the strategy-neutral target-weight result and generator protocol.
-- `ports.py` defines only the market-data reader needed by current workflows; it
-  does not predeclare persistence or Tracking APIs.
+- `ports.py` defines only the `MarketDataReader` protocol needed by current workflows.
 - `cross_sectional/` owns reusable ranking, selection, exit, risk-control, and
   modular research types, including equal-rank, equal-vote, rolling IC,
   rolling ICIR, and correlation-aware maximum-IC / maximum-ICIR factor

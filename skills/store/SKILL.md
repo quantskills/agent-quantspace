@@ -30,7 +30,6 @@ Supported layout:
 data/market/<frequency>/<symbol>.parquet
 data/adj_factor/<symbol>.parquet
 data/factors/<namespace>/
-data/factor_test/<namespace>/
 data/correlation/
 data/backtest/
 data/models/
@@ -54,8 +53,7 @@ indicating adjusted `1d` data. The same convention applies to other bar
 intervals: `<freq>_adj` stores adjusted bars whose actual frequency is
 `<freq>`.
 
-The current `DataManager` API names its directory-selector parameter
-`frequency`. Pass the full directory key to `read_symbol` / `read_symbols` /
+`DataManager` names its directory-selector parameter `frequency`. Pass the full directory key to `read_symbol` / `read_symbols` /
 `save_symbol` (for example, `frequency="1d_adj"`) so it resolves the intended
 path. Do not reuse that suffixed value as the semantic `freq` or pass it to an
 upstream market-data API; use `freq="1d"` there.
@@ -65,7 +63,6 @@ Main methods:
 - `read_symbol`, `read_symbols`, `save_symbol`
 - `import_symbol_csv`, `import_combined_csv`, `list_symbols`
 - `save_factor`, `read_factor`, `factor_namespace_dir`, `factor_filename`
-- `save_factor_test`, `read_factor_test_summary`
 - `save_factor_correlation`, `read_factor_correlation`
 - `save_backtest_run`, `read_backtest_summary`, `read_backtest_run`
 - `list_models`, `read_model_metadata`
@@ -73,14 +70,14 @@ Main methods:
 `read_symbols` returns a MultiIndex `(symbol, eob)` panel and reports every
 missing symbol in one `FileNotFoundError`.
 
-Factor-mining Phase 02 persists research artifacts under
-`data/factors/<namespace>/artifacts/` through `DataManagerArtifactStore` (path
-segments are validated; resolved paths must stay under that namespace) and may
-reuse `save_factor` / `factor_filename` for explicit wide-pivot caches keyed by
-content-addressed params such as `cache_key`. Phase 04 additionally uses
-`DataManager.namespaced_artifact_dir` / `get_by_identity` for controller
-snapshots and append-only event payloads under the same factors namespace root
-(no second catalog).
+`DataManagerArtifactStore` (`skills.factor_mining.adapters.store`) persists
+factor-mining research artifacts under
+`data/factors/<namespace>/artifacts/<kind>/<artifact_id>.json` (path segments are
+validated; resolved paths must stay under that namespace). It reuses
+`save_factor` / `factor_filename` for explicit wide-pivot caches keyed by a
+content-addressed `cache_key`. `DataManager.namespaced_artifact_dir(namespace,
+*parts)` is the generic helper that returns (and creates)
+`data/factors/<namespace>/<parts...>/`; there is no second catalog.
 
 ```python
 from skills.store.data_manager import DataManager

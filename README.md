@@ -36,8 +36,7 @@ flowchart TD
         ingest["ingest<br/>获取数据"] --> store["store<br/>Parquet/DuckDB"]
         store --> compute["compute<br/>指标/因子运算"]
         compute --> analyze["analyze<br/>因子绩效分析"]
-        analyze --> research["research<br/>筛选/参数扫描"]
-        research --> ml["ml<br/>ML训练/预测"]
+        analyze --> ml["ml<br/>ML训练/预测"]
         compute --> strategy["strategy<br/>通用策略类型·目标权重"]
         ml --> strategy
         strategy --> backtest["backtest<br/>向量化回测·组合"]
@@ -62,7 +61,6 @@ quantspace/
     analyze/              因子分析、指标、归因、tearsheet
     backtest/             向量化执行、权重、过滤器、成本
     ml/                   ML 辅助模块和可选模型引擎
-    research/             因子筛选和参数扫描
     report/               HTML 报告渲染和图表工具
     factor_mining/        AI 多因子挖掘契约、端口与跨平台角色协议
   strategies/
@@ -87,7 +85,6 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | 因子诊断、归因、稳健性和时间序列检查 |
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
-| `research` | `from skills.research import screen_all_indicators` | 因子筛选和参数扫描 |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告和图表工具 |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、任意本地 Python 因子生成/解析、四端口、Research Controller 与跨平台角色任务协议 |
 
@@ -185,7 +182,6 @@ data/
   market/{frequency}/{symbol}.parquet
   adj_factor/{symbol}.parquet
   factors/{namespace}/
-  factor_test/{namespace}/
   correlation/{namespace}/
   backtest/{namespace}/
   models/{namespace}/

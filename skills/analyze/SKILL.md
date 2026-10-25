@@ -10,14 +10,17 @@ returns, attribution, robustness, and time-series behavior after data and
 signals have been produced. Strategy execution and portfolio construction live
 in `skills.backtest`.
 
-Phase 03 adds a deterministic `AnalyzeFacade` for factor-mining preflight,
+`AnalyzeFacade` is the deterministic entrypoint for factor-mining preflight,
 evaluation, and explicit pool comparison. The facade is read-only (no implicit
 I/O), fails fast on hard preflight/alignment/causality failures before return
 evaluation, and returns analyze-native structured results. Formal portfolio
-returns and costs always call `skills.backtest.VectorBacktester`.
+returns and costs call `skills.backtest.VectorBacktester` by default;
+`AnalyzeFacade(backtester_factory=...)` can substitute the engine for `evaluate`,
+while the formal pool pair always uses `VectorBacktester`.
 
-`skills.analyze` must not import `skills.factor_mining`, `strategies`, store
-global paths, report rendering, controller/role/workflow code, or LLM SDKs.
+`skills.analyze` must not import `skills.factor_mining`, `strategies`, report
+rendering, controller/role/workflow code, or LLM SDKs; only `tearsheet.py` reads
+the store workspace paths (for its default output directory).
 
 Install plotting and parallel-analysis dependencies with
 `uv sync --extra analyze`.
@@ -42,18 +45,18 @@ from skills.analyze.attribution_counterfactual import performance_metrics
 
 | Module family | Purpose |
 |---------------|---------|
-| `facade` / `contracts` | Deterministic Phase 03 entrypoint and analyze-native snapshots |
+| `facade` / `contracts` | Deterministic entrypoint and analyze-native snapshots |
 | `validation` / `spec_checks` / `causality` | Panel, formula structure, parameter, and prefix-causality checks |
 | `factor_evaluation` / `factor_robustness` / `factor_incremental` | IC/quantiles/turnover, robustness, pool incremental |
-| `factor_analysis` | Legacy IC statistics, grouped returns, winsorization helpers |
+| `factor_analysis` | IC statistics, grouped returns, winsorization helpers |
 | `factor_information` | Horizon/Lag IC surfaces, HAC summaries, rank correlation, rolling correlation, and Top-N overlap |
 | `ts_analysis` | KDE/QQ plots, Hurst, ADF, KPSS, trend scoring |
 | `attribution_*` | Symbol/category PnL, Brinson, decision edges, ranking buckets, Shapley, robustness, stat tests |
-| `tearsheet` | Factor and artifact-namespace summary report helpers |
+| `tearsheet` | Single-factor four-panel PNG tearsheet |
 
 ## Recipes
 
-**Deterministic factor-mining evaluation (via Phase 02 adapter)**
+**Deterministic factor-mining evaluation (via the factor_mining adapter)**
 
 ```python
 from skills.analyze import AnalyzeFacade
@@ -80,32 +83,25 @@ adapter = AnalyzeAdapter(
 )
 preflight_report = adapter.preflight(evaluation_request)
 assert preflight_report.failure is None
-# After Phase02 execute(...):
+# After FactorExecutionAdapter.execute(...):
 eval_report = adapter.evaluate(evaluation_request_with_execution_ref)
 assert eval_report.engine_version
 ```
 
 **Trust boundary (prefix recompute).** `BoundPrefixRecompute` cannot be
 constructed publicly. The only production issuer is
-`build_prefix_recompute_capability(factor: FactorSpec, execution=None)` —
+`build_prefix_recompute_capability(*, factor: FactorSpec, execution=None)` —
 it compiles the exact FactorSpec and optionally checks
 `execution.callable_fingerprint`. Analyze does **not** expose a public API that
 seals arbitrary callables with hash strings. Process trust boundary: private
 helpers remain importable in-process; orchestration policy must only use the
-Phase02 adapter builder. Evaluate additionally requires an issued recompute to
+`build_prefix_recompute_capability` adapter builder. Evaluate additionally requires an issued recompute to
 reproduce evaluated values (`CAUSALITY_RECOMPUTE_VALUE_MISMATCH`).
 
 `FunctionRef` has no module allowlist. It may point to generated strategy code,
 `skills.compute`, or another importable local dependency. Analyze checks the
 research contract—fields, parameter/window/lag consistency, output alignment,
 and time causality—rather than treating the local Python module as untrusted.
-
-**Trust boundary (resolvers / artifact loaders).** Production
-`resolve_brief` / `resolve_factor` / `resolve_execution` / `load_series` ports
-are trusted orchestration inputs. `ArtifactRef.content_hash` must be verified by
-a store-backed loader (e.g. `DataManagerArtifactStore.get`). Arbitrary
-in-process malicious reflection is outside the security boundary; private
-issuers only prevent accidental public-API misuse, not same-process attackers.
 
 **Trust boundary (formal pool pair).** Portfolio deltas require an officially
 issued `FormalBacktestPair` from `run_official_formal_backtest_pair`, which
@@ -126,7 +122,8 @@ silently inferred from Brief; callers must set them on the protocol.
 R² use one canonical label: forward `P[t+L+H]/P[t+L]-1` or backward
 `P[t+L]/P[t+L-H]-1` on `protocol.trade_at` prices, with `signal_lag=L` and
 holding window `horizon_bars=H`. Formal trading asserts the same semantics and
-is unavailable for `horizon_bars != 1` (one-bar VectorBacktester limit).
+is unavailable for `horizon_bars != 1` (one-bar VectorBacktester limit) or
+`return_mode != "forward"`.
 
 Overlapping horizons (`horizon_bars > 1`) mark iid IC t-tests unavailable and
 report Newey–West HAC t/se/p instead. Pool marginal value is joint CS R² delta /
@@ -159,7 +156,7 @@ horizon. The execution-aligned return is
 `P[t+signal_lag+lag+horizon] / P[t+signal_lag+lag] - 1`, and each summary row
 uses Newey-West lag `horizon-1`.
 
-**Factor evaluation (legacy helpers)**
+**Factor evaluation (IC_stat / group_stat)**
 
 ```python
 from skills.analyze.factor_analysis import IC_stat, group_stat

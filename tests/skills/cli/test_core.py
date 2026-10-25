@@ -299,7 +299,7 @@ def test_command_store_never_creates_the_data_root(tmp_path):
 
 @pytest.mark.parametrize(
     "namespace",
-    ["market", "adj_factor", "factors", "factor_test", "correlation", "backtest", "models"],
+    ["market", "adj_factor", "factors", "correlation", "backtest", "models"],
 )
 def test_outputs_never_target_managed_namespaces(tmp_path, namespace):
     from skills.cli.io import check_output

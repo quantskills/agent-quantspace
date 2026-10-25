@@ -18,7 +18,7 @@ from pathlib import Path
 from .models import Artifact, CLIError
 
 # DataManager namespaces below the data root; only store commands with --write change them.
-MANAGED = ("market", "adj_factor", "factors", "factor_test", "correlation", "backtest", "models")
+MANAGED = ("market", "adj_factor", "factors", "correlation", "backtest", "models")
 
 
 @functools.cache

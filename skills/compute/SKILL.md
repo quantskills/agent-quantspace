@@ -1,6 +1,6 @@
 ---
 name: compute
-description: Use when tasks need strategy-agnostic OHLCV indicators, math utilities, generic factor examples, regime slicing, resampling, or label makers.
+description: Use when tasks need strategy-agnostic OHLCV indicators, math utilities, regime slicing, resampling, or label makers.
 ---
 
 ## Description
@@ -13,7 +13,7 @@ Compute derived values from OHLCV data. This skill is organized in reusable, str
 | **Indicators** | `skills.compute.indicators` | 19 public technical indicators: `rsi`, `trend_score`, `er`, `supertrend`, etc. |
 | **Features** | `skills.compute.features` | Strategy-agnostic OHLCV feature builders such as `make_logdiff_features` |
 
-Also: label makers (`label_maker.py`), compact generic factor examples, and the `Factor` wrapper.
+Also: label makers (`label_maker.py`), forward adjustment from stored adjustment factors (`adjust.py`), and the `Factor` wrapper.
 
 Shared market-structure helpers used by strategy domains:
 
@@ -69,7 +69,7 @@ from skills.compute.indicators import trend_score_v2
 ```
 
 - `__init__(func: Callable, **params)` — binds callable and defaults; `name` from `func.__name__` and params.
-- `calculate(data: pd.DataFrame, *, dropna: bool = True) -> pd.Series` — per-symbol apply with index contract checks. **Legacy default `dropna=True` is preserved** for existing research callers. Pass `dropna=False` for full-index / warm-up NaN preservation (factor_mining Phase 02 always does this).
+- `calculate(data: pd.DataFrame, *, dropna: bool = True) -> pd.Series` — per-symbol apply with index contract checks. Pass `dropna=False` to keep warm-up NaNs and the full index (factor_mining always does).
 - `cal_df(data, *, dropna: bool = True) -> pd.DataFrame` — wide pivot with `eob` index and one column per symbol; respects the same `dropna` flag. Not an authoritative research result.
 
 `Factor` never persists files. Artifact writes belong to factor_mining store adapters.
@@ -130,9 +130,9 @@ from skills.compute.features import (
 )
 ```
 
-- `make_logdiff_features(bars, *, factors=..., lags=..., shifts=None, lookback=5)` — single-symbol OHLC log-difference grid. Default aligns with the lesson-07 reference notebook: 4×4 factor pairs × 9 lags × 10 shifts = **1440** columns when `lookback=5`. Non-positive prices become NaN instead of `-inf`.
+- `make_logdiff_features(bars, *, factors=..., lags=..., shifts=None, lookback=5)` — single-symbol OHLC log-difference grid. Default: 4×4 factor pairs × 9 lags × 10 shifts = **1440** columns when `lookback=5`. Non-positive prices become NaN instead of `-inf`.
 - `make_logdiff_panel_features(panel, ...)` — same grid applied per symbol on a `(symbol, eob)` panel, non-finite rows dropped, so the result is model-ready. Build once and reuse across horizons/models.
-- `default_logdiff_shifts(lookback)` — `{0..lookback-1} ∪ {5,10,...,lookback*5}`.
+- `default_logdiff_shifts(lookback)` — tuple `0..lookback-1` followed by `5, 10, ..., lookback*5` (not deduplicated).
 - No duplicate log-difference implementation under `strategies/`.
 
 ### Label Generation (`skills.compute.label_maker`)
@@ -145,10 +145,6 @@ Public supervised-learning labels:
 
 - `ForwardReturnLabelMaker`: forward-return threshold labels.
 - `TripleBarrierLabelMaker`: AFML-style volatility-scaled triple-barrier labels.
-
-## Factor categories (illustrative)
-
-Momentum/trend, volume, mean reversion, exit filters (`skills.strategy.cross_sectional.exits`), and label makers.
 
 ## CLI command reference
 

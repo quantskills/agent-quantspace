@@ -35,8 +35,6 @@ def test_tracking_scope_is_not_present() -> None:
 def test_research_storage_boundaries_do_not_reintroduce_legacy_universe_registry_terms() -> None:
     paths = [
         ROOT / "skills/store/data_manager.py",
-        ROOT / "skills/research/factor_screening.py",
-        ROOT / "skills/research/param_sensitivity.py",
         ROOT / "skills/analyze/tearsheet.py",
         ROOT / "skills/ml/ml_engine.py",
         ROOT / "skills/report/templates/factor_report.html",

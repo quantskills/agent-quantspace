@@ -32,8 +32,8 @@ from skills.backtest.overlay_metrics import overlay_alpha
 | `skills.backtest.exit_analysis` | Baseline vs filtered exit A/B evaluation |
 | `skills.backtest.overlay_metrics` | Overlay alpha, win rate, drawdown, Sharpe, and regime metrics |
 
-`VectorBacktester` requires explicit `commission` and `slippage_bp`; there is no
-symbol-level fallback cost table. Each date's executed weight always earns the
+`VectorBacktester` requires explicit `commission` and `slippage_bp` (a missing
+value raises `ValueError`). Each date's executed weight always earns the
 next bar's return, which is the safe convention for close-derived signals.
 
 ## Recipes

@@ -50,7 +50,7 @@ def test_info_counts_the_inventory_without_creating_folders(root, capsys):
         "exists": True,
         "frequencies": {"1d": 3, "1d_adj": 1},
         "adj_factors": 1,
-        "namespaces": {"factors": {"demo": 1}, "factor_test": {}, "backtest": {}},
+        "namespaces": {"factors": {"demo": 1}, "backtest": {}},
     }
     assert tree(root) == before
 

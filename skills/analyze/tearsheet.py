@@ -1,4 +1,4 @@
-"""Factor tearsheet generators: per-factor 4-panel PNG + per-namespace HTML summary."""
+"""Factor tearsheet generator: per-factor 4-panel PNG."""
 
 from __future__ import annotations
 
@@ -122,77 +122,3 @@ def generate_factor_tearsheet(
     plt.close(fig)
 
     return str(path)
-
-
-def generate_namespace_summary_report(
-    namespace: str,
-    output_path: str | Path | None = None,
-    top_n_tearsheets: int = 0,
-) -> str:
-    """Render an HTML summary report for a namespace from data/factor_test/{namespace}/summary.parquet.
-
-    The HTML contains a sortable ranking table (by |IC_IR|) plus any already-generated
-    tearsheet thumbnails for the top factors (if `top_n_tearsheets > 0` and PNGs exist).
-    """
-    from skills.store.data_manager import DataManager
-
-    dm = DataManager()
-    summary = dm.read_factor_test_summary(namespace)
-    if summary.empty:
-        raise ValueError(
-            f"No factor test summary for namespace {namespace!r}; run screen_all_indicators first."
-        )
-
-    ordered = summary.reindex(
-        summary["IC_IR"].abs().sort_values(ascending=False).index
-    ).reset_index(drop=True)
-
-    out_path = Path(output_path) if output_path else _REPORTS_ROOT / namespace / "summary.html"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    table_html = ordered.to_html(
-        index=False,
-        float_format=lambda v: f"{v:.4f}" if isinstance(v, float) else v,
-        classes="factor-summary",
-        border=0,
-    )
-
-    thumbnails_html = ""
-    if top_n_tearsheets > 0:
-        factor_dir = _REPORTS_ROOT / namespace
-        imgs = []
-        for _, row in ordered.head(top_n_tearsheets).iterrows():
-            candidate = factor_dir / f"{_sanitize(row['factor_id'])}__n{int(row['n'])}.png"
-            if candidate.exists():
-                imgs.append(
-                    f'<figure><img src="{candidate.name}" style="max-width:720px"/>'
-                    f"<figcaption>{row['factor_id']} (n={int(row['n'])})</figcaption></figure>"
-                )
-        if imgs:
-            thumbnails_html = "<h2>Top Factors</h2>\n" + "\n".join(imgs)
-
-    html = f"""<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-<meta charset=\"utf-8\"/>
-<title>Factor Summary — {namespace}</title>
-<style>
-body {{ font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 24px; }}
-h1 {{ font-size: 20px; }}
-table.factor-summary {{ border-collapse: collapse; font-size: 12px; }}
-table.factor-summary th, table.factor-summary td {{ padding: 6px 10px; border-bottom: 1px solid #eee; text-align: right; }}
-table.factor-summary th {{ background: #f7f7f7; text-align: center; }}
-table.factor-summary td:first-child, table.factor-summary td:nth-child(2) {{ text-align: left; font-family: monospace; }}
-figure {{ margin: 16px 0; }}
-</style>
-</head>
-<body>
-<h1>Factor Summary — {namespace}</h1>
-<p>Factors: {len(ordered)} | sorted by |IC_IR| desc.</p>
-{table_html}
-{thumbnails_html}
-</body>
-</html>
-"""
-    out_path.write_text(html, encoding="utf-8")
-    return str(out_path)

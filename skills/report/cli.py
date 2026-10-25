@@ -223,7 +223,7 @@ class ChartInput(CLIModel):
         "factor-weight-history",
     ] = Field(
         description="equity-curve: one return column; backtest-performance: a backtest result "
-        "table; factor-ranking: a screen ranking; ic-heatmap: factors by periods; horizon-ic and "
+        "table; factor-ranking: a factor ranking table; ic-heatmap: factors by periods; horizon-ic and "
         "lagged-ic: an ic-surface summary; factor-weight-history: tidy eob/method/factor/weight "
         "records, or the wide factor_weights from strategy combine (labelled with params method)."
     )

@@ -27,7 +27,6 @@ tests/skills/compute/
 tests/skills/ingest/
 tests/skills/ml/
 tests/skills/report/
-tests/skills/research/
 tests/skills/store/
 tests/skills/strategy/
 ```

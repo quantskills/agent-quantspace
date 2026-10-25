@@ -150,10 +150,8 @@ bars = bars.set_index("eob")[["open", "high", "low", "close", "volume"]].sort_in
 DataManager().save_symbol("SHSE.600000", bars, frequency="1d", source="panda_data")
 ```
 
-When saving adjusted bars, pass the storage directory key to `DataManager`,
-for example `frequency="1d_adj"`, even though the frequency used to fetch or
-describe those bars is `1d`. Here the DataManager parameter is a directory
-selector retained by its current API, not the semantic market-data frequency.
+When saving adjusted bars, pass the storage directory key, for example
+`frequency="1d_adj"`, to `DataManager`; the fetch frequency stays `1d`.
 
 The same store boundary applies to listed funds: normalize the returned
 `date` column to the timezone-naive `eob` index, keep OHLCV columns, and call

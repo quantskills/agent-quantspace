@@ -14,7 +14,6 @@ def test_public_skill_directories_are_exact() -> None:
         "ingest",
         "ml",
         "report",
-        "research",
         "store",
         "strategy",
     }

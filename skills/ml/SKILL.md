@@ -55,7 +55,7 @@ ml_factor_fn = make_precomputed_factor(rank_pivot, name="ml_rank")
 **Expanding purged walk-forward folds**
 
 ```python
-from skills.ml.walk_forward import expanding_purged_folds
+from skills.ml.walk_forward import date_level_mask, expanding_purged_folds
 
 dates = panel.index.get_level_values("eob").unique()
 folds = expanding_purged_folds(

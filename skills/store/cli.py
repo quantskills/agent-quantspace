@@ -27,7 +27,7 @@ FREQUENCY_HELP = (
 SYMBOLS_HELP = "QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate."
 SYMBOLS_FILE_HELP = "Text lines or JSON list of QuantSpace symbols."
 # Namespaces whose per-namespace Parquet counts DataManager.info prints.
-INFO_NAMESPACES = ("factors", "factor_test", "backtest")
+INFO_NAMESPACES = ("factors", "backtest")
 
 
 def _missing_symbols(dm, symbols, frequency):
@@ -48,7 +48,7 @@ class InfoOutput(BaseModel):
     )
     adj_factors: int = Field(description="Symbols with stored adjustment-factor events.")
     namespaces: dict[str, dict[str, int]] = Field(
-        description="Parquet file count per artifact namespace under factors, factor_test, backtest."
+        description="Parquet file count per artifact namespace under factors and backtest."
     )
 
 

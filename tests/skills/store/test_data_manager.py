@@ -44,6 +44,13 @@ def test_data_manager_does_not_expose_legacy_registry_api(tmp_path) -> None:
         "is" + "_pool_factor_fresh",
         "invalidate" + "_pool_cache",
         "compare_factor_across" + "_pools",
+        "save" + "_factor_test",
+        "read" + "_factor_test_summary",
+        "read" + "_ic_series",
+        "read" + "_group_return",
+        "query" + "_factor_tests",
+        "find" + "_best_factors",
+        "compare_factor_across" + "_namespaces",
     ]
 
     assert all(not hasattr(dm, name) for name in removed_names)
@@ -99,26 +106,6 @@ def test_model_metadata_uses_namespace(tmp_path) -> None:
 
     assert dm.list_models(namespace="macro_weekly") == [metadata]
     assert dm.read_model_metadata(namespace="macro_weekly", model_id="model_1") == metadata
-
-
-def test_factor_comparison_returns_namespace_column(tmp_path) -> None:
-    dm = DataManager(data_root=str(tmp_path))
-    for namespace, ic_ir in [("macro_weekly", 0.8), ("equity_daily", -0.6)]:
-        summary_dir = tmp_path / "factor_test" / namespace
-        summary_dir.mkdir(parents=True)
-        pd.DataFrame(
-            {
-                "factor_id": ["roc__10"],
-                "IC_mean": [0.02],
-                "IC_IR": [ic_ir],
-                "t_stat": [2.0],
-                "long_short_return": [0.1],
-            }
-        ).to_parquet(summary_dir / "summary.parquet", index=False)
-
-    result = dm.compare_factor_across_namespaces("roc__10")
-
-    assert result["namespace"].tolist() == ["macro_weekly", "equity_daily"]
 
 
 def test_invalidate_namespace_cache_removes_only_requested_artifacts(tmp_path) -> None:

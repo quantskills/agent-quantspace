@@ -23,7 +23,6 @@ PUBLIC_MODULES = [
     "skills.ml.lasso_tracker",
     "skills.ml.ml_engine",
     "skills.ml.ml_factor",
-    "skills.research",
     "skills.report",
     "skills.report.charts",
     "skills.report.research_report",
@@ -148,7 +147,7 @@ def test_removed_strategy_type_modules_are_not_importable() -> None:
         f"{cross_sectional}.types",
         f"{time_series}.signal_engine",
         f"{time_series}.types",
-        "skills.research." + "strategy_comparison",
+        "skills." + "research",
     ]
     for module in removed_modules:
         assert importlib.util.find_spec(module) is None

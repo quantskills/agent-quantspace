@@ -171,7 +171,6 @@ class DataManager:
             "market/1m",
             "market/5m",
             "factors",
-            "factor_test",
             "correlation",
             "backtest",
             "export",
@@ -412,110 +411,7 @@ class DataManager:
         return path
 
     # ==================================================================
-    # 4. Factor Test Results (scoped to namespace)
-    # ==================================================================
-
-    def save_factor_test(
-        self,
-        namespace: str,
-        factor_id: str,
-        n: int,
-        g: int,
-        ic_stat: dict,
-        ic_series: pd.Series,
-        group_return: pd.DataFrame,
-        turnover: pd.DataFrame = None,
-    ):
-        """Save single factor test results for a namespace."""
-        base = self.root / "factor_test" / namespace
-        (base / "ic").mkdir(parents=True, exist_ok=True)
-        (base / "group_return").mkdir(parents=True, exist_ok=True)
-
-        ic_series.to_frame("ic").to_parquet(base / "ic" / f"{factor_id}__n{n}.parquet")
-        group_return.to_parquet(base / "group_return" / f"{factor_id}__n{n}_g{g}.parquet")
-
-        if turnover is not None:
-            (base / "turnover").mkdir(parents=True, exist_ok=True)
-            turnover.to_parquet(base / "turnover" / f"{factor_id}__n{n}_g{g}.parquet")
-
-        self._append_factor_test_summary(namespace, factor_id, n, g, ic_stat, group_return)
-
-    def _append_factor_test_summary(
-        self,
-        namespace: str,
-        factor_id: str,
-        n: int,
-        g: int,
-        ic_stat: dict,
-        group_return: pd.DataFrame,
-    ):
-        """Append or update a row in the namespace's summary.parquet."""
-        summary_path = self.root / "factor_test" / namespace / "summary.parquet"
-
-        cum_returns = (1 + group_return).prod() - 1
-        top_col = group_return.columns[-1]
-        bot_col = group_return.columns[0]
-
-        row = {
-            "factor_id": factor_id,
-            "n": n,
-            "g": g,
-            "IC_mean": ic_stat.get("IC_mean"),
-            "IC_std": ic_stat.get("IC_std"),
-            "IC_IR": ic_stat.get("IC_IR"),
-            "IC_mean_last_1y": ic_stat.get("IC_mean_last_1y"),
-            "IC_IR_LAST_1Y": ic_stat.get("IC_IR_LAST_1Y"),
-            "IC_positive_ratio": ic_stat.get("IC_>0"),
-            "IC_abs_gt_2pct": ic_stat.get("IC_ABS_>2%"),
-            "t_stat": ic_stat.get("t_stat"),
-            "p_value": ic_stat.get("p_value"),
-            "IC_count": ic_stat.get("IC_count"),
-            "top_group_cum_return": cum_returns.get(top_col),
-            "bottom_group_cum_return": cum_returns.get(bot_col),
-            "long_short_return": cum_returns.get(top_col, 0) - cum_returns.get(bot_col, 0),
-            "tested_at": pd.Timestamp.now(),
-        }
-        new_row = pd.DataFrame([row])
-
-        if summary_path.exists():
-            existing = pd.read_parquet(summary_path)
-            mask = ~(
-                (existing["factor_id"] == factor_id) & (existing["n"] == n) & (existing["g"] == g)
-            )
-            existing = existing[mask]
-            summary = pd.concat([existing, new_row], ignore_index=True)
-        else:
-            summary = new_row
-
-        summary.to_parquet(summary_path, index=False)
-
-    def read_factor_test_summary(self, namespace: str) -> pd.DataFrame:
-        """Read the factor test summary for a namespace."""
-        path = self.root / "factor_test" / namespace / "summary.parquet"
-        if not path.exists():
-            return pd.DataFrame()
-        return pd.read_parquet(path)
-
-    def read_ic_series(self, namespace: str, factor_id: str, n: int = 1) -> pd.Series:
-        """Read IC time series for a factor in a namespace."""
-        path = self.root / "factor_test" / namespace / "ic" / f"{factor_id}__n{n}.parquet"
-        return pd.read_parquet(path)["ic"]
-
-    def read_group_return(
-        self, namespace: str, factor_id: str, n: int = 1, g: int = 5
-    ) -> pd.DataFrame:
-        """Read group return for a factor in a namespace."""
-        path = (
-            self.root
-            / "factor_test"
-            / namespace
-            / "group_return"
-            / f"{factor_id}__n{n}_g{g}.parquet"
-        )
-        return pd.read_parquet(path)
-
-    # ==================================================================
-    # 5. Factor Correlation (scoped to namespace)
+    # 3. Factor Correlation (scoped to namespace)
     # ==================================================================
 
     def save_factor_correlation(
@@ -543,7 +439,7 @@ class DataManager:
         return pd.read_parquet(path)
 
     # ==================================================================
-    # 6. Backtest Results (scoped to namespace)
+    # 4. Backtest Results (scoped to namespace)
     # ==================================================================
 
     def save_backtest_run(
@@ -660,14 +556,14 @@ class DataManager:
         return pd.read_parquet(path)
 
     # ==================================================================
-    # 7. Freshness & Cache Management
+    # 5. Freshness & Cache Management
     # ==================================================================
 
     def invalidate_namespace_cache(self, namespace: str):
-        """Delete all cached factors/tests for a namespace (after inputs change)."""
+        """Delete cached factors and correlations for a namespace (after inputs change)."""
         import shutil
 
-        for sub in ["factors", "factor_test", "correlation"]:
+        for sub in ["factors", "correlation"]:
             d = self.root / sub / namespace
             if d.exists():
                 shutil.rmtree(d)
@@ -675,7 +571,7 @@ class DataManager:
         print(f'Artifact cache invalidated for namespace "{namespace}"')
 
     # ==================================================================
-    # 8. DuckDB Query Engine (lazy import, in-memory, no persistent file)
+    # 6. DuckDB Query Engine (lazy import, in-memory, no persistent file)
     # ==================================================================
 
     def query(self, sql: str, params: list = None) -> pd.DataFrame:
@@ -692,16 +588,6 @@ class DataManager:
                 SELECT * FROM read_parquet('{data}/market/1d/*.parquet',
                                            filename=true, union_by_name=true)
                 WHERE close > 100
-            \"\"\")
-
-        For cross-namespace factor screening::
-
-            dm.query(\"\"\"
-                SELECT *
-                FROM read_parquet('{data}/factor_test/*/summary.parquet',
-                                  filename=true, union_by_name=true)
-                WHERE abs(IC_IR) > 0.3
-                ORDER BY abs(IC_IR) DESC
             \"\"\")
 
         Parameters
@@ -752,22 +638,6 @@ class DataManager:
         """
         return self.query(sql)
 
-    def query_factor_tests(self, sql_where: str = "") -> pd.DataFrame:
-        """Convenience wrapper: query all factor test summaries across namespaces.
-
-        A ``filename`` column is included so you can extract the namespace.
-        Example::
-
-            dm.query_factor_tests("WHERE abs(IC_IR) > 0.3 ORDER BY abs(IC_IR) DESC")
-        """
-        glob = f"{self.root}/factor_test/*/summary.parquet"
-        sql = f"""
-            SELECT * FROM read_parquet('{glob}',
-                                       filename=true, union_by_name=true)
-            {sql_where}
-        """
-        return self.query(sql)
-
     def query_backtests(self, sql_where: str = "") -> pd.DataFrame:
         """Convenience wrapper: query all backtest summaries across namespaces.
 
@@ -784,62 +654,7 @@ class DataManager:
         return self.query(sql)
 
     # ==================================================================
-    # 9. Analytical Queries (pandas fallback, no DuckDB required)
-    # ==================================================================
-
-    def find_best_factors(self, namespace: str, min_ir: float = 0.3) -> pd.DataFrame:
-        """Find factors with |IC_IR| > min_ir in a namespace."""
-        summary = self.read_factor_test_summary(namespace)
-        if summary.empty or "IC_IR" not in summary.columns:
-            return pd.DataFrame(
-                columns=["factor_id", "IC_mean", "IC_IR", "t_stat", "long_short_return"]
-            )
-        mask = summary["IC_IR"].abs() > min_ir
-        result = summary.loc[
-            mask, ["factor_id", "IC_mean", "IC_IR", "t_stat", "long_short_return"]
-        ].copy()
-        result = result.sort_values("IC_IR", key=lambda x: x.abs(), ascending=False)
-        return result.reset_index(drop=True)
-
-    def compare_factor_across_namespaces(self, factor_id: str) -> pd.DataFrame:
-        """Compare a factor's performance across all namespaces."""
-        ft_dir = self.root / "factor_test"
-        if not ft_dir.exists():
-            return pd.DataFrame(
-                columns=["namespace", "IC_mean", "IC_IR", "t_stat", "long_short_return"]
-            )
-        rows = []
-        for namespace_dir in sorted(ft_dir.iterdir()):
-            if not namespace_dir.is_dir():
-                continue
-            summary_path = namespace_dir / "summary.parquet"
-            if not summary_path.exists():
-                continue
-            summary = pd.read_parquet(summary_path)
-            match = summary[summary["factor_id"] == factor_id]
-            for _, r in match.iterrows():
-                rows.append(
-                    {
-                        "namespace": namespace_dir.name,
-                        "IC_mean": r.get("IC_mean"),
-                        "IC_IR": r.get("IC_IR"),
-                        "t_stat": r.get("t_stat"),
-                        "long_short_return": r.get("long_short_return"),
-                    }
-                )
-        result = (
-            pd.DataFrame(rows)
-            if rows
-            else pd.DataFrame(
-                columns=["namespace", "IC_mean", "IC_IR", "t_stat", "long_short_return"]
-            )
-        )
-        return result.sort_values("IC_IR", key=lambda x: x.abs(), ascending=False).reset_index(
-            drop=True
-        )
-
-    # ==================================================================
-    # 10. Info / Status
+    # 7. Info / Status
     # ==================================================================
 
     def info(self):
@@ -851,7 +666,7 @@ class DataManager:
             if syms:
                 print(f"  market/{freq}: {len(syms)} symbols")
 
-        for sub in ["factors", "factor_test", "backtest"]:
+        for sub in ["factors", "backtest"]:
             d = self.root / sub
             if d.exists():
                 namespace_dirs = [p for p in d.iterdir() if p.is_dir()]

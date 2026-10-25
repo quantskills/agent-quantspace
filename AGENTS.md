@@ -66,13 +66,13 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Path | Purpose |
 |------|---------|
-| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, research, report, factor_mining |
+| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, report, factor_mining |
 | `strategies/` | Concrete public factors, features, rules, ML behavior, and runnable workflows |
 | `scripts/` | Global data import, report, and maintenance entrypoints; strategy demos live in `strategies/*/workflows/` |
 | `data/` | Local data root; market files and research artifacts stay local |
 | `reports/` | Local generated research outputs; `strategy_examples/` is the public report exception |
 | `tests/` | Public pytest suite |
-| `docs/` | Minimal supplemental docs; avoid duplicating README, AGENTS, or SKILL.md |
+| `docs/` | Local supplemental docs (gitignored); avoid duplicating README, AGENTS, or SKILL.md |
 
 ## Skill Registry
 
@@ -85,7 +85,6 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | analyze | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, and time-series checks |
 | backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
-| research | `from skills.research import screen_all_indicators` | Screening and parameter sweeps |
 | report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, ResearchController` | AI factor-mining contracts, unrestricted local Python factor generation/resolution, adapters, Research Controller, and cross-platform role protocol |
 
@@ -97,7 +96,8 @@ names are declarations, not a product whitelist.
 ## Agent CLI
 
 Every Skill exposes task commands through `uv run qs <skill> <command>` (or
-`uv run python -m skills ...`). Start with `uv run qs catalog --skill <name>`, then
+`uv run python -m skills ...`). Start with `uv run qs catalog --skill <name>` (CLI names use hyphens, e.g.
+`factor-mining`), then
 read the corresponding `skills/<package>/SKILL.md`; its generated "CLI command
 reference" lists every option. Exact parameters and output fields come from `--help`,
 `uv run qs schema <skill>.<command>`, or `--print-template`. Flags override matching
@@ -105,7 +105,8 @@ keys in `--input-json FILE|-`.
 
 Stdout contains one JSON envelope (`ok`, `command`, `data`, `artifacts`, `warnings`,
 plus `error` on failure); logs and library prints go to stderr. Tables are written as
-Parquet/CSV artifacts, never printed. Outputs refuse to overwrite unless `--overwrite`
+Parquet/CSV artifacts; stdout carries at most a `--preview N` row sample (default 5),
+never the full table. Outputs refuse to overwrite unless `--overwrite`
 is given and never target managed store namespaces; store writes require `--write`,
 otherwise commands report a dry run or persist nothing. Credentials are read from the
 environment or `.env`, never command flags. Commands call the existing Python APIs
@@ -128,7 +129,6 @@ unchanged. After changing a command model, run `uv run qs docs render`.
 - Strategy weights: date × symbol `DataFrame`, passed directly to `VectorBacktester`.
 - Strategy universes are explicit symbol lists owned by the caller; factor, backtest, and model folders use caller-provided artifact namespaces.
 - Resolve workspace paths through `skills.store.workspace.resolve_workspace_paths`; use `QUANTSPACE_WORKSPACE_ROOT`, `QUANTSPACE_DATA_ROOT`, or `QUANTSPACE_REPORTS_ROOT` when the defaults need overriding.
-- Reusable selection, signal-to-weight, and strategy-type logic belongs in `skills.strategy`; concrete behavior belongs in `strategies`.
 - `skills/` must never import `strategies/`.
 
 ## Strategy Examples
@@ -151,7 +151,7 @@ unchanged. After changing a command model, run `uv run qs docs render`.
 - Run tests: `uv run python -m pytest tests/`.
 - Run lint: `uv run ruff check .`.
 - Optional PandaData SDK: `uv sync --extra panda_data`.
-- Optional capability profiles: `analyze`, `ml`, `query`, `report`, and `panda_data`.
+- Optional capability profiles: `analyze`, `ml`, `query`, `report`, `ts`, and `panda_data`.
 
 ## Open Source Boundary
 

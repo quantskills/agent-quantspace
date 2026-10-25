@@ -75,6 +75,7 @@ Directory contract:
 ```text
 reports/<namespace>/<slug>/index.html
 reports/<namespace>/<slug>/params.json
+reports/<namespace>/<slug>/artifacts/metrics.csv   # only when metrics is non-empty
 reports/catalog.html
 reports/catalog.json
 ```
@@ -115,15 +116,14 @@ Hard rules:
 - Fill `metrics` from `BacktestResult`, CSV, JSON, or `result_df`. Never invent Sharpe.
 - `metrics_source` is required.
 - `namespace` and `slug` are safe path segments only.
-- Default `visibility="private"`. Do not git-add private studies.
-- Public examples use `namespace="strategy_examples"` and `visibility="public_example"`. They still write `reports/<namespace>/<slug>/`.
+- Pass `visibility="private"` unless publishing a public example (the Python field is required; `qs report bundle` defaults to `private`). Do not git-add private studies.
+- Public examples use `namespace="strategy_examples"`, `visibility="public_example"` and `kind="public_example"`. They still write `reports/<namespace>/<slug>/`.
 - Do not import `strategies/` from this skill.
 - Do not export PDF.
 
-Public examples from `scripts/run_strategy_reports` use the same archive
-contract: `namespace="strategy_examples"`, `visibility="public_example"`,
-`kind="public_example"`. README gallery PNGs are extra sidecar files written
-by that script, not by `write_research_bundle`.
+README gallery PNGs (`strategy_examples/<slug>_performance.png`) are extra
+sidecar files written by `scripts/run_strategy_reports`, not by
+`write_research_bundle`.
 
 ## Dashboard preview
 
@@ -156,7 +156,7 @@ against `reports/`; absolute paths are respected as-is.
 | `plot_equity_curve(returns, title)` | Cumulative `(1+r).cumprod()` equity curve |
 | `plot_backtest_performance(result_df, title)` | Backtest equity curve plus drawdown |
 | `plot_factor_diagnostics(ic_series, ic_stats, group_returns, turnover, title, rolling_ir_window)` | IC, rolling IR, layered NAV, and turnover dashboard |
-| `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=namespaces/periods) |
+| `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=periods or other groups) |
 | `plot_rolling_pair_correlation(history, title)` | Small-multiple histories from Analyze's tidy rolling factor correlations |
 | `plot_horizon_ic(summary, factors, segment)` | Multi-factor Horizon IC term structure |
 | `plot_lagged_ic(summary, factors, horizons, segment)` | Four-panel signal-delay decay curves |
@@ -181,10 +181,7 @@ Chinese language pack), charts still save; glyphs may fall back to boxes.
 
 ## Windows and paths
 
-- Matplotlib Chinese: load `msyh.ttc` / `simhei.ttf` from `%WINDIR%\\Fonts`
-  (case-insensitive), register the file, set `Microsoft YaHei` / `微软雅黑`
-  aliases, and disable `axes.unicode_minus`.
-- Write HTML/JSON/Markdown as UTF-8 with `\n` newlines. Catalog reads tolerate
+- Write HTML/JSON/CSV as UTF-8 with `\n` newlines. Catalog reads tolerate
   a UTF-8 BOM (`utf-8-sig`).
 - Study directories use `pathlib.Path` (`reports_root / namespace / slug`).
 - Catalog `href` values are POSIX (`namespace/slug/index.html`) so they work
@@ -286,7 +283,7 @@ Priority: P1. Side effects: writes-output.
 
 | Option | Type / default | Description |
 |---|---|---|
-| `--kind` | `equity-curve\|backtest-performance\|factor-ranking\|ic-heatmap\|horizon-ic\|lagged-ic\|factor-weight-history` / `required` | equity-curve: one return column; backtest-performance: a backtest result table; factor-ranking: a screen ranking; ic-heatmap: factors by periods; horizon-ic and lagged-ic: an ic-surface summary; factor-weight-history: tidy eob/method/factor/weight records, or the wide factor_weights from strategy combine (labelled with params method). |
+| `--kind` | `equity-curve\|backtest-performance\|factor-ranking\|ic-heatmap\|horizon-ic\|lagged-ic\|factor-weight-history` / `required` | equity-curve: one return column; backtest-performance: a backtest result table; factor-ranking: a factor ranking table; ic-heatmap: factors by periods; horizon-ic and lagged-ic: an ic-surface summary; factor-weight-history: tidy eob/method/factor/weight records, or the wide factor_weights from strategy combine (labelled with params method). |
 | `--table` | `path` / `required` | Input CSV or Parquet table. |
 | `--column` | `string` / `return` | Return column for equity-curve. |
 | `--title` | `string?` / `null` | Chart title; the chart default if omitted. |

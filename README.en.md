@@ -53,8 +53,7 @@ flowchart LR
         ingest["ingest<br/>fetch·symbols"] --> store["store<br/>Parquet·DuckDB"]
         store --> compute["compute<br/>indicators·labels"]
         compute --> analyze["analyze<br/>diagnostics·attribution"]
-        analyze --> research["research<br/>screening·sweeps"]
-        research --> ml["ml<br/>training·sparse fit"]
+        analyze --> ml["ml<br/>training·sparse fit"]
         compute --> strategy["strategy<br/>types·target weights"]
         ml --> strategy
         strategy --> backtest["backtest<br/>vectorized·portfolio"]
@@ -80,7 +79,6 @@ quantspace/
     analyze/              factor analysis, metrics, attribution, tearsheets
     backtest/             vectorized execution, weighting, filters, costs
     ml/                   ML helpers and optional model engines
-    research/             factor screening, parameter sweeps, comparisons
     report/               HTML report rendering and charts
     factor_mining/        AI factor-mining contracts, ports, and cross-platform role protocol
   strategies/
@@ -107,7 +105,6 @@ writing new research code.
 | `analyze` | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, time-series checks |
 | `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
-| `research` | `from skills.research import screen_all_indicators` | Factor screening and parameter sweeps |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, four ports, Research Controller, and cross-platform role task protocol |
 
