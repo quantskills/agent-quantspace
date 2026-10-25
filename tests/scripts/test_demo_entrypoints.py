@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 from scripts.generate_sample_data import generate_sample_data
+from tests.fixtures.console import UTF8_TEXT, utf8_env
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run_module(module: str, data_root) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "QUANTSPACE_DATA_ROOT": str(data_root)}
+    env = utf8_env(QUANTSPACE_DATA_ROOT=str(data_root))
     return subprocess.run(
         [sys.executable, "-m", module],
         check=True,
         cwd=ROOT,
         env=env,
-        text=True,
         capture_output=True,
+        **UTF8_TEXT,
     )
 
 

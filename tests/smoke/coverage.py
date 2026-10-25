@@ -12,11 +12,33 @@ ROOT_COMMANDS = frozenset({"catalog", "schema", "docs.render", "version"})
 
 # Non-network commands with no suitable real local input; never fed synthetic data.
 SKIPPED = {
-    "store.query": "needs the optional duckdb dependency, which is not installed locally",
     "compute.adjust": "needs adj_factor events; the local data root has no data/adj_factor",
     "compute.resample": (
         "needs A-share one-minute bars; the local 1m directory holds only futures symbols"
     ),
+}
+
+# Commands that have a smoke step but need an optional dependency: the step skips with the
+# stated reason where the module cannot be imported. command -> (module, reason).
+OPTIONAL_DEPENDENCY = {
+    "store.query": ("duckdb", "needs the optional duckdb dependency (uv sync --extra query)"),
+}
+
+
+# Course and research reproduction scripts run at their defaults on the full local history.
+RESEARCH_SCRIPTS = {
+    "lesson06_multifactor": "strategies.cross_sectional.workflows.run_lesson06_multifactor",
+    "lesson07_pca_ml": "strategies.cross_sectional.workflows.run_lesson07_etf18_logdiff_pca_ml",
+    "lesson07_horizon_sensitivity": (
+        "strategies.cross_sectional.workflows.run_lesson07_horizon_sensitivity"
+    ),
+    "prompt_test_correlation": "strategies.cross_sectional.workflows.run_prompt_test_correlation",
+    "ma_cross_report": "strategies.time_series.workflows.run_ma_cross_report",
+    "mine_etf18_factors": "scripts.mine_etf18_factors",
+    "mine_etf18_factors_governed": "scripts.mine_etf18_factors_governed",
+    "evaluate_mined_factors": "scripts.evaluate_mined_factors",
+    "mined_factors_corr": "scripts.mined_factors_corr",
+    "prompt_test_ic": "scripts.run_prompt_test_ic",
 }
 
 

@@ -8,6 +8,8 @@ data root.
 from __future__ import annotations
 
 import json
+import shutil
+from dataclasses import dataclass
 
 import pandas as pd
 import pytest
@@ -15,6 +17,7 @@ import pytest
 from tests.smoke.runner import (
     ADJUSTED_SYMBOLS,
     INDEX_SYMBOL,
+    REPO_ROOT,
     SYMBOLS,
     Work,
     artifact_paths,
@@ -55,6 +58,54 @@ def work(tmp_path_factory, source_root, source_snapshot) -> Work:
     copy_trimmed(source_root, data_root)
     yield make_work(base, data_root)
     assert snapshot(source_root) == source_snapshot, "the source data root was modified"
+
+
+@dataclass(frozen=True)
+class Research:
+    """Full-history data copy for the research scripts, with the guards' baselines."""
+
+    work: Work
+    source_root: object
+    source_snapshot: dict
+    reports_snapshot: dict
+
+    def assert_untouched(self) -> None:
+        assert snapshot(self.source_root) == self.source_snapshot, (
+            "the source data root was modified"
+        )
+        assert snapshot(REPO_ROOT / "reports") == self.reports_snapshot, (
+            "a research script wrote into the repository reports/ tree"
+        )
+
+
+@pytest.fixture(scope="session")
+def research(tmp_path_factory):
+    """The 18 asset-class ETFs at full 1d_adj history in a throwaway data root.
+
+    The scripts hard-code windows from 2019 to 2026-08-04, so the trimmed copy used by the
+    qs smoke tests is not enough. The repository reports/ tree is snapshotted too: a script
+    that ignores the redirected output paths fails the guard.
+    """
+    from skills.store.workspace import resolve_workspace_paths
+    from strategies.cross_sectional.asset_class_rotation import ASSET_CLASS_ETF_SYMBOLS
+
+    source_root = resolve_workspace_paths().data_root
+    files = [source_root / "market" / "1d_adj" / f"{s}.parquet" for s in ASSET_CLASS_ETF_SYMBOLS]
+    missing = [str(path) for path in files if not path.is_file()]
+    if missing:
+        pytest.skip(f"required local data files are missing: {missing}")
+    source_snapshot = snapshot(source_root)
+    reports_snapshot = snapshot(REPO_ROOT / "reports")
+    base = tmp_path_factory.mktemp("research")
+    for path in files:
+        target = base / "data" / path.relative_to(source_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    work = make_work(base, base / "data", {"PYTHONPATH": str(REPO_ROOT)})
+    (work.dir / "out").mkdir()
+    result = Research(work, source_root, source_snapshot, reports_snapshot)
+    yield result
+    result.assert_untouched()
 
 
 @pytest.fixture(scope="session")
@@ -178,3 +229,15 @@ def single_bars(work):
 @pytest.fixture(scope="session")
 def adjusted_symbols():
     return ADJUSTED_SYMBOLS
+
+
+def pytest_terminal_summary(terminalreporter):
+    """Report how long each research script took."""
+    from tests.smoke.runner import TIMINGS
+
+    if not TIMINGS:
+        return
+    terminalreporter.section("smoke: research script timings")
+    for label, seconds in TIMINGS.items():
+        terminalreporter.write_line(f"{seconds:8.1f}s  {label}")
+    terminalreporter.write_line(f"{sum(TIMINGS.values()):8.1f}s  total")

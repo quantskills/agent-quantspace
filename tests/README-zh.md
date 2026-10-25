@@ -54,7 +54,8 @@ uv run python -m pytest tests/contracts tests/regression tests/docs -q
 它默认不运行：默认测试会把它们报告为 skipped，只有 `-m` 表达式包含 `smoke` 才会启用。
 
 ```bash
-uv run python -m pytest -m smoke -rs -q
+uv run python -m pytest -m smoke -rs -q                    # 全部，约 20 分钟
+uv run python -m pytest -m "smoke and not research" -rs -q # 只跑 qs 命令，约 2 分钟
 ```
 
 - 需要本地真实数据目录（`QUANTSPACE_DATA_ROOT`，否则为仓库 `data/`），并包含
@@ -62,8 +63,18 @@ uv run python -m pytest -m smoke -rs -q
 - 绝不写入真实数据目录。会话 fixture 把所需文件裁剪到最近若干行后复制到临时目录，所有命令都对副本运行；
   运行前后还会比对源文件的路径、大小和修改时间。
 - 断言只做合理性检查（退出码、产物非空、关键数值有限、权重不超预算），不对真实数据做等值断言。
+- 课程与研究复现脚本（lesson 06/07、prompt 测试、均线交叉报告、ETF18 因子挖掘等）在
+  `tests/smoke/test_research_scripts.py` 中按默认参数原样运行，带 `research` 标记。它们需要
+  18 只大类资产 ETF 的完整 `1d_adj` 历史（不裁剪，复制到临时目录），以 `python -m <module>`
+  方式在临时工作目录运行，使用临时数据根和临时 reports 根；另有一道守卫，仓库 `reports/`
+  目录一旦变化就让测试失败。冒烟测试的 12 到 24 分钟（取决于机器负载）几乎都花在这些脚本上，
+  其中 governed 因子挖掘的 final 阶段一项就要 8 到 14 分钟；终端汇总会列出每个脚本的耗时。
 - 没有合适本地输入的命令在 `tests/smoke/coverage.py` 中写明跳过原因。默认测试里有一道守卫：
-  某个不联网命令既没有冒烟步骤、也没有列入该清单时，默认测试会失败。
+  某个不联网命令既没有冒烟步骤、也没有列入该清单时，默认测试会失败。依赖可选包的命令
+  （`store query` 需要 `duckdb`）保留冒烟步骤并列入 `OPTIONAL_DEPENDENCY`，只有模块无法导入时
+  该步骤才跳过。
+- 测试在解释器旁查找 `qs` 脚本（Windows 上是 `qs.exe`），并让子进程以 UTF-8 输出
+  （`PYTHONUTF8=1`），见 `tests/fixtures/console.py`。
 
 ## 范围
 

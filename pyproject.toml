@@ -94,6 +94,7 @@ markers = [
     "docs: documentation/example consistency tests",
     "policy: repository and test-layout policy tests",
     "smoke: opt-in checks that drive the installed qs script on real local market data — run with -m smoke",
+    "research: slow course and research reproduction scripts inside the smoke suite — skip them with -m \"smoke and not research\"",
 ]
 
 [dependency-groups]

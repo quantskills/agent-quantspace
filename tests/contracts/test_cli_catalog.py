@@ -11,6 +11,7 @@ import pytest
 
 from skills.cli import schema_template
 from skills.cli.registry import SKILLS, get_commands
+from tests.fixtures.console import UTF8_TEXT, qs_script, utf8_env
 
 ROOT = Path(__file__).resolve().parents[2]
 SIDE_EFFECTS = {"read-only", "writes-output", "writes-store", "network", "remote-exec"}
@@ -89,8 +90,8 @@ def test_every_flag_is_a_long_option_that_parses_as_documented():
 
 
 def _qs():
-    script = Path(sys.executable).with_name("qs")
-    if not script.exists():
+    script = qs_script()
+    if script is None:
         pytest.skip("qs console script is not installed in this environment")
     return script
 
@@ -99,8 +100,9 @@ def test_console_script_runs_from_a_subdirectory(tmp_path):
     result = subprocess.run(
         [str(_qs()), "version"],
         cwd=ROOT / "tests",
+        env=utf8_env(),
         capture_output=True,
-        text=True,
+        **UTF8_TEXT,
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
@@ -112,8 +114,9 @@ def test_module_entry_point_matches_console_script():
     result = subprocess.run(
         [sys.executable, "-m", "skills", "catalog", "--skill", "store"],
         cwd=ROOT,
+        env=utf8_env(),
         capture_output=True,
-        text=True,
+        **UTF8_TEXT,
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
@@ -125,8 +128,9 @@ def test_stdout_is_exactly_one_json_document_even_when_code_prints(tmp_path):
     result = subprocess.run(
         [str(_qs()), "schema", "store.read", "--part", "output"],
         cwd=tmp_path,
+        env=utf8_env(),
         capture_output=True,
-        text=True,
+        **UTF8_TEXT,
         timeout=120,
     )
     assert result.returncode == 0

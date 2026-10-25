@@ -54,7 +54,8 @@ reports these tests as skipped, and any `-m` expression that mentions `smoke`
 turns them on.
 
 ```bash
-uv run python -m pytest -m smoke -rs -q
+uv run python -m pytest -m smoke -rs -q                    # everything, about 20 minutes
+uv run python -m pytest -m "smoke and not research" -rs -q # qs commands only, about 2 minutes
 ```
 
 - They need the real local data root (`QUANTSPACE_DATA_ROOT`, otherwise the
@@ -66,9 +67,25 @@ uv run python -m pytest -m smoke -rs -q
   before and after.
 - Assertions are sanity checks (exit status, non-empty artifacts, finite
   numbers, weights within budget), not equality pins against real data.
+- The course and research reproduction scripts (lesson 06 and 07, the prompt
+  tests, the MA-cross report, the ETF18 factor-mining scripts) run unchanged at
+  their defaults in `tests/smoke/test_research_scripts.py`, marked `research`.
+  They need the full `1d_adj` history of the 18 asset-class ETFs (copied
+  untrimmed to the temporary root), run as `python -m <module>` from a temporary
+  directory with temporary data and reports roots, and a second guard fails the
+  run if the repository `reports/` tree changes. They take almost all of the
+  smoke run's 12 to 24 minutes (depending on machine load); the governed-mining
+  final phase alone takes 8 to 14. The terminal summary lists each script's
+  seconds.
 - Commands with no suitable local input are listed with a reason in
   `tests/smoke/coverage.py`. A default-suite guard fails when a non-network
-  command is neither exercised by a smoke step nor listed there.
+  command is neither exercised by a smoke step nor listed there. A command
+  that needs an optional dependency (`store query` needs `duckdb`) keeps its
+  smoke step and is listed in `OPTIONAL_DEPENDENCY`; the step skips only where
+  the module cannot be imported.
+- The tests find the `qs` script next to the interpreter (`qs`, or `qs.exe`
+  on Windows) and run children with UTF-8 output (`PYTHONUTF8=1`), see
+  `tests/fixtures/console.py`.
 
 ## Scope
 

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.console import UTF8_TEXT, qs_script, utf8_env
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Seconds each research script took, reported in the terminal summary of a smoke run.
+TIMINGS: dict[str, float] = {}
 
 # Eight ETFs with daily bars across the whole local history, plus one index for benchmarks.
 SYMBOLS = (
@@ -68,15 +75,15 @@ def copy_trimmed(source_root: Path, target_root: Path) -> None:
         pd.read_parquet(path).tail(KEEP_ROWS).to_parquet(target)
 
 
-def make_work(base: Path, data_root: Path) -> Work:
+def make_work(base: Path, data_root: Path, extra_env: dict | None = None) -> Work:
     directory, reports = base / "work", base / "reports"
     directory.mkdir()
-    env = {
-        **os.environ,
-        "QUANTSPACE_DATA_ROOT": str(data_root),
-        "QUANTSPACE_REPORTS_ROOT": str(reports),
-        "MPLBACKEND": "Agg",
-    }
+    env = utf8_env(
+        QUANTSPACE_DATA_ROOT=str(data_root),
+        QUANTSPACE_REPORTS_ROOT=str(reports),
+        MPLBACKEND="Agg",
+        **(extra_env or {}),
+    )
     return Work(directory, data_root, reports, env)
 
 
@@ -86,15 +93,15 @@ def qs(work: Work, *args: str, expect: int = 0) -> dict:
     The script writes exactly one JSON line to stdout; the exit code must equal ``expect``
     (0 by default, in which case ``ok`` must be true).
     """
-    script = Path(sys.executable).with_name("qs")
-    if not script.exists():
+    script = qs_script()
+    if script is None:
         pytest.skip("qs console script is not installed in this environment")
     completed = subprocess.run(
         [str(script), *args],
         cwd=work.dir,
         env=work.env,
         capture_output=True,
-        text=True,
+        **UTF8_TEXT,
         timeout=600,
     )
     label = " ".join(args[:3])
@@ -108,3 +115,23 @@ def qs(work: Work, *args: str, expect: int = 0) -> dict:
 
 def artifact_paths(envelope: dict) -> dict[str, Path]:
     return {item["name"]: Path(item["path"]) for item in envelope["artifacts"]}
+
+
+def run_module(work: Work, label: str, module: str, *args: str) -> subprocess.CompletedProcess:
+    """Run ``python -m module`` in the scratch directory with the throwaway roots.
+
+    The repository root is on PYTHONPATH (not the working directory), so every relative
+    output path a script writes lands in the scratch directory. Must exit 0.
+    """
+    started = time.perf_counter()
+    completed = subprocess.run(
+        [sys.executable, "-m", module, *args],
+        cwd=work.dir,
+        env=work.env,
+        capture_output=True,
+        **UTF8_TEXT,
+        timeout=1800,
+    )
+    TIMINGS[label] = time.perf_counter() - started
+    assert completed.returncode == 0, (label, completed.stdout[-1500:], completed.stderr[-3000:])
+    return completed

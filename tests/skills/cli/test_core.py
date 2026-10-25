@@ -225,7 +225,7 @@ def test_oversized_output_spills_to_a_file(monkeypatch, tmp_path, capsys):
     assert result["data"]["rows"]["count"] == 2000
     full = [item for item in result["artifacts"] if item["name"] == "full_output"]
     assert len(full) == 1 and Path(full[0]["path"]).parent == tmp_path / "qs-output"
-    assert json.loads(Path(full[0]["path"]).read_text())["data"]["rows"] == rows
+    assert json.loads(Path(full[0]["path"]).read_text(encoding="utf-8"))["data"]["rows"] == rows
     assert any("stdout budget" in warning for warning in result["warnings"])
 
 
@@ -429,7 +429,10 @@ def test_write_json_bytes_and_lines(tmp_path):
     from skills.cli.io import write_bytes, write_json, write_lines
 
     artifact = write_json({"x": float("nan"), "when": date(2024, 1, 2)}, tmp_path / "a.json")
-    assert json.loads((tmp_path / "a.json").read_text()) == {"x": None, "when": "2024-01-02"}
+    assert json.loads((tmp_path / "a.json").read_text(encoding="utf-8")) == {
+        "x": None,
+        "when": "2024-01-02",
+    }
     assert artifact.format == "json"
     png = write_bytes(b"\x89PNG", tmp_path / "c.png", name="chart")
     assert (png.name, png.format) == ("chart", "png")

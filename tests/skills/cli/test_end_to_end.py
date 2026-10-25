@@ -4,24 +4,29 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from tests.fixtures.console import UTF8_TEXT, qs_script, utf8_env
 from tests.fixtures.market_data import make_ohlcv, write_symbol_parquet
 
 SYMBOLS = ["SHSE.510300", "SHSE.510500", "SHSE.512100", "SZSE.159915"]
 
 
 def qs(cwd: Path, *args: str) -> dict:
-    script = Path(sys.executable).with_name("qs")
-    if not script.exists():
+    script = qs_script()
+    if script is None:
         pytest.skip("qs console script is not installed in this environment")
     completed = subprocess.run(
-        [str(script), *args], cwd=cwd, capture_output=True, text=True, timeout=180
+        [str(script), *args],
+        cwd=cwd,
+        env=utf8_env(),
+        capture_output=True,
+        timeout=180,
+        **UTF8_TEXT,
     )
     assert completed.stdout.count("\n") == 1, completed.stdout
     envelope = json.loads(completed.stdout)

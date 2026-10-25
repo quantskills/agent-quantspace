@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 from tests.smoke.conftest import COMBINE_HORIZON, DIRECTIONS, FACTORS, HORIZONS
-from tests.smoke.coverage import SKIPPED
+from tests.smoke.coverage import OPTIONAL_DEPENDENCY, SKIPPED
 from tests.smoke.runner import (
     ADJUSTED_SYMBOLS,
     INDEX_SYMBOL,
@@ -112,6 +112,22 @@ def test_store_validate_and_check_adjusted_pass_on_real_bars(work):
     )  # fmt: skip
     assert checked["data"]["issues"] == 0 and checked["data"]["missing"] == []
     assert artifact_paths(checked)["issues"].is_file()
+
+
+def test_store_query_runs_sql_over_the_copy(work):
+    module, reason = OPTIONAL_DEPENDENCY["store.query"]
+    pytest.importorskip(module, reason=reason)
+    sql = (
+        "SELECT count(*) AS n FROM read_parquet('{data}/market/1d/SHSE.510300.parquet') "
+        "WHERE close > $1"
+    )
+    result = qs(
+        work, "store", "query", "--sql", sql, "--params", "[0]", "--output", "query.parquet"
+    )
+    data = result["data"]
+    assert data["rows"] == 1 and data["columns"] == ["n"]
+    assert data["preview"][0]["n"] == KEEP_ROWS
+    assert read(artifact_paths(result)["query"])["n"].iloc[0] == KEEP_ROWS
 
 
 def test_store_import_round_trips_a_csv_exported_from_the_copy(work):
@@ -481,7 +497,9 @@ def test_analyze_preflight_and_evaluate_on_a_real_factor(work, panel):
     data = evaluated["data"]
     assert data["hard_failed"] is False and data["sections"]["predictive"] != "not_run"
     assert finite_numbers(data["metrics"])
-    assert json.loads(assert_file(artifact_paths(evaluated)["analyze_result"]).read_text())
+    assert json.loads(
+        assert_file(artifact_paths(evaluated)["analyze_result"]).read_text(encoding="utf-8")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -630,7 +648,9 @@ def test_factor_mining_contract_commands(work, panel):
     template = qs(
         work, "factor-mining", "template", "SplitWindow", "--output", "split_template.json"
     )
-    skeleton = json.loads(assert_file(artifact_paths(template)["template"]).read_text())
+    skeleton = json.loads(
+        assert_file(artifact_paths(template)["template"]).read_text(encoding="utf-8")
+    )
     # Fill the skeleton with the real sample dates of the copy.
     dates = pd.read_parquet(panel["path"]).index.get_level_values("eob")
     contract = {
@@ -747,12 +767,12 @@ def test_report_bundle_list_and_catalog(work, backtest_run, panel):
     study = Path(bundle["data"]["study_dir"])
     assert study.resolve().is_relative_to(work.reports_root.resolve())
     assert "index.html" in bundle["data"]["files"] and assert_file(study / "index.html")
-    assert json.loads((study / "params.json").read_text())["metrics"] == metrics
+    assert json.loads((study / "params.json").read_text(encoding="utf-8"))["metrics"] == metrics
     listing = qs(work, "report", "list", "--reports-root", str(work.reports_root))
     assert listing["data"]["count"] == 1 and listing["data"]["studies"][0]["slug"] == "etf_top3"
     catalog = qs(work, "report", "catalog", "--reports-root", str(work.reports_root))
     assert assert_file(work.reports_root / "catalog.html")
-    assert len(json.loads((work.reports_root / "catalog.json").read_text())) == 1
+    assert len(json.loads((work.reports_root / "catalog.json").read_text(encoding="utf-8"))) == 1
     assert catalog["ok"]
 
 
