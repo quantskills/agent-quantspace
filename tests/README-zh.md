@@ -15,6 +15,7 @@ tests/contracts/       public API 和数据契约测试
 tests/regression/      确定性行为回归测试
 tests/docs/            文档示例 smoke test
 tests/policy/          测试目录和工作区规则测试
+tests/smoke/           基于本地真实数据的 qs 冒烟测试（可选，见“冒烟测试”）
 tests/fixtures/        确定性 fixture builder
 ```
 
@@ -47,6 +48,23 @@ uv run python -m pytest tests/contracts tests/regression tests/docs -q
 
 不要新增根目录级 `tests/test_*.py` 文件。新增测试应放到匹配的源码边界目录下。
 
+## 冒烟测试
+
+`tests/smoke/` 以子进程方式运行已安装的 `qs` 脚本，在本地真实行情数据上覆盖全部不联网命令。
+它默认不运行：默认测试会把它们报告为 skipped，只有 `-m` 表达式包含 `smoke` 才会启用。
+
+```bash
+uv run python -m pytest -m smoke -rs -q
+```
+
+- 需要本地真实数据目录（`QUANTSPACE_DATA_ROOT`，否则为仓库 `data/`），并包含
+  `tests/smoke/runner.py` 中列出的 ETF 行情；缺文件时跳过并列出缺失文件。
+- 绝不写入真实数据目录。会话 fixture 把所需文件裁剪到最近若干行后复制到临时目录，所有命令都对副本运行；
+  运行前后还会比对源文件的路径、大小和修改时间。
+- 断言只做合理性检查（退出码、产物非空、关键数值有限、权重不超预算），不对真实数据做等值断言。
+- 没有合适本地输入的命令在 `tests/smoke/coverage.py` 中写明跳过原因。默认测试里有一道守卫：
+  某个不联网命令既没有冒烟步骤、也没有列入该清单时，默认测试会失败。
+
 ## 范围
 
-测试应使用合成数据或内存数据。不要添加依赖私有数据、凭证、私有策略域或外部服务的测试。
+测试应使用合成数据或内存数据（可选的冒烟测试除外）。不要添加依赖私有数据、凭证、私有策略域或外部服务的测试。
