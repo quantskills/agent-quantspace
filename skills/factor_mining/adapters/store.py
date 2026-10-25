@@ -28,6 +28,33 @@ from skills.store.data_manager import DataManager
 
 _SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
+# Characters Windows forbids in file names, plus ``%`` (the escape introducer) and ASCII
+# control characters. Escaping is the same on every platform so artifacts are portable.
+_ESCAPED_CHARS = frozenset('<>:"/\\|?*%') | frozenset(chr(code) for code in range(32)) | {"\x7f"}
+_ESCAPE_TOKEN = re.compile(r"%([0-9A-F]{2})")
+
+
+def escape_file_name(value: str) -> str:
+    """Map a logical key to a file/directory name that is valid on every platform.
+
+    Each forbidden character becomes ``%XX`` (UTF-8 bytes, upper-case hex); ``%`` itself
+    becomes ``%25``, which makes the mapping injective and reversible. A trailing ``.`` or
+    space, which Windows silently strips, is escaped the same way. Names that need no
+    escaping are returned unchanged, so ordinary ids keep their historical file names.
+    """
+    text = "".join(
+        "".join(f"%{byte:02X}" for byte in char.encode("utf-8")) if char in _ESCAPED_CHARS else char
+        for char in value
+    )
+    if text and text[-1] in ". ":
+        text = f"{text[:-1]}%{ord(text[-1]):02X}"
+    return text
+
+
+def unescape_file_name(name: str) -> str:
+    """Inverse of :func:`escape_file_name`; legacy raw names (no ``%``) decode to themselves."""
+    return _ESCAPE_TOKEN.sub(lambda match: chr(int(match.group(1), 16)), name)
+
 
 class ArtifactStoreAdapterError(Exception):
     def __init__(self, code: FailureCode, message: str) -> None:
@@ -131,7 +158,7 @@ class DataManagerArtifactStore:
             # Exclusive create in the validated directory; never open a
             # predictable caller-planted ``*.json.tmp`` symlink.
             fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{artifact_id}.",
+                prefix=f".{escape_file_name(artifact_id)}.",
                 suffix=".json.tmp",
                 dir=str(path.parent),
             )
@@ -156,7 +183,7 @@ class DataManagerArtifactStore:
                 artifact_id=artifact_id,
                 namespace=namespace,
                 content_hash=digest,
-                uri=str(path.relative_to(self._dm.root)),
+                uri=path.relative_to(self._dm.root).as_posix(),
             )
         except ArtifactStoreAdapterError:
             raise
@@ -224,21 +251,22 @@ class DataManagerArtifactStore:
         self._assert_path_contained(path.parent, namespace)
         payload_text = canonical_json(body)
 
-        # Fast path: final already published.
-        if path.exists() and not path.is_symlink():
-            return self._put_if_absent_existing(
-                path=path,
-                namespace=namespace,
-                kind=kind,
-                artifact_id=artifact_id,
-                digest=digest,
-            )
+        # Fast path: final already published, under the escaped or a legacy raw name.
+        for candidate in self._artifact_paths(namespace, kind, artifact_id):
+            if candidate.exists() and not candidate.is_symlink():
+                return self._put_if_absent_existing(
+                    path=candidate,
+                    namespace=namespace,
+                    kind=kind,
+                    artifact_id=artifact_id,
+                    digest=digest,
+                )
 
         tmp_path: Path | None = None
         fd: int | None = None
         try:
             fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{artifact_id}.",
+                prefix=f".{escape_file_name(artifact_id)}.",
                 suffix=".json.tmp",
                 dir=str(path.parent),
             )
@@ -306,7 +334,7 @@ class DataManagerArtifactStore:
                 artifact_id=artifact_id,
                 namespace=namespace,
                 content_hash=digest,
-                uri=str(path.relative_to(self._dm.root)),
+                uri=path.relative_to(self._dm.root).as_posix(),
             ),
             created=True,
         )
@@ -344,7 +372,7 @@ class DataManagerArtifactStore:
                     artifact_id=artifact_id,
                     namespace=namespace,
                     content_hash=existing_digest,
-                    uri=str(path.relative_to(self._dm.root)),
+                    uri=path.relative_to(self._dm.root).as_posix(),
                 ),
                 created=False,
             )
@@ -380,7 +408,7 @@ class DataManagerArtifactStore:
         kind = _safe_segment(kind, label="kind")
         artifact_id = _safe_segment(artifact_id, label="artifact_id")
         self._assert_namespace_contained(namespace)
-        path = self._artifact_path(namespace, kind, artifact_id)
+        path = self._existing_artifact_path(namespace, kind, artifact_id)
         self._assert_path_contained(path, namespace)
         if not path.exists():
             raise ArtifactStoreAdapterError(
@@ -395,7 +423,7 @@ class DataManagerArtifactStore:
             namespace=namespace,
             content_hash=digest,
             schema_version=str(body.get("schema_version", SCHEMA_VERSION)),
-            uri=str(path.relative_to(self._dm.root)),
+            uri=path.relative_to(self._dm.root).as_posix(),
         )
         return self.get_envelope(ref)
 
@@ -430,7 +458,7 @@ class DataManagerArtifactStore:
         kind = _safe_segment(ref.kind, label="kind")
         artifact_id = _safe_segment(ref.artifact_id, label="artifact_id")
         self._assert_namespace_contained(namespace)
-        path = self._artifact_path(namespace, kind, artifact_id)
+        path = self._existing_artifact_path(namespace, kind, artifact_id)
         self._assert_path_contained(path, namespace)
         if not path.exists():
             raise ArtifactStoreAdapterError(
@@ -494,7 +522,7 @@ class DataManagerArtifactStore:
     def get_envelope(self, ref: ArtifactRef) -> Mapping[str, Any]:
         """Return verified envelope including payload + meta (sealed capability)."""
         _ = self.get(ref)  # verify hash/identity
-        path = self._artifact_path(ref.namespace, ref.kind, ref.artifact_id)
+        path = self._existing_artifact_path(ref.namespace, ref.kind, ref.artifact_id)
         body = self._read_body(path, namespace=ref.namespace)
         return body
 
@@ -514,7 +542,7 @@ class DataManagerArtifactStore:
         kind = _safe_segment(kind, label="kind")
         artifact_id = _safe_segment(artifact_id, label="artifact_id")
         self._assert_namespace_contained(namespace)
-        path = self._artifact_path(namespace, kind, artifact_id)
+        path = self._existing_artifact_path(namespace, kind, artifact_id)
         self._assert_path_contained(path, namespace)
         if not path.exists():
             raise ArtifactStoreAdapterError(
@@ -559,7 +587,7 @@ class DataManagerArtifactStore:
             namespace=namespace,
             content_hash=digest,
             schema_version=str(body.get("schema_version", SCHEMA_VERSION)),
-            uri=str(path.relative_to(self._dm.root)),
+            uri=path.relative_to(self._dm.root).as_posix(),
         )
         return self.get(ref)
 
@@ -571,23 +599,24 @@ class DataManagerArtifactStore:
         artifact_id: str,
     ) -> Mapping[str, Any]:
         """Alias for ``get_by_identity`` (controller recovery hook)."""
-        return self.get_by_identity(
-            namespace=namespace, kind=kind, artifact_id=artifact_id
-        )
+        return self.get_by_identity(namespace=namespace, kind=kind, artifact_id=artifact_id)
 
     def list_artifact_ids(self, *, namespace: str, kind: str) -> list[str]:
         """List artifact ids under namespace/kind (no payload load)."""
         namespace = _safe_segment(namespace, label="namespace")
         kind = _safe_segment(kind, label="kind")
         self._assert_namespace_contained(namespace)
-        directory = self._artifact_path(namespace, kind, "_").parent
-        self._assert_path_contained(directory, namespace)
-        if not directory.is_dir():
-            return []
-        ids: list[str] = []
-        for path in directory.iterdir():
-            if path.is_file() and path.suffix == ".json":
-                ids.append(path.stem)
+        ids: set[str] = set()
+        for directory in dict.fromkeys(
+            path.parent for path in self._artifact_paths(namespace, kind, "_")
+        ):
+            self._assert_path_contained(directory, namespace)
+            if not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if path.is_file() and path.suffix == ".json":
+                    # Escaped names decode to the key; legacy raw names decode to themselves.
+                    ids.add(unescape_file_name(path.stem))
         return sorted(ids)
 
     def exists(self, ref: ArtifactRef) -> bool:
@@ -608,6 +637,7 @@ class DataManagerArtifactStore:
         namespace = _safe_segment(namespace, label="namespace")
         cache_key = _safe_segment(cache_key, label="cache_key")
         self._assert_namespace_contained(namespace)
+        namespace_dir, cache_file_key = escape_file_name(namespace), escape_file_name(cache_key)
         if not isinstance(values.index, pd.MultiIndex):
             raise ArtifactStoreAdapterError(
                 FailureCode.INVALID_OUTPUT_TYPE,
@@ -625,15 +655,13 @@ class DataManagerArtifactStore:
                 ["symbol" if n == "symbol" else "eob" for n in names]
             )
         pivot = working.unstack("symbol").sort_index()
-        filename = self._dm.factor_filename(
-            "factor_mining_cache", {"cache_key": cache_key}
-        )
-        path = self._dm.root / "factors" / namespace / filename
+        filename = self._dm.factor_filename("factor_mining_cache", {"cache_key": cache_file_key})
+        path = self._dm.root / "factors" / namespace_dir / filename
         self._assert_path_contained(path, namespace)
         self._dm.save_factor(
-            namespace=namespace,
+            namespace=namespace_dir,
             func_name="factor_mining_cache",
-            params={"cache_key": cache_key},
+            params={"cache_key": cache_file_key},
             pivot_df=pivot,
         )
         self._assert_path_contained(path, namespace)
@@ -643,26 +671,62 @@ class DataManagerArtifactStore:
         namespace = _safe_segment(namespace, label="namespace")
         cache_key = _safe_segment(cache_key, label="cache_key")
         self._assert_namespace_contained(namespace)
-        filename = self._dm.factor_filename(
-            "factor_mining_cache", {"cache_key": cache_key}
+        # Escaped names first, then the legacy raw names written before escaping existed.
+        names = dict.fromkeys(
+            [
+                (escape_file_name(namespace), escape_file_name(cache_key)),
+                (namespace, cache_key),
+            ]
         )
-        path = self._dm.root / "factors" / namespace / filename
-        self._assert_path_contained(path, namespace)
-        return self._dm.read_factor(
-            namespace=namespace,
-            func_name="factor_mining_cache",
-            params={"cache_key": cache_key},
-        )
+        for namespace_dir, cache_file_key in names:
+            filename = self._dm.factor_filename(
+                "factor_mining_cache", {"cache_key": cache_file_key}
+            )
+            path = self._dm.root / "factors" / namespace_dir / filename
+            self._assert_path_contained(path, namespace)
+            frame = self._dm.read_factor(
+                namespace=namespace_dir,
+                func_name="factor_mining_cache",
+                params={"cache_key": cache_file_key},
+            )
+            if frame is not None:
+                return frame
+        return None
 
     def _artifact_path(self, namespace: str, kind: str, artifact_id: str) -> Path:
+        """Path a new artifact is written to: every key part escaped for any file system."""
         return (
             self._dm.root
             / "factors"
-            / namespace
+            / escape_file_name(namespace)
             / "artifacts"
-            / kind
-            / f"{artifact_id}.json"
+            / escape_file_name(kind)
+            / f"{escape_file_name(artifact_id)}.json"
         )
+
+    def _legacy_artifact_path(self, namespace: str, kind: str, artifact_id: str) -> Path:
+        """Raw-named path used before escaping existed (e.g. ``exec-1:values.json``)."""
+        return self._dm.root / "factors" / namespace / "artifacts" / kind / f"{artifact_id}.json"
+
+    def _artifact_paths(self, namespace: str, kind: str, artifact_id: str) -> list[Path]:
+        """Lookup candidates: the escaped path first, then the legacy raw path if different."""
+        escaped = self._artifact_path(namespace, kind, artifact_id)
+        legacy = self._legacy_artifact_path(namespace, kind, artifact_id)
+        return [escaped] if legacy == escaped else [escaped, legacy]
+
+    def _existing_artifact_path(self, namespace: str, kind: str, artifact_id: str) -> Path:
+        """The first existing candidate, else the escaped path (which then does not exist)."""
+        candidates = self._artifact_paths(namespace, kind, artifact_id)
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
+
+    def _namespace_dirs(self, namespace: str) -> list[Path]:
+        """Escaped namespace directory, then the legacy raw one if it differs."""
+        escaped = self._dm.root / "factors" / escape_file_name(namespace)
+        legacy = self._dm.root / "factors" / namespace
+        return [escaped] if legacy == escaped else [escaped, legacy]
 
     def _factors_root(self) -> Path:
         return (self._dm.root / "factors").resolve()
@@ -678,29 +742,35 @@ class DataManagerArtifactStore:
                 FailureCode.ARTIFACT_PERSIST_FAILED,
                 "factors root escaped data root",
             ) from exc
-        ns_dir = self._dm.root / "factors" / namespace
-        if ns_dir.exists() or ns_dir.is_symlink():
-            resolved_ns = ns_dir.resolve()
-            try:
-                resolved_ns.relative_to(factors_root)
-            except ValueError as exc:
-                raise ArtifactStoreAdapterError(
-                    FailureCode.ARTIFACT_PERSIST_FAILED,
-                    "namespace escapes factors root",
-                ) from exc
+        for ns_dir in self._namespace_dirs(namespace):
+            if ns_dir.exists() or ns_dir.is_symlink():
+                resolved_ns = ns_dir.resolve()
+                try:
+                    resolved_ns.relative_to(factors_root)
+                except ValueError as exc:
+                    raise ArtifactStoreAdapterError(
+                        FailureCode.ARTIFACT_PERSIST_FAILED,
+                        "namespace escapes factors root",
+                    ) from exc
 
     def _assert_path_contained(self, path: Path, namespace: str) -> None:
         """Require logical and resolved targets to stay under data/factors."""
         self._assert_namespace_contained(namespace)
         factors_root = self._factors_root()
-        logical_ns = self._dm.root / "factors" / namespace
-        try:
-            relative = path.relative_to(logical_ns)
-        except ValueError as exc:
+        logical_ns = next(
+            (
+                directory
+                for directory in self._namespace_dirs(namespace)
+                if path == directory or directory in path.parents
+            ),
+            None,
+        )
+        if logical_ns is None:
             raise ArtifactStoreAdapterError(
                 FailureCode.ARTIFACT_PERSIST_FAILED,
                 "path is outside factors namespace",
-            ) from exc
+            )
+        relative = path.relative_to(logical_ns)
         # Walk only under the namespace so nested symlinks are caught without
         # incorrectly rejecting ordinary parents above data/factors.
         cursor = logical_ns
