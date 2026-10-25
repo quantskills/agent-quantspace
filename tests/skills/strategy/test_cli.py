@@ -251,6 +251,143 @@ def test_combine_dynamic_methods_read_ic_and_correlation_history(factors, tmp_pa
     _assert_result(out, expected)
 
 
+def _tidy_daily_ic(dates, rng, horizons=(1, 5), lags=(0, 2)):
+    """A tidy table shaped like the daily_ic that `qs analyze ic-surface` writes."""
+    rows = [
+        pd.DataFrame(
+            {
+                "factor": name,
+                "horizon": horizon,
+                "lag": lag,
+                "eob": dates,
+                "ic": rng.normal(0.02 + 0.01 * horizon, 0.1, len(dates)),
+            }
+        )
+        for horizon in horizons
+        for lag in lags
+        for name in ("mom", "rev")
+    ]
+    return pd.concat(rows, ignore_index=True)
+
+
+def _combine_argv(paths, out, *extra):
+    return [
+        *["strategy", "combine", "--factors", f"mom={paths['mom']}"],
+        *["--factors", f"rev={paths['rev']}", "--directions", '{"mom": 1, "rev": 1}'],
+        *["--method", "max_icir", "--availability-delay", "2", "--lookback", "60"],
+        *["--min-periods", "20", "--max-weight", "1", "--out-dir", str(out), *extra],
+    ]
+
+
+@pytest.fixture
+def histories(factors, tmp_path):
+    frames, paths = factors
+    dates = frames["mom"].index
+    rng = np.random.default_rng(3)
+    tidy = _tidy_daily_ic(dates, rng)
+    tidy_path, wide_path = tmp_path / "daily_ic.parquet", tmp_path / "wide_ic.parquet"
+    tidy.to_parquet(tidy_path)
+    chosen = tidy[(tidy["horizon"] == 5) & (tidy["lag"] == 2)]
+    wide = chosen.pivot(index="eob", columns="factor", values="ic")
+    wide.to_parquet(wide_path)
+    correlations = pd.DataFrame(
+        {
+            "eob": dates,
+            "factor_a": "mom",
+            "factor_b": "rev",
+            "correlation": rng.uniform(-0.3, 0.3, len(dates)),
+        }
+    )
+    corr_path = tmp_path / "corr.parquet"
+    correlations.to_parquet(corr_path)
+    return tidy, tidy_path, wide, wide_path, correlations, corr_path
+
+
+def test_combine_tidy_daily_ic_equals_the_wide_table_run(factors, histories, tmp_path, capsys):
+    from skills.strategy.cross_sectional import DynamicFactorWeightConfig, combine_factor_scores
+
+    frames, paths = factors
+    tidy, tidy_path, wide, wide_path, correlations, corr_path = histories
+    common = ["--correlation-history", str(corr_path)]
+    code, result = invoke(
+        capsys,
+        *_combine_argv(paths, tmp_path / "wide", "--ic-history", str(wide_path), *common),
+    )
+    assert code == 0, result
+    code, result = invoke(
+        capsys,
+        *_combine_argv(
+            paths,
+            tmp_path / "tidy",
+            *["--ic-history", str(tidy_path), "--ic-horizon", "5", "--ic-lag", "2", *common],
+        ),
+    )
+    assert code == 0, result
+    expected = combine_factor_scores(
+        frames,
+        method="max_icir",
+        directions={"mom": 1, "rev": 1},
+        ic_history=wide,
+        correlation_history=correlations,
+        dynamic_config=DynamicFactorWeightConfig(
+            availability_delay=2, lookback=60, min_periods=20, max_weight=1.0
+        ),
+    )
+    _assert_result(tmp_path / "tidy", expected)
+    for name in ("factor_weights", "composite_scores", "target_weights"):
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(tmp_path / "tidy" / f"{name}.parquet"),
+            pd.read_parquet(tmp_path / "wide" / f"{name}.parquet"),
+        )
+    # The lag filter matters: lag 0 is a different IC history, hence different weights.
+    code, result = invoke(
+        capsys,
+        *_combine_argv(
+            paths,
+            tmp_path / "lag0",
+            *["--ic-history", str(tidy_path), "--ic-horizon", "5", *common],
+        ),
+    )
+    assert code == 0, result
+    assert not pd.read_parquet(tmp_path / "lag0" / "factor_weights.parquet").equals(
+        expected.factor_weights
+    )
+
+
+def test_combine_tidy_daily_ic_input_errors(factors, histories, tmp_path, capsys):
+    _, paths = factors
+    tidy, tidy_path, wide, wide_path, _, corr_path = histories
+    out = tmp_path / "never"
+    common = ["--correlation-history", str(corr_path)]
+
+    def failing(*extra, ic_history=tidy_path):
+        code, result = invoke(
+            capsys, *_combine_argv(paths, out, "--ic-history", str(ic_history), *common, *extra)
+        )
+        assert code == 2 and result["error"]["code"] == "INVALID_INPUT", result
+        assert not out.exists()
+        return result["error"]["message"]
+
+    assert "[1, 5]" in failing()  # tidy input without --ic-horizon lists the horizons
+    message = failing("--ic-horizon", "7")
+    assert "horizon=7" in message and "(1, 0)" in message and "(5, 2)" in message
+    assert "wide table" in failing("--ic-horizon", "5", ic_history=wide_path)
+    assert "wide table" in failing("--ic-lag", "2", ic_history=wide_path)
+    duplicated = tmp_path / "dup.parquet"
+    pd.concat([tidy, tidy.iloc[[0]]], ignore_index=True).to_parquet(duplicated)
+    assert "duplicated" in failing("--ic-horizon", "1", ic_history=duplicated)
+    partial = tmp_path / "partial.parquet"
+    tidy[tidy["factor"] == "mom"].to_parquet(partial)
+    assert "rev" in failing("--ic-horizon", "1", ic_history=partial)
+    code, result = invoke(
+        capsys,
+        *["strategy", "combine", "--factors", f"mom={paths['mom']}", "--directions", '{"mom": 1}'],
+        *["--method", "equal_rank", "--ic-horizon", "5", "--out-dir", str(out)],
+    )
+    assert code == 2 and "ic_horizon requires ic_history" in json.dumps(result["error"])
+    assert not out.exists()
+
+
 def test_combine_dynamic_method_requires_availability_delay(factors, tmp_path, capsys):
     _, paths = factors
     code, result = invoke(
@@ -386,3 +523,95 @@ def test_cs_run_validates_before_running(panel_path, tmp_path, capsys):
     config_path.write_text(json.dumps(unknown))
     code, result = invoke(capsys, "strategy", "cs-run", "--input-json", str(config_path))
     assert code == 2 and "Unknown indicator" in result["error"]["message"]
+
+
+def test_cli_chain_mirrors_the_lesson06_dynamic_weight_flow(panel, panel_path, tmp_path, capsys):
+    """ic-surface -> factor-correlation -> combine, all on direction-oriented factors."""
+    from skills.analyze.factor_information import (
+        compute_ic_information_surface,
+        rolling_factor_rank_correlation,
+    )
+    from skills.strategy.cross_sectional import DynamicFactorWeightConfig, combine_factor_scores
+    from skills.strategy.cross_sectional.factor_combination import (
+        orient_factor_frames,
+        rank_factor_frames,
+    )
+
+    close = panel["close"].unstack("symbol").sort_index()
+    raw = {
+        "mom": close.pct_change(10, fill_method=None),
+        "rev": close.pct_change(3, fill_method=None),
+        "vol": close.pct_change(fill_method=None).rolling(10).std(),
+    }
+    directions = {"mom": 1, "rev": -1, "vol": -1}
+    paths = {}
+    for name, frame in raw.items():
+        paths[name] = tmp_path / f"{name}.parquet"
+        frame.to_parquet(paths[name])
+    factor_args = [item for name, path in paths.items() for item in ("--factors", f"{name}={path}")]
+    horizon, signal_lag = 5, 1
+    ic_dir, corr_dir, out = tmp_path / "ic", tmp_path / "corr", tmp_path / "combined"
+
+    code, result = invoke(
+        capsys,
+        *["analyze", "ic-surface", "--panel", str(panel_path), *factor_args],
+        *["--directions", json.dumps(directions), "--horizons", str(horizon)],
+        *["--signal-lag", str(signal_lag), "--min-cross-section", "3", "--out-dir", str(ic_dir)],
+    )
+    assert code == 0, result
+    code, result = invoke(
+        capsys,
+        *["analyze", "factor-correlation", *factor_args, "--directions", json.dumps(directions)],
+        *["--window", "40", "--min-periods", "20", "--out-dir", str(corr_dir)],
+    )
+    assert code == 0, result
+    code, result = invoke(
+        capsys,
+        *["strategy", "combine", *factor_args, "--directions", json.dumps(directions)],
+        *["--method", "max_ic", "--top-n", "2", "--max-weight", "0.6"],
+        *["--ic-history", str(ic_dir / "daily_ic.parquet"), "--ic-horizon", str(horizon)],
+        *["--correlation-history", str(corr_dir / "correlation_history.parquet")],
+        *["--availability-delay", str(signal_lag + horizon), "--lookback", "60"],
+        *["--min-periods", "20", "--out-dir", str(out)],
+    )
+    assert code == 0, result
+
+    oriented = orient_factor_frames(raw, directions)
+    daily_ic = compute_ic_information_surface(
+        oriented, close, horizons=[horizon], lags=[0], signal_lag=signal_lag, min_cross_section=3
+    ).daily_ic
+    ic_history = daily_ic.pivot(index="eob", columns="factor", values="ic")
+    config = DynamicFactorWeightConfig(
+        availability_delay=signal_lag + horizon, lookback=60, min_periods=20, max_weight=0.6
+    )
+    expected = combine_factor_scores(
+        raw,
+        method="max_ic",
+        directions=directions,
+        top_n=2,
+        ic_history=ic_history,
+        correlation_history=rolling_factor_rank_correlation(
+            rank_factor_frames(oriented), window=40, min_periods=20
+        ),
+        dynamic_config=config,
+    )
+    _assert_result(out, expected)
+    # The weights are genuinely dynamic, not the equal-weight fallback.
+    weights = expected.factor_weights
+    assert weights.iloc[-1].nunique() > 1 and weights.nunique().max() > 2
+    # Feeding IC computed on the raw (unoriented) factors would give a different answer.
+    raw_ic = compute_ic_information_surface(
+        raw, close, horizons=[horizon], lags=[0], signal_lag=signal_lag, min_cross_section=3
+    ).daily_ic.pivot(index="eob", columns="factor", values="ic")
+    misoriented = combine_factor_scores(
+        raw,
+        method="max_ic",
+        directions=directions,
+        top_n=2,
+        ic_history=raw_ic,
+        correlation_history=rolling_factor_rank_correlation(
+            rank_factor_frames(oriented), window=40, min_periods=20
+        ),
+        dynamic_config=config,
+    )
+    assert not misoriented.factor_weights.equals(expected.factor_weights)

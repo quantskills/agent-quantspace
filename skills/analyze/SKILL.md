@@ -236,6 +236,9 @@ Shared parameters: `PanelSource`.
 | `--groups` | `integer` / `5` | Number of factor quantile groups g. |
 | `--pearson` | `boolean` / `false` | Use Pearson IC instead of rank IC. |
 | `--out-dir` | `path?` / `null` | Optional directory for ic_series, group_return and turnover Parquet files. |
+| `--tearsheet` | `path?` / `null` | Optional .png path for the 4-panel factor tearsheet (generate_factor_tearsheet). |
+| `--name` | `string?` / `null` | Factor label on the tearsheet; defaults to the --factor file stem. |
+| `--namespace` | `string` / `-` | Namespace label printed in the tearsheet title. |
 | `--overwrite` | `boolean` / `false` | Replace existing output files. |
 
 Output data fields: `ic_stats`, `group_mean_return`, `ic_rows`, `group_rows`, `turnover_rows`.
@@ -257,6 +260,7 @@ Shared parameters: `PanelSource`.
 | `--horizons` | `list[integer]` / `required` | Forward return horizons in bars. |
 | `--lags` | `list[integer]` / `factory` | Extra signal-use delays in bars; 0 is Horizon IC. |
 | `--signal-lag` | `integer` / `1` | Bars between signal and execution. |
+| `--directions` | `object?` / `null` | Optional direction (1 or -1) for every factor; the factors are oriented with orient_factor_frames before the IC is computed. Pass the same directions as strategy combine when the daily_ic feeds combine --ic-history. |
 | `--segments` | `object?` / `null` | Named [start, end] summary windows, e.g. {"is": ["2015-01-01", "2019-12-31"]}; null bounds are open. Omitted means one "full" segment. |
 | `--min-cross-section` | `integer` / `6` | Minimum symbols per date for an IC observation. |
 | `--out-dir` | `path?` / `null` | Optional directory for summary and daily_ic Parquet files. |
@@ -265,6 +269,28 @@ Shared parameters: `PanelSource`.
 Output data fields: `summary`, `daily_rows`.
 
 Inspect schemas: `uv run qs schema analyze.ic-surface` (add `--part input|output` or `--file-field FIELD`).
+
+### `uv run qs analyze factor-correlation`
+
+Factor rank-correlation, Top-N overlap and rolling correlation history.
+
+Priority: P1. Side effects: read-only, writes-output.
+
+| Option | Type / default | Description |
+|---|---|---|
+| `--factors` | `object` / `required` | Wide factor tables (date by symbol) by name, at least two, e.g. mom=mom.parquet. |
+| `--directions` | `object?` / `null` | Optional direction (1 or -1) for every factor; the factors are oriented with orient_factor_frames before ranking. Pass the same directions as strategy combine when feeding combine. |
+| `--segments` | `object?` / `null` | Named [start, end] summary windows, e.g. {"is": ["2015-01-01", "2019-12-31"]}; null bounds are open. Omitted means one "full" segment. Names are safe path segments (letters, digits, underscore, hyphen). |
+| `--window` | `integer` / `252` | Rolling correlation window in bars. |
+| `--min-periods` | `integer` / `126` | Minimum observations in the rolling window. |
+| `--top-n` | `integer` / `3` | Names per date in the Top-N overlap. |
+| `--out-dir` | `path?` / `null` | Optional directory for correlation_<segment>, top_n_overlap_<segment> and correlation_history Parquet files; correlation_history feeds strategy combine --correlation-history. |
+| `--data-root` | `path?` / `null` | Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/. |
+| `--overwrite` | `boolean` / `false` | Replace existing output files. |
+
+Output data fields: `pairs`, `correlation`, `top_n_overlap`, `history_rows`.
+
+Inspect schemas: `uv run qs schema analyze.factor-correlation` (add `--part input|output` or `--file-field FIELD`).
 
 ### `uv run qs analyze perf`
 

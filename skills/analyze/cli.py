@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -16,13 +18,16 @@ from skills.cli.io import (
     read_frame,
     read_json,
     read_panel,
+    write_bytes,
     write_frame,
     write_json,
 )
-from skills.cli.models import CLIModel, CommandResult, PanelSource
+from skills.cli.models import CLIError, CLIModel, CommandResult, PanelSource
 from skills.cli.registry import Command
 
 RegimeMasksFile = dict[str, Path]
+
+SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _has_nonfinite(value) -> bool:
@@ -50,6 +55,16 @@ def _column(path: Path, column: str):
     return frame[column]
 
 
+def _read_factors(paths: Mapping[str, Path], directions: Mapping[str, int] | None = None):
+    """Read wide factor tables, oriented by `directions` when given."""
+    frames = {name: read_frame(path) for name, path in paths.items()}
+    if directions is None:
+        return frames
+    from skills.strategy.cross_sectional.factor_combination import orient_factor_frames
+
+    return orient_factor_frames(frames, directions)
+
+
 def _value_series(path: Path, names=("fac_val", "value")):
     """Return the single value column of a long (symbol, eob) table."""
     frame = read_panel(path)
@@ -72,6 +87,18 @@ class ICInput(PanelSource):
         default=None,
         description="Optional directory for ic_series, group_return and turnover Parquet files.",
     )
+    tearsheet: Path | None = Field(
+        default=None,
+        description="Optional .png path for the 4-panel factor tearsheet "
+        "(generate_factor_tearsheet).",
+    )
+    name: str | None = Field(
+        default=None,
+        description="Factor label on the tearsheet; defaults to the --factor file stem.",
+    )
+    namespace: str = Field(
+        default="-", description="Namespace label printed in the tearsheet title."
+    )
     overwrite: bool = Field(default=False, description="Replace existing output files.")
 
 
@@ -88,12 +115,31 @@ class ICData(BaseModel):
     turnover_rows: int = Field(description="Number of turnover dates.")
 
 
+def _tearsheet_png(args, ic, groups, turnover, stats) -> bytes:
+    from skills.analyze.tearsheet import generate_factor_tearsheet
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = generate_factor_tearsheet(
+            factor_id=args.name or args.factor.stem,
+            namespace=args.namespace,
+            ic_series=ic,
+            group_return=groups,
+            turnover=turnover,
+            ic_stat=stats,
+            n=args.horizon,
+            output_dir=directory,
+        )
+        return Path(path).read_bytes()
+
+
 def factor_ic(args: ICInput) -> CommandResult:
     from skills.analyze.factor_analysis import full_stat
 
     names = ("ic_series", "group_return", "turnover")
     paths = {name: args.out_dir / f"{name}.parquet" for name in names} if args.out_dir else {}
-    for path in paths.values():
+    if args.tearsheet is not None and args.tearsheet.suffix.lower() != ".png":
+        raise CLIError("INVALID_INPUT", f"tearsheet must be a .png file: {args.tearsheet}")
+    for path in [*paths.values(), *([args.tearsheet] if args.tearsheet else [])]:
         check_output(path, overwrite=args.overwrite, data_root=args.data_root)
     panel = load_panel(args)
     if "close" not in panel:
@@ -112,6 +158,16 @@ def factor_ic(args: ICInput) -> CommandResult:
         )
         for name, path in paths.items()
     ]
+    if args.tearsheet is not None:
+        artifacts.append(
+            write_bytes(
+                _tearsheet_png(args, ic, groups, turnover, stats),
+                args.tearsheet,
+                overwrite=args.overwrite,
+                data_root=args.data_root,
+                name="tearsheet",
+            )
+        )
     stats = json_safe(stats)
     means = json_safe(groups.mean().to_dict())
     return CommandResult(
@@ -139,6 +195,12 @@ class ICSurfaceInput(PanelSource):
         default_factory=lambda: [0], description="Extra signal-use delays in bars; 0 is Horizon IC."
     )
     signal_lag: int = Field(default=1, ge=0, description="Bars between signal and execution.")
+    directions: dict[str, int] | None = Field(
+        default=None,
+        description="Optional direction (1 or -1) for every factor; the factors are oriented "
+        "with orient_factor_frames before the IC is computed. Pass the same directions as "
+        "strategy combine when the daily_ic feeds combine --ic-history.",
+    )
     segments: dict[str, tuple[str | None, str | None]] | None = Field(
         default=None,
         description='Named [start, end] summary windows, e.g. {"is": ["2015-01-01", '
@@ -176,7 +238,7 @@ def ic_surface(args: ICSurfaceInput) -> CommandResult:
     if args.price_field not in panel:
         raise ValueError(f"panel requires {args.price_field!r} column")
     result = compute_ic_information_surface(
-        {name: read_frame(path) for name, path in args.factors.items()},
+        _read_factors(args.factors, args.directions),
         panel[args.price_field].unstack("symbol").sort_index(),
         horizons=args.horizons,
         lags=args.lags,
@@ -196,6 +258,143 @@ def ic_surface(args: ICSurfaceInput) -> CommandResult:
         data=ICSurfaceData(summary=summary, daily_rows=len(result.daily_ic)),
         artifacts=artifacts,
         warnings=_warnings(summary),
+    )
+
+
+class FactorCorrelationInput(CLIModel):
+    factors: dict[str, Path] = Field(
+        description="Wide factor tables (date by symbol) by name, at least two, "
+        "e.g. mom=mom.parquet."
+    )
+    directions: dict[str, int] | None = Field(
+        default=None,
+        description="Optional direction (1 or -1) for every factor; the factors are oriented "
+        "with orient_factor_frames before ranking. Pass the same directions as strategy combine "
+        "when feeding combine.",
+    )
+    segments: dict[str, tuple[str | None, str | None]] | None = Field(
+        default=None,
+        description='Named [start, end] summary windows, e.g. {"is": ["2015-01-01", '
+        '"2019-12-31"]}; null bounds are open. Omitted means one "full" segment. '
+        "Names are safe path segments (letters, digits, underscore, hyphen).",
+    )
+    window: int = Field(default=252, gt=0, description="Rolling correlation window in bars.")
+    min_periods: int = Field(
+        default=126, gt=0, description="Minimum observations in the rolling window."
+    )
+    top_n: int = Field(default=3, gt=0, description="Names per date in the Top-N overlap.")
+    out_dir: Path | None = Field(
+        default=None,
+        description="Optional directory for correlation_<segment>, top_n_overlap_<segment> and "
+        "correlation_history Parquet files; correlation_history feeds "
+        "strategy combine --correlation-history.",
+    )
+    data_root: Path | None = Field(
+        default=None,
+        description="Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/.",
+    )
+    overwrite: bool = Field(default=False, description="Replace existing output files.")
+
+    @model_validator(mode="after")
+    def check_inputs(self):
+        if len(self.factors) < 2:
+            raise ValueError("factors needs at least two factors")
+        if self.min_periods > self.window:
+            raise ValueError("min_periods must not exceed window")
+        if self.segments is not None and not self.segments:
+            raise ValueError("segments cannot be empty")
+        for name in self.segments or {}:
+            if not SAFE_SEGMENT.fullmatch(name):
+                raise ValueError(
+                    f"segment name must be a safe path segment (letters, digits, underscore, "
+                    f"hyphen); got {name!r}"
+                )
+        return self
+
+
+class FactorCorrelationData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pairs: list[list[str]] = Field(
+        description="Factor pairs [factor_a, factor_b] in history order."
+    )
+    correlation: dict[str, dict[str, dict[str, float | None]]] = Field(
+        description="Mean daily rank-correlation matrix by segment."
+    )
+    top_n_overlap: dict[str, dict[str, dict[str, float | None]]] = Field(
+        description="Mean daily Top-N Jaccard overlap matrix by segment."
+    )
+    history_rows: int = Field(description="Rows in the tidy rolling correlation history.")
+
+
+def _window(frame, start, end):
+    """Rows with start <= date <= end; a None bound leaves that side open."""
+    import pandas as pd
+
+    keep = pd.Series(True, index=frame.index)
+    if start is not None:
+        keep &= frame.index >= pd.Timestamp(start)
+    if end is not None:
+        keep &= frame.index <= pd.Timestamp(end)
+    return frame.loc[keep.to_numpy()]
+
+
+def factor_correlation(args: FactorCorrelationInput) -> CommandResult:
+    from skills.analyze.factor_information import (
+        mean_daily_factor_rank_correlation,
+        rolling_factor_rank_correlation,
+        top_n_jaccard_overlap,
+    )
+    from skills.strategy.cross_sectional.factor_combination import rank_factor_frames
+
+    segments = args.segments or {"full": (None, None)}
+    paths = {}
+    if args.out_dir:
+        for segment in segments:
+            paths[f"correlation_{segment}"] = args.out_dir / f"correlation_{segment}.parquet"
+            paths[f"top_n_overlap_{segment}"] = args.out_dir / f"top_n_overlap_{segment}.parquet"
+        paths["correlation_history"] = args.out_dir / "correlation_history.parquet"
+    for path in paths.values():
+        check_output(path, overwrite=args.overwrite, data_root=args.data_root)
+    ranked = rank_factor_frames(_read_factors(args.factors, args.directions))
+    tables = {}
+    for segment, (start, end) in segments.items():
+        tables[f"correlation_{segment}"] = mean_daily_factor_rank_correlation(
+            ranked, start=start, end=end
+        )
+        tables[f"top_n_overlap_{segment}"] = top_n_jaccard_overlap(
+            {name: _window(frame, start, end) for name, frame in ranked.items()},
+            top_n=args.top_n,
+        )
+    history = rolling_factor_rank_correlation(
+        ranked, window=args.window, min_periods=args.min_periods
+    )
+    tables["correlation_history"] = history
+    artifacts = [
+        write_frame(
+            tables[name], path, overwrite=args.overwrite, data_root=args.data_root, name=name
+        )
+        for name, path in paths.items()
+    ]
+    matrices = [name for name in tables if name != "correlation_history"]
+    names = list(ranked)
+    data = FactorCorrelationData(
+        pairs=[[left, right] for i, left in enumerate(names) for right in names[i + 1 :]],
+        correlation={
+            segment: json_safe(tables[f"correlation_{segment}"].to_dict(orient="index"))
+            for segment in segments
+        },
+        top_n_overlap={
+            segment: json_safe(tables[f"top_n_overlap_{segment}"].to_dict(orient="index"))
+            for segment in segments
+        },
+        history_rows=len(history),
+    )
+    return CommandResult(
+        data=data,
+        artifacts=artifacts,
+        warnings=["nonfinite values were converted to null"]
+        if any(tables[name].isna().to_numpy().any() for name in matrices)
+        else [],
     )
 
 
@@ -562,6 +761,14 @@ COMMANDS = [
         ICSurfaceData,
         ic_surface,
         "Execution-aligned factor x horizon x lag rank-IC surface with HAC summaries.",
+        side_effects=("read-only", "writes-output"),
+    ),
+    Command(
+        "analyze.factor-correlation",
+        FactorCorrelationInput,
+        FactorCorrelationData,
+        factor_correlation,
+        "Factor rank-correlation, Top-N overlap and rolling correlation history.",
         side_effects=("read-only", "writes-output"),
     ),
     Command(

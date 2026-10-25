@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import tempfile
+from pathlib import Path
 from types import MappingProxyType
 
 import numpy as np
@@ -25,10 +27,20 @@ from skills.analyze.attribution_robustness import (
 from skills.analyze.attribution_stat_tests import summarize_stat_tests
 from skills.analyze.facade import AnalyzeFacade
 from skills.analyze.factor_analysis import full_stat
-from skills.analyze.factor_information import compute_ic_information_surface
+from skills.analyze.factor_information import (
+    compute_ic_information_surface,
+    mean_daily_factor_rank_correlation,
+    rolling_factor_rank_correlation,
+    top_n_jaccard_overlap,
+)
+from skills.analyze.tearsheet import generate_factor_tearsheet
 from skills.analyze.ts_analysis import TimeSeriesAnalyzer
 from skills.cli import main
 from skills.cli.io import json_safe
+from skills.strategy.cross_sectional.factor_combination import (
+    orient_factor_frames,
+    rank_factor_frames,
+)
 from tests.fixtures.market_data import make_ohlcv
 from tests.skills.analyze.conftest_phase03 import make_protocol, make_spec
 
@@ -221,6 +233,100 @@ def test_factor_ic_input_errors(capsys, tmp_path, panel_file):
     assert_error(code, body, "INVALID_INPUT", 2)
 
 
+def direct_tearsheet(panel, values, *, name, namespace, horizon=3, groups=4):
+    stats, ic, group_return, turnover = full_stat(
+        factor_frame(panel, values), n=horizon, g=groups, rank_IC=True, verbose=False, plot=False
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        path = generate_factor_tearsheet(
+            factor_id=name,
+            namespace=namespace,
+            ic_series=ic,
+            group_return=group_return,
+            turnover=turnover,
+            ic_stat=stats,
+            n=horizon,
+            output_dir=directory,
+        )
+        return Path(path).read_bytes()
+
+
+def test_factor_ic_tearsheet_equals_generate_factor_tearsheet(capsys, tmp_path, panel_file):
+    panel, panel_path = panel_file
+    values = random_values(panel)
+    factor_path = tmp_path / "factor.parquet"
+    values.rename("fac_val").to_frame().to_parquet(factor_path)
+    png = tmp_path / "charts" / "sheet.png"
+    code, body = run(
+        capsys, "factor-ic", "--panel", str(panel_path), "--factor", str(factor_path),
+        "--horizon", "3", "--groups", "4", "--name", "mom", "--namespace", "lab",
+        "--tearsheet", str(png), "--out-dir", str(tmp_path / "out"),
+    )  # fmt: skip
+    assert code == 0, body
+    expected = direct_tearsheet(panel, values, name="mom", namespace="lab")
+    assert png.read_bytes() == expected and expected.startswith(b"\x89PNG")
+    artifact = body["artifacts"][-1]
+    assert (artifact["name"], artifact["format"], artifact["path"]) == (
+        "tearsheet",
+        "png",
+        str(png.resolve()),
+    )
+    assert [item["name"] for item in body["artifacts"]] == [
+        "ic_series",
+        "group_return",
+        "turnover",
+        "tearsheet",
+    ]
+
+
+def test_factor_ic_tearsheet_defaults_to_the_factor_stem_and_dash_namespace(
+    capsys, tmp_path, panel_file
+):
+    panel, panel_path = panel_file
+    values = random_values(panel)
+    factor_path = tmp_path / "my_factor.parquet"
+    values.rename("fac_val").to_frame().to_parquet(factor_path)
+    png = tmp_path / "sheet.png"
+    code, body = run(
+        capsys, "factor-ic", "--panel", str(panel_path), "--factor", str(factor_path),
+        "--horizon", "3", "--groups", "4", "--tearsheet", str(png),
+    )  # fmt: skip
+    assert code == 0, body
+    assert png.read_bytes() == direct_tearsheet(panel, values, name="my_factor", namespace="-")
+    assert png.read_bytes() != direct_tearsheet(panel, values, name="other", namespace="-")
+    assert [item["name"] for item in body["artifacts"]] == ["tearsheet"]
+
+
+def test_factor_ic_tearsheet_rejects_non_png_and_conflicts_before_computing(
+    capsys, tmp_path, panel_file
+):
+    panel, panel_path = panel_file
+    factor_path = tmp_path / "factor.parquet"
+    random_values(panel).rename("fac_val").to_frame().to_parquet(factor_path)
+    base = ["factor-ic", "--panel", str(panel_path), "--factor", str(factor_path)]
+    for name in ("sheet.jpg", "sheet", "sheet.png.txt"):
+        code, body = run(capsys, *base, "--tearsheet", str(tmp_path / name))
+        assert_error(code, body, "INVALID_INPUT", 2)
+        assert ".png" in body["error"]["message"]
+        assert not (tmp_path / name).exists()
+    # An unreadable panel would fail later; the conflict is reported first and nothing is written.
+    out = tmp_path / "out"
+    png = tmp_path / "sheet.png"
+    png.write_bytes(b"keep me")
+    code, body = run(
+        capsys, "factor-ic", "--panel", str(tmp_path / "nope.parquet"), "--factor",
+        str(factor_path), "--tearsheet", str(png), "--out-dir", str(out),
+    )  # fmt: skip
+    assert_error(code, body, "CONFLICT", 2)
+    assert png.read_bytes() == b"keep me" and not out.exists()
+    code, body = run(capsys, *base, "--tearsheet", str(png), "--out-dir", str(out))
+    assert_error(code, body, "CONFLICT", 2)
+    assert png.read_bytes() == b"keep me" and not out.exists()
+    code, body = run(capsys, *base, "--tearsheet", str(png), "--overwrite")
+    assert code == 0, body
+    assert png.read_bytes().startswith(b"\x89PNG")
+
+
 # ---------------------------------------------------------------------------
 # ic-surface
 # ---------------------------------------------------------------------------
@@ -323,6 +429,201 @@ def test_ic_surface_errors_and_conflicts(capsys, tmp_path):
     assert_error(code, body, "CONFLICT", 2)
     assert (out / "summary.parquet").read_bytes() == b"keep me"
     assert not (out / "daily_ic.parquet").exists()
+
+
+def test_ic_surface_directions_orient_the_factors(capsys, tmp_path):
+    panel, close, factors, panel_path, paths = surface_inputs(tmp_path)
+    directions = {"mom": 1, "rev": -1}
+    expected = compute_ic_information_surface(
+        orient_factor_frames(factors, directions),
+        close,
+        horizons=[1, 5],
+        lags=[0],
+        signal_lag=1,
+        min_cross_section=3,
+    )
+    plain = compute_ic_information_surface(
+        factors, close, horizons=[1, 5], lags=[0], signal_lag=1, min_cross_section=3
+    )
+    code, body = run(
+        capsys, "ic-surface", "--panel", str(panel_path), "--factors", json.dumps(paths),
+        "--horizons", "1,5", "--min-cross-section", "3", "--directions", json.dumps(directions),
+        "--out-dir", str(tmp_path / "oriented"),
+    )  # fmt: skip
+    assert code == 0, body
+    assert body["data"]["summary"] == json_safe(expected.summary.to_dict(orient="records"))
+    out = tmp_path / "oriented"
+    pd.testing.assert_frame_equal(pd.read_parquet(out / "daily_ic.parquet"), expected.daily_ic)
+    # The reversal factor flips sign; the momentum factor is unchanged.
+    flipped = expected.daily_ic.query("factor == 'rev'")["ic"].to_numpy()
+    original = plain.daily_ic.query("factor == 'rev'")["ic"].to_numpy()
+    np.testing.assert_allclose(flipped, -original)
+
+
+def test_ic_surface_directions_errors(capsys, tmp_path):
+    panel, close, factors, panel_path, paths = surface_inputs(tmp_path)
+    base = [
+        "ic-surface", "--panel", str(panel_path), "--factors", json.dumps(paths),
+        "--horizons", "2", "--min-cross-section", "3",
+    ]  # fmt: skip
+    code, body = run(capsys, *base, "--directions", '{"mom": 1}')
+    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "rev" in body["error"]["message"]
+    code, body = run(capsys, *base, "--directions", '{"mom": 1, "rev": 2}')
+    assert_error(code, body, "INVALID_INPUT", 2)
+
+
+# ---------------------------------------------------------------------------
+# factor-correlation
+# ---------------------------------------------------------------------------
+
+
+def correlation_inputs(tmp_path):
+    panel = random_panel(periods=150, seed=21)
+    close = panel["close"].unstack("symbol").sort_index()
+    rng = np.random.default_rng(22)
+    factors = {
+        "mom": close.pct_change(5) + rng.normal(0, 0.01, close.shape),
+        "rev": -close.pct_change(2) + rng.normal(0, 0.01, close.shape),
+        "vol": close.pct_change().rolling(10).std() + rng.normal(0, 0.001, close.shape),
+    }
+    paths = {}
+    for name, frame in factors.items():
+        paths[name] = str(tmp_path / f"{name}.parquet")
+        frame.to_parquet(paths[name])
+    return factors, paths
+
+
+SEGMENTS = {"first": ["2024-01-01", "2024-03-01"], "rest": ["2024-03-02", None]}
+
+
+def direct_correlation(factors, directions, segments, *, top_n=3, window=20, min_periods=10):
+    frames = factors if directions is None else orient_factor_frames(factors, directions)
+    ranked = rank_factor_frames(frames)
+    matrices, overlaps = {}, {}
+    for name, (start, end) in segments.items():
+        matrices[name] = mean_daily_factor_rank_correlation(ranked, start=start, end=end)
+        overlaps[name] = top_n_jaccard_overlap(
+            {key: frame.loc[start:end] for key, frame in ranked.items()}, top_n=top_n
+        )
+    history = rolling_factor_rank_correlation(ranked, window=window, min_periods=min_periods)
+    return matrices, overlaps, history
+
+
+@pytest.mark.parametrize(
+    ("directions", "segments"),
+    [
+        (None, None),
+        ({"mom": 1, "rev": -1, "vol": -1}, None),
+        ({"mom": 1, "rev": -1, "vol": -1}, SEGMENTS),
+    ],
+    ids=["plain", "oriented", "oriented-two-segments"],
+)
+def test_factor_correlation_equals_the_direct_pipeline(capsys, tmp_path, directions, segments):
+    factors, paths = correlation_inputs(tmp_path)
+    resolved = (
+        {"full": (None, None)}
+        if segments is None
+        else {name: tuple(bounds) for name, bounds in segments.items()}
+    )
+    matrices, overlaps, history = direct_correlation(factors, directions, resolved, top_n=2)
+    argv = [
+        "factor-correlation", "--factors", json.dumps(paths), "--window", "20",
+        "--min-periods", "10", "--top-n", "2", "--out-dir", str(tmp_path / "out"),
+    ]  # fmt: skip
+    if directions is not None:
+        argv += ["--directions", json.dumps(directions)]
+    if segments is not None:
+        argv += ["--segments", json.dumps(segments)]
+    code, body = run(capsys, *argv)
+    assert code == 0, body
+    data = body["data"]
+    assert data["pairs"] == [["mom", "rev"], ["mom", "vol"], ["rev", "vol"]]
+    assert data["history_rows"] == len(history)
+    out = tmp_path / "out"
+    assert set(data["correlation"]) == set(data["top_n_overlap"]) == set(resolved)
+    for name in resolved:
+        assert data["correlation"][name] == json_safe(matrices[name].to_dict(orient="index"))
+        assert data["top_n_overlap"][name] == json_safe(overlaps[name].to_dict(orient="index"))
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(out / f"correlation_{name}.parquet"), matrices[name]
+        )
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(out / f"top_n_overlap_{name}.parquet"), overlaps[name]
+        )
+    pd.testing.assert_frame_equal(pd.read_parquet(out / "correlation_history.parquet"), history)
+    assert list(history.columns) == ["factor_a", "factor_b", "eob", "correlation"]
+    expected_files = {
+        f"{kind}_{name}.parquet" for name in resolved for kind in ("correlation", "top_n_overlap")
+    }
+    assert {path.name for path in out.iterdir()} == expected_files | {"correlation_history.parquet"}
+    assert {item["name"] for item in body["artifacts"]} == {
+        path.removesuffix(".parquet") for path in expected_files
+    } | {"correlation_history"}
+
+
+def test_factor_correlation_directions_change_the_matrix(capsys, tmp_path):
+    factors, paths = correlation_inputs(tmp_path)
+    base = ["factor-correlation", "--factors", json.dumps(paths)]
+    _, plain = run(capsys, *base)
+    _, oriented = run(capsys, *base, "--directions", json.dumps({"mom": 1, "rev": -1, "vol": 1}))
+    plain_matrix, oriented_matrix = (
+        plain["data"]["correlation"]["full"],
+        oriented["data"]["correlation"]["full"],
+    )
+    assert oriented_matrix["mom"]["rev"] == pytest.approx(-plain_matrix["mom"]["rev"])
+    assert oriented_matrix["mom"]["vol"] == pytest.approx(plain_matrix["mom"]["vol"])
+    assert plain["artifacts"] == []
+
+
+def test_factor_correlation_errors(capsys, tmp_path):
+    factors, paths = correlation_inputs(tmp_path)
+    base = ["factor-correlation", "--factors", json.dumps(paths)]
+    one = json.dumps({"mom": paths["mom"]})
+    code, body = run(capsys, "factor-correlation", "--factors", one)
+    assert_error(code, body, "INVALID_INPUT", 2)
+    code, body = run(capsys, *base, "--directions", '{"mom": 1, "rev": -1}')
+    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "vol" in body["error"]["message"]
+    code, body = run(capsys, *base, "--directions", '{"mom": 1, "rev": -1, "vol": 0}')
+    assert_error(code, body, "INVALID_INPUT", 2)
+    out = tmp_path / "out"
+    for name in ("../escape", "a b", "x/y", ""):
+        code, body = run(
+            capsys, *base, "--segments", json.dumps({name: [None, None]}), "--out-dir", str(out)
+        )
+        assert_error(code, body, "INVALID_INPUT", 2)
+    assert not out.exists() and not (tmp_path / "escape").exists()
+    code, body = run(capsys, *base, "--window", "5", "--min-periods", "10")
+    assert_error(code, body, "INVALID_INPUT", 2)
+    code, body = run(capsys, *base, "--top-n", "0")
+    assert_error(code, body, "INVALID_INPUT", 2)
+    code, body = run(
+        capsys, "factor-correlation", "--factors",
+        json.dumps({**paths, "gone": str(tmp_path / "missing.parquet")}),
+    )  # fmt: skip
+    assert_error(code, body, "NOT_FOUND", 3)
+
+
+def test_factor_correlation_refuses_to_overwrite_existing_output(capsys, tmp_path):
+    factors, paths = correlation_inputs(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    existing = out / "top_n_overlap_full.parquet"
+    existing.write_bytes(b"keep me")
+    argv = ["factor-correlation", "--factors", json.dumps(paths), "--out-dir", str(out)]
+    code, body = run(capsys, *argv)
+    assert_error(code, body, "CONFLICT", 2)
+    assert existing.read_bytes() == b"keep me"
+    assert [path.name for path in out.iterdir()] == ["top_n_overlap_full.parquet"]
+    code, body = run(capsys, *argv, "--overwrite")
+    assert code == 0, body
+    assert existing.read_bytes() != b"keep me"
+    assert len(list(out.iterdir())) == 3
+    matrices, overlaps, history = direct_correlation(
+        factors, None, {"full": (None, None)}, window=252, min_periods=126
+    )
+    pd.testing.assert_frame_equal(pd.read_parquet(existing), overlaps["full"])
 
 
 # ---------------------------------------------------------------------------

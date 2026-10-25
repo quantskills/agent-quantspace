@@ -202,8 +202,10 @@ Shared parameters: `OutputOptions`.
 | `--method` | `equal_rank\|equal_vote\|rolling_ic\|rolling_icir\|max_ic\|max_icir` / `required` | Combination method. |
 | `--normalization` | `rank\|zscore` / `rank` | Daily cross-sectional normalization. |
 | `--top-n` | `integer` / `3` | Assets selected from the composite score. |
-| `--ic-history` | `path?` / `null` | Date by factor IC table; required by rolling and max methods. |
-| `--correlation-history` | `path?` / `null` | Tidy table with eob, factor_a, factor_b, correlation; required by max methods. |
+| `--ic-history` | `path?` / `null` | IC of direction-oriented factors (pass --directions to analyze ic-surface); required by rolling and max methods. Either a date by factor table, or the tidy daily_ic table written by analyze ic-surface (factor, horizon, lag, eob, ic), which also needs --ic-horizon. |
+| `--ic-horizon` | `integer?` / `null` | Horizon of the tidy daily_ic rows to use; required for a tidy --ic-history and rejected for a wide one. |
+| `--ic-lag` | `integer` / `0` | Lag of the tidy daily_ic rows to use (tidy input only). |
+| `--correlation-history` | `path?` / `null` | Tidy table with eob, factor_a, factor_b, correlation, computed on direction-oriented ranked factors (analyze factor-correlation --directions writes it); required by max methods. |
 | `--availability-delay` | `integer?` / `null` | Bars before an IC becomes known (signal_lag + horizon); required by rolling and max methods. |
 | `--lookback` | `integer` / `252` | Rolling IC window. |
 | `--min-periods` | `integer` / `126` | Minimum IC observations. |

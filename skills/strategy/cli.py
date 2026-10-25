@@ -120,11 +120,24 @@ class CombineInput(OutputOptions):
     top_n: int = Field(default=3, gt=0, description="Assets selected from the composite score.")
     ic_history: Path | None = Field(
         default=None,
-        description="Date by factor IC table; required by rolling and max methods.",
+        description="IC of direction-oriented factors (pass --directions to analyze ic-surface); "
+        "required by rolling and max methods. Either a date by factor table, or the tidy "
+        "daily_ic table written by analyze ic-surface (factor, horizon, lag, eob, ic), which "
+        "also needs --ic-horizon.",
+    )
+    ic_horizon: int | None = Field(
+        default=None,
+        description="Horizon of the tidy daily_ic rows to use; required for a tidy --ic-history "
+        "and rejected for a wide one.",
+    )
+    ic_lag: int = Field(
+        default=0, ge=0, description="Lag of the tidy daily_ic rows to use (tidy input only)."
     )
     correlation_history: Path | None = Field(
         default=None,
-        description="Tidy table with eob, factor_a, factor_b, correlation; required by max methods.",
+        description="Tidy table with eob, factor_a, factor_b, correlation, computed on "
+        "direction-oriented ranked factors (analyze factor-correlation --directions writes it); "
+        "required by max methods.",
     )
     availability_delay: int | None = Field(
         default=None,
@@ -148,6 +161,8 @@ class CombineInput(OutputOptions):
             raise ValueError("factors cannot be empty")
         if self.method not in ("equal_rank", "equal_vote") and self.availability_delay is None:
             raise ValueError(f"{self.method} requires availability_delay")
+        if self.ic_history is None and self.ic_horizon is not None:
+            raise ValueError("ic_horizon requires ic_history")
         return self
 
 
@@ -169,6 +184,57 @@ def _read_tidy(path):
     return frame.reset_index() if frame.index.name == "eob" else frame
 
 
+TIDY_IC_COLUMNS = {"factor", "horizon", "lag", "ic"}
+
+
+def _read_ic_history(args):
+    """Read --ic-history as a wide date by factor table, pivoting a tidy daily_ic first."""
+    frame = read_frame(args.ic_history)
+    if not TIDY_IC_COLUMNS.issubset(frame.columns):
+        if args.ic_horizon is not None or args.ic_lag != 0:
+            raise CLIError(
+                "INVALID_INPUT",
+                "ic_horizon and ic_lag only apply to a tidy daily_ic table "
+                "(columns factor, horizon, lag, eob, ic); this ic_history is a wide table",
+            )
+        return frame
+    if frame.index.name == "eob":
+        frame = frame.reset_index()
+    if "eob" not in frame.columns:
+        raise CLIError("INVALID_INPUT", "tidy ic_history requires an eob column")
+    if args.ic_horizon is None:
+        horizons = sorted(frame["horizon"].unique().tolist())
+        raise CLIError(
+            "INVALID_INPUT",
+            f"tidy ic_history requires --ic-horizon; available horizons: {horizons}",
+        )
+    chosen = frame[(frame["horizon"] == args.ic_horizon) & (frame["lag"] == args.ic_lag)]
+    if chosen.empty:
+        available = sorted(
+            {
+                (int(h), int(lag))
+                for h, lag in frame[["horizon", "lag"]].drop_duplicates().to_numpy()
+            }
+        )
+        raise CLIError(
+            "INVALID_INPUT",
+            f"ic_history has no rows for horizon={args.ic_horizon} lag={args.ic_lag}; "
+            f"available (horizon, lag): {available}",
+        )
+    if chosen.duplicated(["eob", "factor"]).any():
+        raise CLIError(
+            "INVALID_INPUT",
+            f"ic_history has duplicated (eob, factor) rows for horizon={args.ic_horizon} "
+            f"lag={args.ic_lag}",
+        )
+    wide = chosen.pivot(index="eob", columns="factor", values="ic").sort_index()
+    wide.columns.name = None
+    missing = sorted(set(args.factors) - set(wide.columns))
+    if missing:
+        raise CLIError("INVALID_INPUT", f"ic_history has no IC for factors: {missing}")
+    return wide
+
+
 def combine(args: CombineInput) -> CommandResult:
     from skills.strategy.cross_sectional import DynamicFactorWeightConfig, combine_factor_scores
 
@@ -178,6 +244,7 @@ def combine(args: CombineInput) -> CommandResult:
     }
     for path in paths.values():
         check_output(path, overwrite=args.overwrite, data_root=args.data_root)
+    ic_history = _read_ic_history(args) if args.ic_history else None
     dynamic = (
         None
         if args.availability_delay is None
@@ -195,7 +262,7 @@ def combine(args: CombineInput) -> CommandResult:
         directions=args.directions,
         normalization=args.normalization,
         top_n=args.top_n,
-        ic_history=read_frame(args.ic_history) if args.ic_history else None,
+        ic_history=ic_history,
         correlation_history=_read_tidy(args.correlation_history)
         if args.correlation_history
         else None,
