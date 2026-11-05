@@ -33,7 +33,7 @@ report = [
     "matplotlib",
 ]
 ts = ["tsfresh", "joblib"]
-panda_data = ["panda_data>=0.0.12", "requests>=2.32.0"]
+panda_data = ["panda_data==1.0.6", "requests>=2.32.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

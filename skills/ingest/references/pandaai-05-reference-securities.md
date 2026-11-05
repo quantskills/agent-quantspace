@@ -53,12 +53,7 @@ source_lines: 1223-1501
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol=["000001.SZ","000002.SZ","000003.SZ"],
-    market="cn",
-    fields=[""],
-    status=None
-)
+result = panda_data.get_stock_detail(symbol=['000001.SZ', '000002.SZ', '000003.SZ'], fields=[''], status=None)
 print(result)
 ```
 
@@ -73,12 +68,7 @@ symbol abbrev_symbol ... trading_code trading_hours
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol=["000001.SZ","000002.SZ","000003.SZ"],
-    fields=["symbol", "name", "province", "office_address", "trading_code"],
-    market="cn",
-    status=1
-)
+result = panda_data.get_stock_detail(symbol=['000001.SZ', '000002.SZ', '000003.SZ'], fields=['symbol', 'name', 'province', 'office_address', 'trading_code'], status=1)
 print(result)
 ```
 
@@ -92,12 +82,7 @@ symbol name ... status trading_code
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol=["0001.HK","0002.HK","0003.HK"],
-    market="hk",
-    fields=[""],
-    status=None
-)
+result = panda_data.get_stock_detail(symbol=['0001.HK', '0002.HK', '0003.HK'], fields=[''], status=None)
 print(result)
 ```
 
@@ -112,12 +97,7 @@ symbol abbrev_symbol ... status trading_code
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol=["0013.NB", "005490.NB", "ZYXIQ.NB"],
-    market="us",
-    fields=[""],
-    status=None
-)
+result = panda_data.get_stock_detail(symbol=['0013.NB', '005490.NB', 'ZYXIQ.NB'], fields=[''], status=None)
 print(result)
 ```
 
@@ -132,12 +112,7 @@ symbol abbrev_symbol ... status trading_code
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol="",
-    fields=["symbol"],
-    market="cn",
-    status=None
-)
+result = panda_data.get_stock_detail(symbol='', fields=['symbol'], status=None)
 print(result)
 ```
 
@@ -160,12 +135,7 @@ symbol
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol="",
-    fields=["symbol"],
-    market="hk",
-    status=None
-)
+result = panda_data.get_stock_detail(symbol='', fields=['symbol'], status=None)
 print(result)
 ```
 
@@ -188,12 +158,7 @@ symbol
 
 ```python
 import panda_data
-result = panda_data.get_stock_detail(
-    symbol="",
-    fields=["symbol"],
-    market="us",
-    status=None
-)
+result = panda_data.get_stock_detail(symbol='', fields=['symbol'], status=None)
 print(result)
 ```
 

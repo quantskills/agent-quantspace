@@ -1,0 +1,60 @@
+{
+  "sdk_version": "1.0.6",
+  "contract_repository": "quantskills/skill-pandadata-api",
+  "contract_commit": "3f573a4140e4d1d02c556d981fac347168c943bb",
+  "required_methods": [
+    "get_future_detail",
+    "get_market_data",
+    "init_token"
+  ],
+  "validation": {
+    "offline_contract": "passed",
+    "live_service": "not_tested"
+  },
+  "runtime_entrypoint": "README.md",
+  "method_contracts": {
+    "get_future_detail": {
+      "signature": "(symbol: 'Optional[Union[str, List[str]]]' = None, fields: 'Optional[Union[str, List[str]]]' = None, is_trading: 'Optional[int]' = None, exchange: 'Optional[Union[str, List[str]]]' = None, date: 'Optional[str]' = None, **kwargs) -> 'pd.DataFrame'",
+      "parameters": [
+        "symbol",
+        "fields",
+        "is_trading",
+        "exchange",
+        "date"
+      ],
+      "required": [],
+      "runtime_required": [],
+      "upstream_warning": false
+    },
+    "get_market_data": {
+      "signature": "(symbol: 'Optional[Union[str, List[str]]]' = '', start_date: 'str' = '', end_date: 'str' = '', type: 'Optional[str]' = 'stock', fields: 'Optional[Union[str, List[str]]]' = None, indicator: 'Optional[str]' = '', st: 'Optional[bool]' = True, **kwargs) -> 'pd.DataFrame'",
+      "parameters": [
+        "symbol",
+        "start_date",
+        "end_date",
+        "type",
+        "fields",
+        "indicator",
+        "st"
+      ],
+      "required": [],
+      "runtime_required": [
+        "end_date",
+        "start_date"
+      ],
+      "upstream_warning": true
+    },
+    "init_token": {
+      "signature": "(username: 'Optional[str]' = '', password: 'Optional[str]' = '', base_url: 'Optional[str]' = 'https://pandadata.pandaaiquant.com', country: 'Optional[str]' = 'CN') -> 'str'",
+      "parameters": [
+        "username",
+        "password",
+        "base_url",
+        "country"
+      ],
+      "required": [],
+      "runtime_required": [],
+      "upstream_warning": false
+    }
+  }
+}
