@@ -347,3 +347,6 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
     </td>
   </tr>
 </table>
+
+
+Pandadata 兼容维护：[abgyjaguo](https://github.com/abgyjaguo)，保留原项目作者署名。

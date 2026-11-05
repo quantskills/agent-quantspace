@@ -159,3 +159,7 @@ This repository does not include private strategy research, non-public generated
 private data, or vendor-specific execution adapters outside PandaData. The
 sanitized HTML and PNG files under `reports/strategy_examples/` are the
 only generated report artifacts intended for source control.
+
+## Pandadata compatibility
+
+[Pandadata 1.0.6 compatibility](references/pandadata-compatibility.md) — exact SDK baseline, validation scope, and shared guidance for all supported agent runtimes.

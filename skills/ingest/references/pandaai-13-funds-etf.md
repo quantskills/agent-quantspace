@@ -112,8 +112,8 @@ bars = client.get_fund_daily(
 
 ## SDK 兼容性与实测
 
-- `panda-data==0.0.9` 尚未导出上述基金接口。
-- `panda-data==0.0.12` 已导出全部八个接口。
+- `panda-data==1.0.6` 尚未导出上述基金接口。
+- `panda-data==1.0.6` 已导出全部八个接口。
 - 使用 `0.0.12` 实测 `510300.SH` 在 `20250610` 至 `20250613` 的
   `get_fund_daily`、`get_fund_daily_pre`、`get_fund_daily_post`，三个接口
   均返回 4 个交易日。

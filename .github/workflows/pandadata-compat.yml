@@ -1,0 +1,12 @@
+name: Pandadata compatibility
+on:
+  pull_request:
+  push:
+    branches: ['main']
+permissions:
+  contents: read
+jobs:
+  contract:
+    uses: quantskills/skill-pandadata-api/.github/workflows/pandadata-compat.yml@3f573a4140e4d1d02c556d981fac347168c943bb
+    with:
+      contract-ref: 3f573a4140e4d1d02c556d981fac347168c943bb

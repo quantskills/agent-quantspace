@@ -2276,7 +2276,7 @@ wheels = [
 
 [[package]]
 name = "panda-data"
-version = "0.0.12"
+version = "1.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "duckdb" },
@@ -2290,9 +2290,9 @@ dependencies = [
     { name = "websockets" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/53/85e083090ace93e14b3897e608d054df3e23222970af7f13b7a13b57dbf4/panda_data-0.0.12.tar.gz", hash = "sha256:428c9604d79f0127d4ccb38ce638e432eb6a0af2f115df98d79c4e0299d21ec4", size = 114436, upload-time = "2026-07-08T01:31:58.181Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/c8/10ae5b7b4bfb99f5ed8010c04f3d5720ccc2287c81026ffd53b5c2d06d05/panda_data-1.0.6.tar.gz", hash = "sha256:5e0f26040ace0083012ade3796555aaa29b082adee155f6a635443fe3ee787fc", size = 162152, upload-time = "2026-11-04T03:02:42.49Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/b9/1660487a9f559925231091f4c88aac6d572e7c3e84b0ad9a372d8261f298/panda_data-0.0.12-py3-none-any.whl", hash = "sha256:b657a17daed0a11794e85e37e0d917ce42c77516fea7af0fc8977d54674b75b8", size = 123682, upload-time = "2026-07-08T01:31:56.665Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/b6/878bb5035087c6ef79623bec68978f72b96dde420567cd518fbb33157fb2/panda_data-1.0.6-py3-none-any.whl", hash = "sha256:5437a54546946ca5dd3a24ec074d05342518f22310f04403e01adb4d034ce15f", size = 185820, upload-time = "2026-11-04T03:02:40.789Z" },
 ]
 
 [[package]]
@@ -3250,7 +3250,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'analyze'" },
     { name = "matplotlib", marker = "extra == 'report'" },
     { name = "numpy" },
-    { name = "panda-data", marker = "extra == 'panda-data'", specifier = ">=0.0.12" },
+    { name = "panda-data", marker = "extra == 'panda-data'", specifier = "==1.0.6" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pycaret", marker = "extra == 'ml'", specifier = ">=3.1.0" },
