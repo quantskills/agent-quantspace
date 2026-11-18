@@ -119,7 +119,9 @@ def bias_momentum(group: pd.DataFrame, ma_period: int = 90, momentum_day: int = 
     """
     close = group["close"]
 
-    if len(close) < max(ma_period, momentum_day) + momentum_day:
+    # 第一个有效值在第 ma_period + momentum_day - 2 行；行数不够时全为 NaN。
+    # 这个门槛必须和有效值的位置一致，否则同一天的值会随数据长度变化。
+    if len(close) < ma_period + momentum_day - 1:
         return pd.Series(np.full_like(close, np.nan), index=group.index)
 
     ma = close.rolling(window=ma_period, min_periods=ma_period).mean()
@@ -140,15 +142,8 @@ def bias_momentum(group: pd.DataFrame, ma_period: int = 90, momentum_day: int = 
 
     slopes = (n * sum_xy - sum_x * sum_y) / denom
 
-    # 用斜率作为乖离动量
-    pad = max(ma_period, momentum_day) + momentum_day - 2
-    result = np.concatenate([np.full(pad, np.nan), slopes])
-
-    # 对齐长度
-    if len(result) < len(close):
-        result = np.concatenate([np.full(len(close) - len(result), np.nan), result])
-    elif len(result) > len(close):
-        result = result[-len(close) :]
+    # 用斜率作为乖离动量；slopes[i] 对应以第 i + momentum_day - 1 行结尾的窗口
+    result = np.concatenate([np.full(momentum_day - 1, np.nan), slopes])
 
     return pd.Series(result, index=group.index)
 

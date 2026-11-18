@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from skills.compute import indicators
@@ -97,3 +98,22 @@ def test_trend_score_validates_period() -> None:
 
     with pytest.raises(ValueError, match="greater than 1"):
         indicators.trend_score(bars, period=1)
+
+
+@pytest.mark.parametrize(("ma_period", "momentum_day"), [(60, 20), (5, 12), (10, 10)])
+def test_bias_momentum_value_does_not_depend_on_series_length(ma_period, momentum_day):
+    """A date's value must be the same whether or not later rows exist."""
+    rng = np.random.default_rng(3)
+    close = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.01, 200))))
+    full = indicators.bias_momentum(
+        pd.DataFrame({"close": close}), ma_period=ma_period, momentum_day=momentum_day
+    )
+    first_valid = ma_period + momentum_day - 2
+    assert full.iloc[:first_valid].isna().all() and full.iloc[first_valid:].notna().all()
+    for length in (first_valid, first_valid + 1, first_valid + 2, 150):
+        prefix = indicators.bias_momentum(
+            pd.DataFrame({"close": close.iloc[:length]}),
+            ma_period=ma_period,
+            momentum_day=momentum_day,
+        )
+        pd.testing.assert_series_equal(prefix, full.iloc[:length])
