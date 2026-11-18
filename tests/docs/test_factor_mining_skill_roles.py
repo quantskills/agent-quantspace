@@ -21,6 +21,7 @@ REQUIRED_FIELDS = (
     "handoff_to",
 )
 
+
 def _parse_roles(text: str) -> list[dict[str, str]]:
     blocks = re.findall(
         r"### Role:.*?\n\n```text\n(.*?)```",
@@ -49,7 +50,27 @@ def _parse_roles(text: str) -> list[dict[str, str]]:
         if current_key is not None:
             role[current_key] = "\n".join(current_lines).strip()
         roles.append(role)
-    return roles
+    return _expand_generator_template(text, roles)
+
+
+def _expand_generator_template(text: str, roles: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The four Generator roles share one block; the table above it lists their ids."""
+    section = text[text.index("### Role: generators") :]
+    table = section[: section.index("```text")]
+    rows = re.findall(r"^\| `([a-z_]+_generator)` \| ([^|]+) \|", table, flags=re.MULTILINE)
+    expanded: list[dict[str, str]] = []
+    for role in roles:
+        if role.get("role_id") != "<role_id>":
+            expanded.append(role)
+            continue
+        for role_id, family in rows:
+            expanded.append(
+                {
+                    key: value.replace("<role_id>", role_id).replace("<family>", family.strip())
+                    for key, value in role.items()
+                }
+            )
+    return expanded
 
 
 def test_skill_defines_exactly_eight_unique_roles() -> None:

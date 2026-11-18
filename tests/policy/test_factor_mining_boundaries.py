@@ -30,9 +30,7 @@ CORE_FORBIDDEN_IMPORT_PREFIXES = (
     "skills.ml",
 )
 
-ADAPTER_FORBIDDEN_IMPORT_PREFIXES = CORE_FORBIDDEN_IMPORT_PREFIXES + (
-    "skills.analyze",
-)
+ADAPTER_FORBIDDEN_IMPORT_PREFIXES = CORE_FORBIDDEN_IMPORT_PREFIXES + ("skills.analyze",)
 
 # Additional bans for contract/port modules (no compute runtime here).
 CONTRACT_FORBIDDEN_IMPORT_PREFIXES = CORE_FORBIDDEN_IMPORT_PREFIXES + (
@@ -107,11 +105,7 @@ def test_factor_mining_python_has_no_role_enum_or_platform_sdk() -> None:
             if isinstance(node, ast.ClassDef) and node.name in FORBIDDEN_ROLE_ENUM_NAMES:
                 raise AssertionError(f"role enum copy found: {path.name}:{node.name}")
             if isinstance(node, ast.ClassDef) and node.name.endswith("Role"):
-                bases = {
-                    base.id
-                    for base in node.bases
-                    if isinstance(base, (ast.Name,))
-                }
+                bases = {base.id for base in node.bases if isinstance(base, (ast.Name,))}
                 if bases & {"Enum", "str"} and "role" in node.name.lower():
                     raise AssertionError(f"suspicious role enum: {path}:{node.name}")
         if _is_analyze_adapter(path):
@@ -123,8 +117,7 @@ def test_factor_mining_python_has_no_role_enum_or_platform_sdk() -> None:
             forbidden = CONTRACT_FORBIDDEN_IMPORT_PREFIXES
         for module in _imported_modules(path):
             assert not any(
-                module == prefix or module.startswith(prefix + ".")
-                for prefix in forbidden
+                module == prefix or module.startswith(prefix + ".") for prefix in forbidden
             ), f"{path}: forbidden import {module}"
         assert not re.search(r"\bif\s+platform\s*(==|in)\b", source)
         assert "product_whitelist" not in source
@@ -163,13 +156,16 @@ def test_factor_mining_has_no_deterministic_research_algorithms() -> None:
 
 def test_factor_mining_skill_is_role_authority_not_python() -> None:
     skill = (FM_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    role_ids = re.findall(r"^role_id:\s*([^\s]+)\s*$", skill, flags=re.MULTILINE)
+    role_ids = [
+        role_id
+        for role_id in re.findall(r"^role_id:\s*([^\s]+)\s*$", skill, flags=re.MULTILINE)
+        if role_id != "<role_id>"
+    ]
+    # The four Generator roles share one block; their ids are the rows of its table.
+    role_ids += re.findall(r"^\| `([a-z_]+_generator)` \|", skill, flags=re.MULTILINE)
     assert len(role_ids) == 8
     assert len(set(role_ids)) == 8
-    py_text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(FM_ROOT.rglob("*.py"))
-    )
+    py_text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(FM_ROOT.rglob("*.py")))
     for role_id in role_ids:
         assert role_id not in py_text
 

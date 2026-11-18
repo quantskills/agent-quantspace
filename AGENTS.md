@@ -98,10 +98,13 @@ names are declarations, not a product whitelist.
 Every Skill exposes task commands through `uv run qs <skill> <command>` (or
 `uv run python -m skills ...`). Start with `uv run qs catalog --skill <name>` (CLI names use hyphens, e.g.
 `factor-mining`), then
-read the corresponding `skills/<package>/SKILL.md`; its generated "CLI command
-reference" lists every option. Exact parameters and output fields come from `--help`,
+read the corresponding `skills/<package>/SKILL.md`: when to use the Skill, a
+copyable command workflow, the files it reads and writes, its rules, and one line per
+command. Exact parameters and output fields come from `--help`,
 `uv run qs schema <skill>.<command>`, or `--print-template`. Flags override matching
-keys in `--input-json FILE|-`.
+keys in `--input-json FILE|-`. Python APIs are documented in
+`skills/<package>/references/python-api.md`; read them only when changing a Skill or
+writing strategy code.
 
 Stdout contains one JSON envelope (`ok`, `command`, `data`, `artifacts`, `warnings`,
 plus `error` on failure); logs and library prints go to stderr. Tables are written as

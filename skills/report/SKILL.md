@@ -1,76 +1,41 @@
 ---
 name: report
-description: Use when tasks need complete HTML research reports, HTML dashboards, PNG chart helpers, or files under the research reports directory.
+description: Write complete HTML research reports (nine fixed sections plus a catalog), render PNG charts from result tables, and list existing studies with `uv run qs report ...`.
 ---
 
-# Report Skill
+# Report
 
-Render research outputs into self-contained HTML using Jinja2 templates and
-matplotlib charts. Install with `uv sync --extra report`. Default output uses
-`QUANTSPACE_REPORTS_ROOT` when set, otherwise the workspace `reports/` path.
+Use the `uv run qs report` commands below; reporting tasks do not require
+reading `skills/report/` source. Each command prints one JSON envelope on
+stdout (`ok`, `data`, `artifacts`, `warnings`, or `error` with a `hint`).
+Exact options: `uv run qs report <command> --help` or
+`uv run qs schema report.<command>`. Install with `uv sync --extra report`.
 
-Complete research archives are **HTML only**. Do not write them as Markdown or
-PDF. Do not use a database. Other skills must not write HTML; they return
-objects, and the caller fills `ResearchReport` then calls
-`write_research_bundle`.
+## When to use
 
-## Two output paths
+- Archive a finished study as a self-contained HTML report.
+- Render an equity curve, factor ranking, IC heatmap, or IC term-structure chart.
+- List the studies under the reports directory or rebuild the catalog page.
 
-| Path | Entry | Output | Use for |
-|------|-------|--------|---------|
-| Complete research archive | `ResearchReport` + `write_research_bundle` | `reports/<namespace>/<slug>/index.html` | Takeaway research document, including public examples |
-| Dashboard preview | `ReportRenderer` + `factor_report` / `backtest_report` / `signal_digest` | one HTML file | Quick look, not an archive |
+## Workflow
 
-Charts are inlined as base64 data URIs via the `png_data_uri` Jinja filter.
-
-## Complete research archive
-
-```python
-from skills.report import (
-    ReportFigure,
-    ReportTable,
-    ResearchReport,
-    charts,
-    write_research_bundle,
-    write_research_catalog,
-)
-
-equity_png = charts.plot_backtest_performance(result_df, title="Performance")
-report = ResearchReport(
-    namespace="lesson_09",
-    slug="if_ma10_atr",
-    title="IF MA10 + ATR",
-    question="Does this rule beat buy-and-hold under the stated costs?",
-    universe=["CFFEX.IF99"],
-    frequency="1d",
-    sample_start="2024-01-01",
-    sample_end="2026-07-01",
-    in_sample_end=None,
-    out_of_sample_start=None,
-    hypothesis="A short dip below MA10 may revert; a rising ATR trailing stop limits persistent declines. Both effects need comparison tests.",
-    method_notes=["Enter below MA10; exit at the entry-to-date high minus 2 ATR(14), using strategies.time_series.rules."],
-    execution={
-        "trade_at": "close",
-        "signal_lag": 1,
-        "commission": 0.0002,
-        "slippage_bp": 2.0,
-        "return_mode": "forward",
-    },
-    metrics=execution.metrics,  # from VectorBacktester, do not invent numbers
-    metrics_source="BacktestResult.metrics",
-    figures=[ReportFigure(name="equity", caption="Equity and drawdown", png=equity_png)],
-    tables=[],
-    caveats=["Single IF contract and sample window; no no-stop comparison yet."],
-    next_steps=["Compare the same entry rule without the ATR stop and at higher costs."],
-    reproduce_command="uv run python -m strategies.time_series.workflows.run_demo",
-    visibility="private",
-    domain="time_series",
-)
-study_dir = write_research_bundle(report)
-write_research_catalog()
+```bash
+uv run qs report chart --kind equity-curve --table out/run/result.parquet \
+  --column return --output out/equity.png
+uv run qs report bundle --print-template          # the fields of study.json
+uv run qs report bundle --input-json study.json --catalog
+uv run qs report list
+uv run qs report catalog
 ```
 
-Directory contract:
+`study.json` holds the report fields (namespace, slug, title, question,
+hypothesis, execution, metrics, figures, caveats, and so on).
+`uv run qs schema report.bundle` describes each one.
+
+## Files
+
+Reports go under `QUANTSPACE_REPORTS_ROOT`, otherwise the workspace `reports/`
+directory:
 
 ```text
 reports/<namespace>/<slug>/index.html
@@ -80,219 +45,60 @@ reports/catalog.html
 reports/catalog.json
 ```
 
-`index.html` is the human-readable nine-section report. `params.json` is the
-catalog sidecar. `list_research_studies` only accepts folders that have both
-files. CSV-only experiment folders are ignored. `write_research_bundle` does
-not write the catalog; call `write_research_catalog` after a batch.
+`index.html` is the nine-section report: 研究问题, 数据与样本, 假设与方法,
+执行约定, 证据与指标, 图表, 对照与稳健性, 限制与下一步, 复现与产物. Without
+comparison or robustness evidence, section 7 still renders `本报告未做`.
+`params.json` is the catalog sidecar; `list` only counts folders that hold both
+files. `bundle` updates the catalog only with `--catalog`.
 
-Required HTML sections: 研究问题, 数据与样本, 假设与方法, 执行约定,
-证据与指标, 图表, 对照与稳健性, 限制与下一步, 复现与产物.
-If there is no comparison or robustness evidence, section 7 still renders
-`本报告未做`.
+## Rules
 
-## Agent interpretation before rendering
+Complete research archives are HTML only: no Markdown, PDF, or database. Other
+Skills return objects or tables and never write HTML.
 
-`write_research_bundle` only renders supplied fields. The calling AI agent
-must read the strategy implementation, data and actual backtest results before
-filling `ResearchReport`; a deterministic report script cannot supply a fresh
-AI assessment on each run. In particular:
+`bundle` only renders the fields it is given. Before filling them, read the
+strategy implementation, the data, and the actual backtest results:
 
-- State the testable question in `question`; write a distinct `hypothesis` that
-  explains why the signal might work, what it predicts, and how positions are
-  opened, sized and exited. Put implementation details in `method_notes`.
-- Interpret actual metrics against their sample and trading activity; identify
-  specific weaknesses, missing comparisons and possible confounders in
-  `caveats`. Use `next_steps` for concrete tests that could challenge the
-  strategy's explanation. Do not present a hypothesized mechanism as a proven
-  source of return or invent an unseen AI analysis.
-- Keep a regeneration command in `reproduce_command` only. Do not use the
-  same disclaimer and rerun instruction as the analysis for every strategy.
-- If a saved report was generated by an older strategy version, interpret its
-  recorded method and results; reconcile version differences before rerunning
-  or claiming that current code reproduces those numbers.
+- State a testable `question`. Write a distinct `hypothesis`: why the signal
+  might work, what it predicts, and how positions are opened, sized, and
+  closed. Implementation details go to `method_notes`.
+- Interpret the actual metrics against their sample and trading activity. Name
+  specific weaknesses, missing comparisons, and possible confounders in
+  `caveats`; put concrete tests that could challenge the explanation in
+  `next_steps`. Do not present a hypothesized mechanism as a proven source of
+  return.
+- Keep the regeneration command in `reproduce_command` only.
+- If a saved report came from an older strategy version, interpret its recorded
+  method and results, and reconcile the version difference before claiming
+  that current code reproduces the numbers.
 
 Hard rules:
 
-- Fill `metrics` from `BacktestResult`, CSV, JSON, or `result_df`. Never invent Sharpe.
-- `metrics_source` is required.
+- Fill `metrics` from a backtest result (`metrics.json`), CSV, or JSON. Never
+  invent a number. `metrics_source` is required.
 - `namespace` and `slug` are safe path segments only.
-- Pass `visibility="private"` unless publishing a public example (the Python field is required; `qs report bundle` defaults to `private`). Do not git-add private studies.
-- Public examples use `namespace="strategy_examples"`, `visibility="public_example"` and `kind="public_example"`. They still write `reports/<namespace>/<slug>/`.
-- Do not import `strategies/` from this skill.
-- Do not export PDF.
+- `visibility` is `private` unless publishing a public example; do not git-add
+  private studies. Public examples use `namespace="strategy_examples"`,
+  `visibility="public_example"`, and `kind="public_example"`.
 
-README gallery PNGs (`strategy_examples/<slug>_performance.png`) are extra
-sidecar files written by `scripts/run_strategy_reports`, not by
-`write_research_bundle`.
+## References
 
-## Dashboard preview
-
-```python
-from skills.report import ReportRenderer, charts
-
-renderer = ReportRenderer()
-ranking_png = charts.plot_factor_ranking(ranking_df, value_col="IC_IR")
-html = renderer.render(
-    "factor_report",
-    {
-        "title": "Macro universe — weekly factor screen",
-        "namespace": "macro_weekly",
-        "n": 5,
-        "as_of": "2026-05-08",
-        "ranking_chart": ranking_png,
-        "ranking_html": ranking_df.to_html(),
-    },
-)
-path = renderer.save(html, "macro_weekly_2026-05-08.html")
-```
-
-Pass a template name with or without `.html`. Relative output paths resolve
-against `reports/`; absolute paths are respected as-is.
-
-## Available charts
-
-| Function | Returns |
-|----------|---------|
-| `plot_equity_curve(returns, title)` | Cumulative `(1+r).cumprod()` equity curve |
-| `plot_backtest_performance(result_df, title)` | Backtest equity curve plus drawdown |
-| `plot_factor_diagnostics(ic_series, ic_stats, group_returns, turnover, title, rolling_ir_window)` | IC, rolling IR, layered NAV, and turnover dashboard |
-| `plot_ic_heatmap(ic_df, title)` | RdBu_r symmetric heatmap (rows=factors, cols=periods or other groups) |
-| `plot_rolling_pair_correlation(history, title)` | Small-multiple histories from Analyze's tidy rolling factor correlations |
-| `plot_horizon_ic(summary, factors, segment)` | Multi-factor Horizon IC term structure |
-| `plot_lagged_ic(summary, factors, horizons, segment)` | Four-panel signal-delay decay curves |
-| `plot_rebalance_comparison(comparison, segment, selected_days)` | Net Sharpe and turnover by rebalance interval |
-| `plot_factor_weight_history(factor_weights, method, start)` | Stacked dynamic factor weights |
-| `plot_equity_comparison(equities, start, title)` | Rebased equity curves for multiple combination methods |
-| `plot_factor_ranking(ranking_df, value_col, label_col, title, top_n)` | Horizontal bar chart of top factors, colored by sign |
-| `plot_regime_states(prices, states, title)` | Price line with colored bands per regime |
-
-All helpers return `bytes` (PNG). The headless `Agg` backend is pinned at
-import time so reports render without a display.
-
-Importing `skills.report.charts` (or calling `charts.configure_cjk_matplotlib()`)
-selects a system Han font so Chinese titles in PNG files render on macOS
-(PingFang / Hiragino Sans GB), Windows (Microsoft YaHei / SimHei from
-`%WINDIR%\\Fonts`), and Linux (Noto / Source Han / WenQuanYi). On Windows the
-file is registered with `fontManager.addfont` and applied by file path, not by
-font name alone — that is what makes `msyh.ttc` work with matplotlib. Custom
-figures should go through `charts.fig_to_png(fig)` instead of `savefig`. If no
-CJK font is installed (for example an English Windows image without the
-Chinese language pack), charts still save; glyphs may fall back to boxes.
-
-## Windows and paths
-
-- Write HTML/JSON/CSV as UTF-8 with `\n` newlines. Catalog reads tolerate
-  a UTF-8 BOM (`utf-8-sig`).
-- Study directories use `pathlib.Path` (`reports_root / namespace / slug`).
-- Catalog `href` values are POSIX (`namespace/slug/index.html`) so they work
-  in browsers on Windows.
-
-## Template conventions
-
-- Inline CSS only — reports must render standalone without external assets.
-- Header band uses `#4f81bd`; table header background `#f4f4f4`.
-- Body font stack includes PingFang / YaHei / Noto so HTML Chinese is visible
-  on macOS and Windows.
-- Every HTML report includes a relative link back to `catalog.html`
-  (`../../catalog.html` from `namespace/slug/index.html`).
-- Optional chart blocks are wrapped in `{% if chart %} … {% endif %}`.
-- Safe-render pre-built tables via `{{ table.html | safe }}`.
+- [references/python-api.md](references/python-api.md): `ResearchReport` and
+  `write_research_bundle`, the dashboard renderer, the chart functions, CJK
+  fonts, Windows path rules, and template conventions. Read it when changing
+  this Skill or building a report from Python.
 
 ## CLI command reference
 
 <!-- BEGIN GENERATED: qs commands -->
 
-Transport: `--input-json FILE|-`, `--preview N`, and `--log-level LEVEL`; flags override JSON. Use `--print-template [FIELD]` for fillable templates.
+Before using a command, run it with `--help` to see its options and defaults. `uv run qs schema <skill>.<command>` shows its input and output fields; add `--file-field FIELD` for the structure of an option that takes a JSON file.
 
-### `uv run qs report list`
-
-List research studies that have index.html and params.json.
-
-Priority: P0. Side effects: read-only.
-
-| Option | Type / default | Description |
+| Command | What it does | Side effects |
 |---|---|---|
-| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
-| `--namespace` | `string?` / `null` | Only studies in this namespace. |
-
-Output data fields: `reports_root`, `count`, `studies`.
-
-Inspect schemas: `uv run qs schema report.list` (add `--part input|output` or `--file-field FIELD`).
-
-### `uv run qs report bundle`
-
-Write a nine-section HTML research archive with write_research_bundle.
-
-Priority: P1. Side effects: writes-output.
-
-| Option | Type / default | Description |
-|---|---|---|
-| `--namespace` | `string` / `required` | Safe path segment: reports/<namespace>/<slug>/. |
-| `--slug` | `string` / `required` | Safe path segment naming the study directory. |
-| `--title` | `string` / `required` | Report title. |
-| `--question` | `string` / `required` | Testable research question. |
-| `--universe` | `list[string]` / `required` | Symbols studied. |
-| `--frequency` | `string` / `required` | Bar frequency, e.g. 1d. |
-| `--sample-start` | `string` / `required` | Sample start date. |
-| `--sample-end` | `string` / `required` | Sample end date. |
-| `--in-sample-end` | `string?` / `null` | In-sample end, if split. |
-| `--out-of-sample-start` | `string?` / `null` | Out-of-sample start, if split. |
-| `--hypothesis` | `string` / `required` | Why the signal might work and what it predicts. |
-| `--method-notes` | `list[string]` / `required` | Implementation details. |
-| `--execution` | `object` / `required` | Execution conventions such as trade_at, signal_lag, commission, slippage_bp. |
-| `--metrics` | `object` / `required` | Metrics read from a backtest result; never invented. |
-| `--metrics-source` | `string` / `required` | Where metrics came from, e.g. BacktestResult.metrics. |
-| `--figures` | `list[FigureItem]` / `required` | Figures from PNG files; may be empty. |
-| `--tables` | `list[TableItem]` / `required` | Evidence tables; may be empty. |
-| `--caveats` | `list[string]` / `required` | Weaknesses and confounders. |
-| `--next-steps` | `list[string]` / `required` | Concrete follow-up tests. |
-| `--reproduce-command` | `string` / `required` | Command that regenerates the evidence. |
-| `--visibility` | `private\|public_example` / `private` | private by default; public_example for shared examples. |
-| `--domain` | `string` / `` | Strategy domain label. |
-| `--kind` | `research\|dashboard\|public_example` / `research` | Study kind. |
-| `--tags` | `list[string]` / `factory` | Catalog tags. |
-| `--as-of` | `string?` / `null` | As-of date label. |
-| `--notes` | `list[string]` / `factory` | Extra notes; robustness notes render in section 7. |
-| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
-| `--catalog` | `boolean` / `false` | Also rewrite catalog.html and catalog.json afterwards. |
-| `--overwrite` | `boolean` / `false` | Replace an existing study directory. |
-
-Output data fields: `study_dir`, `files`, `catalog`.
-
-Inspect schemas: `uv run qs schema report.bundle` (add `--part input|output` or `--file-field FIELD`).
-
-### `uv run qs report catalog`
-
-Rewrite catalog.html and catalog.json under the reports root.
-
-Priority: P1. Side effects: writes-output.
-
-| Option | Type / default | Description |
-|---|---|---|
-| `--reports-root` | `path?` / `null` | Reports root; otherwise QUANTSPACE_REPORTS_ROOT or repository reports/. |
-
-Output data fields: `catalog`, `count`.
-
-Inspect schemas: `uv run qs schema report.catalog` (add `--part input|output` or `--file-field FIELD`).
-
-### `uv run qs report chart`
-
-Render one skills.report.charts PNG from a table.
-
-Priority: P1. Side effects: writes-output.
-
-| Option | Type / default | Description |
-|---|---|---|
-| `--kind` | `equity-curve\|backtest-performance\|factor-ranking\|ic-heatmap\|horizon-ic\|lagged-ic\|factor-weight-history` / `required` | equity-curve: one return column; backtest-performance: a backtest result table; factor-ranking: a factor ranking table; ic-heatmap: factors by periods; horizon-ic and lagged-ic: an ic-surface summary; factor-weight-history: tidy eob/method/factor/weight records, or the wide factor_weights from strategy combine (labelled with params method). |
-| `--table` | `path` / `required` | Input CSV or Parquet table. |
-| `--column` | `string` / `return` | Return column for equity-curve. |
-| `--title` | `string?` / `null` | Chart title; the chart default if omitted. |
-| `--params` | `object` / `factory` | Other keyword arguments of the charts function, e.g. factors=[...] for horizon-ic or value_col for factor-ranking. |
-| `--output` | `path` / `required` | Destination PNG file. |
-| `--overwrite` | `boolean` / `false` | Replace an existing PNG. |
-
-Output data fields: `kind`, `function`, `bytes`.
-
-Inspect schemas: `uv run qs schema report.chart` (add `--part input|output` or `--file-field FIELD`).
+| `uv run qs report list` | List research studies that have index.html and params.json. | read-only |
+| `uv run qs report bundle` | Write a nine-section HTML research archive with write_research_bundle. | writes-output |
+| `uv run qs report catalog` | Rewrite catalog.html and catalog.json under the reports root. | writes-output |
+| `uv run qs report chart` | Render one skills.report.charts PNG from a table. | writes-output |
 
 <!-- END GENERATED: qs commands -->
