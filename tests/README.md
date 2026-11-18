@@ -74,8 +74,8 @@ uv run python -m pytest -m "smoke and not research" -rs -q # qs commands only, a
   untrimmed to the temporary root), run as `python -m <module>` from a temporary
   directory with temporary data and reports roots, and a second guard fails the
   run if the repository `reports/` tree changes. They take almost all of the
-  smoke run's 12 to 24 minutes (depending on machine load); the governed-mining
-  final phase alone takes 8 to 14. The terminal summary lists each script's
+  smoke run's 12 to 24 minutes (depending on machine load); the factor-mining
+  workflow (screening 19 candidates, then pooling, freezing, and sealed-testing two) takes the longest. The terminal summary lists each script's
   seconds.
 - Commands with no suitable local input are listed with a reason in
   `tests/smoke/coverage.py`. A default-suite guard fails when a non-network

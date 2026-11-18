@@ -84,7 +84,7 @@ quantspace/
   strategies/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
-    factor_mining/        governed factor-mining workflow (screening, review records, freeze, sealed test)
+    factor_mining/        governed factor-mining workflow (screening, review records, factor pool, freeze, sealed test)
   scripts/                sample data, demos, PandaData import helper
   data/                   local data root; market and research artifacts stay local
   reports/                local generated report output

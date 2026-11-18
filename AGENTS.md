@@ -118,7 +118,7 @@ unchanged. After changing a command model, run `uv run qs docs render`.
 |--------|--------|---------|
 | cross_sectional | `from strategies.cross_sectional.rules import ma_gap_reversal_weights` | Concrete cross-sectional factors, rules, rank ML, and workflows |
 | time_series | `from strategies.time_series.ml import xgboost_triple_barrier_weights` | Single-instrument rules, features, triple-barrier ML, and weight generation |
-| factor_mining | `from strategies.factor_mining.research import run_factor_mining` | Governed factor-mining workflow: screening, review records, freeze, and the one sealed test; read its `STRATEGY.md` first |
+| factor_mining | `from strategies.factor_mining.research import run_factor_mining` | Governed factor-mining workflow: screening, review records, the factor pool, freeze, and the one sealed test; read its `STRATEGY.md` first |
 
 ## Data Conventions
 

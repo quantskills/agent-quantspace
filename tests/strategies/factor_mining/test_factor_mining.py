@@ -39,6 +39,7 @@ from strategies.factor_mining.research import (
     UNBLIND_COMPLETED,
     UNBLIND_FAILED,
     UNBLIND_STARTED,
+    load_candidates,
     research_data_version,
     run_factor_mining,
     specs_from_candidates,
@@ -61,8 +62,8 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "hypothesis": "Short-horizon close ROC ranks persist in the cross-section.",
         "expected_direction": "long_high",
         "required_fields": ("close",),
-        "module": f"{MINED_MODULE_PREFIX}.trend_momentum",
-        "name": "roc_close",
+        "module": "skills.compute.indicators",
+        "name": "roc",
         "params": {"period": 3},
         "window": 3,
         "lag": 0,
@@ -215,15 +216,63 @@ def _load_validation(data_root: Path, brief: ResearchBrief, spec):
     return report
 
 
-def _empty_pool_evidence(data_root: Path, brief: ResearchBrief, spec):
+def _compare(data_root: Path, brief: ResearchBrief, spec) -> EvaluationReport:
+    """Run the compare phase against the current pool and load its report."""
+    result = run_factor_mining(
+        brief=brief,
+        phase="compare",
+        data_root=data_root,
+        output_dir=data_root.parent / "reports",
+        factor_id=spec.factor_id,
+    )
     payload = _artifact_store(data_root).get_by_identity(
         namespace=brief.provenance.namespace,
         kind="evaluation_report",
-        artifact_id=f"compare.{spec.factor_id}",
+        artifact_id=f"compare.{spec.factor_id}.p{len(result.pool_factor_ids)}",
     )
     report = rebuild_dataclass(EvaluationReport, payload)
-    section = next(item for item in report.sections if item.name == "pool_incremental")
-    return next(item.evidence for item in section.checks if item.name == "POOL_UNAVAILABLE")
+    report.validate_hash()
+    return report
+
+
+def _pool_evidence(compare: EvaluationReport):
+    """The evidence an accepting decision cites: the unavailable check or a pool fact."""
+    section = next(item for item in compare.sections if item.name == "pool_incremental")
+    if not compare.pool_refs:
+        return next(item.evidence for item in section.checks if item.name == "POOL_UNAVAILABLE")
+    return next(item.evidence for item in section.facts if item.value is not None)
+
+
+def _pool_decision(
+    brief: ResearchBrief, spec, compare: EvaluationReport, **overrides
+) -> PoolDecision:
+    fields: dict[str, object] = {
+        "decision_id": f"pool.{spec.factor_id}",
+        "factor_ref": _factor_ref(spec),
+        "decision": PoolDecisionKind.ACCEPT,
+        "incremental_evidence": (_pool_evidence(compare),),
+        "residual_risks": () if compare.pool_refs else ("POOL_INCREMENTAL_UNAVAILABLE",),
+        "role_id": "pool_synthesizer",
+        "provenance": Provenance(
+            producer="pool_synthesizer",
+            data_version=brief.data_version,
+            code_version="test",
+            experiment_version=brief.brief_id,
+            namespace=brief.provenance.namespace,
+            input_refs=(_factor_ref(spec),),
+        ),
+    }
+    fields.update(overrides)
+    return PoolDecision(**fields)
+
+
+def _record_pool(data_root: Path, brief: ResearchBrief, decision: PoolDecision):
+    return run_factor_mining(
+        brief=brief,
+        phase="record",
+        data_root=data_root,
+        record_object={"object_type": "PoolDecision", "payload": to_plain_dict(decision)},
+    )
 
 
 def _put_reviews(
@@ -235,6 +284,7 @@ def _put_reviews(
     conclusion: ReviewConclusion = ReviewConclusion.PASS,
     include_pool: bool = True,
 ) -> None:
+    """Record both reviews, then compare with the pool and record an accepting decision."""
     namespace = brief.provenance.namespace
     factor_ref = _factor_ref(spec)
     evaluation_ref = ObjectRef(
@@ -268,30 +318,10 @@ def _put_reviews(
             data_root=data_root,
             record_object={"object_type": "ReviewReport", "payload": to_plain_dict(review)},
         )
-    if not include_pool:
-        return
-    pool = PoolDecision(
-        decision_id=f"pool.{spec.factor_id}",
-        factor_ref=factor_ref,
-        decision=PoolDecisionKind.ACCEPT,
-        incremental_evidence=(_empty_pool_evidence(data_root, brief, spec),),
-        residual_risks=("POOL_INCREMENTAL_UNAVAILABLE",),
-        role_id="pool_synthesizer",
-        provenance=Provenance(
-            producer="pool_synthesizer",
-            data_version=brief.data_version,
-            code_version="test",
-            experiment_version=brief.brief_id,
-            namespace=namespace,
-            input_refs=(factor_ref,),
-        ),
-    )
-    run_factor_mining(
-        brief=brief,
-        phase="record",
-        data_root=data_root,
-        record_object={"object_type": "PoolDecision", "payload": to_plain_dict(pool)},
-    )
+    if include_pool:
+        _record_pool(
+            data_root, brief, _pool_decision(brief, spec, _compare(data_root, brief, spec))
+        )
 
 
 def test_example_brief_round_trips(tmp_path: Path) -> None:
@@ -302,22 +332,24 @@ def test_example_brief_round_trips(tmp_path: Path) -> None:
     assert restored.content_hash == brief.content_hash
 
 
-def test_package_candidates_stay_inside_mined_factors() -> None:
+def test_candidates_use_indicators_or_a_mined_factors_package() -> None:
     assert CANDIDATES
-    for row in CANDIDATES:
-        assert str(row["module"]).startswith(MINED_MODULE_PREFIX)
+    assert len({row["factor_id"] for row in CANDIDATES}) == len(CANDIDATES)
     brief = make_example_brief(data_version="local-panel-fingerprint")
-    other_domain = _candidate(module="strategies.cross_sectional.mined_factors.trend_momentum")
-    assert len(specs_from_candidates(brief, (other_domain,))) == 1
+    assert len(specs_from_candidates(brief)) == len(CANDIDATES)
+    assert load_candidates(None) == tuple(CANDIDATES)
+    assert load_candidates("strategies.factor_mining.mined_factors.baseline") == tuple(CANDIDATES)
+    for module in (
+        f"{MINED_MODULE_PREFIX}.generated",
+        "strategies.cross_sectional.mined_factors.trend_momentum",
+    ):
+        assert len(specs_from_candidates(brief, (_candidate(module=module),))) == 1
 
 
-def test_candidate_module_must_be_inside_mined_factors() -> None:
+def test_candidate_module_outside_the_allowed_packages_is_rejected() -> None:
     brief = make_example_brief(data_version="local-panel-fingerprint")
-    with pytest.raises(ValueError, match="must be inside"):
-        specs_from_candidates(
-            brief,
-            (_candidate(module="skills.compute.indicators"),),
-        )
+    with pytest.raises(ValueError, match="function_ref.module must be"):
+        specs_from_candidates(brief, (_candidate(module="skills.compute.wrappers"),))
 
 
 def test_screening_adapter_panel_excludes_sealed_rows(tmp_path: Path) -> None:
@@ -341,26 +373,38 @@ def test_screening_adapter_panel_excludes_sealed_rows(tmp_path: Path) -> None:
     assert not sealed.empty
 
 
-def test_screening_can_rerun_before_freeze(tmp_path: Path) -> None:
+def test_screening_keeps_screened_candidates_and_adds_new_ones(tmp_path: Path) -> None:
     brief, data_root, output_dir, panel = _setup(tmp_path)
     candidate = _candidate()
-    first = run_factor_mining(
-        brief=brief,
-        phase="screening",
-        data_root=data_root,
-        output_dir=output_dir,
-        candidates=(candidate,),
-        panel=panel,
-    )
-    second = run_factor_mining(
-        brief=brief,
-        phase="screening",
-        data_root=data_root,
-        output_dir=output_dir,
-        candidates=(candidate,),
-        panel=panel,
-    )
-    assert second.factor_ids == first.factor_ids
+    kwargs = {"brief": brief, "phase": "screening", "data_root": data_root, "panel": panel}
+    first = run_factor_mining(output_dir=output_dir, candidates=(candidate,), **kwargs)
+    index_path = output_dir / "screening_index.json"
+    screened = json.loads(index_path.read_text())["candidates"][0]
+    table = pd.read_csv(output_dir / "screening_results.csv")
+    assert list(table["factor_id"]) == ["etf18-roc-3"]
+    assert {"train_rank_ic_mean", "validation_rank_ic_ir"} <= set(table.columns)
+
+    added = _candidate(factor_id="etf18-roc-5", params={"period": 5}, window=5, warmup=5)
+    second = run_factor_mining(output_dir=output_dir, candidates=(candidate, added), **kwargs)
+    rows = json.loads(index_path.read_text())["candidates"]
+    assert first.factor_ids == ("etf18-roc-3",)
+    assert second.factor_ids == ("etf18-roc-3", "etf18-roc-5")
+    # The first candidate's reports are the ones reviews would already be bound to.
+    assert rows[0] == screened
+
+    changed = _candidate(params={"period": 4})
+    with pytest.raises(ValueError, match="candidate changed after it was screened"):
+        run_factor_mining(output_dir=output_dir, candidates=(changed,), **kwargs)
+    with pytest.raises(ValueError, match="belongs to another Brief"):
+        other = replace(brief, notes="another brief", content_hash="")
+        run_factor_mining(
+            brief=other,
+            phase="screening",
+            data_root=data_root,
+            output_dir=output_dir,
+            candidates=(candidate,),
+            panel=panel,
+        )
 
 
 def test_final_without_write_is_rejected(tmp_path: Path) -> None:
@@ -405,88 +449,55 @@ def test_data_version_mismatch_is_rejected(tmp_path: Path) -> None:
         )
 
 
-def test_freeze_requires_reviews_and_rejects_hard_fail(tmp_path: Path) -> None:
-    brief, data_root, output_dir, panel = _setup(tmp_path)
+def _screen(tmp_path: Path, *candidates, **setup):
+    brief, data_root, output_dir, panel = _setup(tmp_path, **setup)
+    rows = candidates or (_candidate(),)
     run_factor_mining(
         brief=brief,
         phase="screening",
         data_root=data_root,
         output_dir=output_dir,
-        candidates=(_candidate(),),
+        candidates=rows,
         panel=panel,
     )
+    return brief, data_root, output_dir, panel, specs_from_candidates(brief, rows)
+
+
+def _freeze(brief, data_root, output_dir, *factor_ids):
+    return run_factor_mining(
+        brief=brief, phase="freeze", data_root=data_root, output_dir=output_dir, approve=factor_ids
+    )
+
+
+def test_pool_acceptance_requires_both_reviews_without_hard_fail(tmp_path: Path) -> None:
+    brief, data_root, output_dir, _panel, (spec,) = _screen(tmp_path)
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, spec.factor_id)
+    compare = _compare(data_root, brief, spec)
     with pytest.raises(ValueError, match="missing review"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=("etf18-roc-3",),
-        )
-    spec = specs_from_candidates(brief, (_candidate(),))[0]
+        _record_pool(data_root, brief, _pool_decision(brief, spec, compare))
     validation = _load_validation(data_root, brief, spec)
+    with pytest.raises(ValueError, match="reviews without hard fail"):
+        _put_reviews(data_root, brief, spec, validation, conclusion=ReviewConclusion.FAIL)
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, spec.factor_id)
+
+
+def test_freeze_requires_an_accepted_pool_member(tmp_path: Path) -> None:
+    brief, data_root, output_dir, _panel, (spec,) = _screen(tmp_path)
     _put_reviews(
-        data_root,
-        brief,
-        spec,
-        validation,
-        conclusion=ReviewConclusion.FAIL,
-        include_pool=True,
+        data_root, brief, spec, _load_validation(data_root, brief, spec), include_pool=False
     )
-    with pytest.raises(ValueError, match="hard fail review"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=("etf18-roc-3",),
-        )
-
-
-def test_freeze_requires_pool_decision(tmp_path: Path) -> None:
-    brief, data_root, output_dir, panel = _setup(tmp_path)
-    run_factor_mining(
-        brief=brief,
-        phase="screening",
-        data_root=data_root,
-        output_dir=output_dir,
-        candidates=(_candidate(),),
-        panel=panel,
-    )
-    spec = specs_from_candidates(brief, (_candidate(),))[0]
-    validation = _load_validation(data_root, brief, spec)
-    _put_reviews(data_root, brief, spec, validation, include_pool=False)
-    with pytest.raises(ValueError, match="missing PoolDecision"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=("etf18-roc-3",),
-        )
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, spec.factor_id)
 
 
 def test_empty_pool_bootstrap_requires_brief_opt_in(tmp_path: Path) -> None:
-    brief, data_root, output_dir, panel = _setup(tmp_path, require_pool_incremental=True)
-    candidate = _candidate()
-    run_factor_mining(
-        brief=brief,
-        phase="screening",
-        data_root=data_root,
-        output_dir=output_dir,
-        candidates=(candidate,),
-        panel=panel,
-    )
-    spec = specs_from_candidates(brief, (candidate,))[0]
-    _put_reviews(data_root, brief, spec, _load_validation(data_root, brief, spec))
+    brief, data_root, output_dir, _panel, (spec,) = _screen(tmp_path, require_pool_incremental=True)
     with pytest.raises(ValueError, match="empty-pool bootstrap evidence or Brief opt-in missing"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=(spec.factor_id,),
-        )
+        _put_reviews(data_root, brief, spec, _load_validation(data_root, brief, spec))
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, spec.factor_id)
     with pytest.raises(ArtifactStoreAdapterError):
         _artifact_store(data_root).get_by_identity(
             namespace=brief.provenance.namespace,
@@ -496,49 +507,82 @@ def test_empty_pool_bootstrap_requires_brief_opt_in(tmp_path: Path) -> None:
 
 
 def test_empty_pool_bootstrap_requires_unavailable_evidence(tmp_path: Path) -> None:
-    brief, data_root, output_dir, panel = _setup(tmp_path)
-    candidate = _candidate()
-    run_factor_mining(
-        brief=brief,
-        phase="screening",
-        data_root=data_root,
-        output_dir=output_dir,
-        candidates=(candidate,),
-        panel=panel,
-    )
-    spec = specs_from_candidates(brief, (candidate,))[0]
+    brief, data_root, _output_dir, _panel, (spec,) = _screen(tmp_path)
     _put_reviews(
         data_root, brief, spec, _load_validation(data_root, brief, spec), include_pool=False
     )
-    pool = PoolDecision(
-        decision_id=f"pool.{spec.factor_id}",
-        factor_ref=_factor_ref(spec),
-        decision=PoolDecisionKind.ACCEPT,
-        incremental_evidence=(),
-        residual_risks=(),
-        role_id="pool_synthesizer",
-        provenance=Provenance(
-            producer="pool_synthesizer",
-            data_version=brief.data_version,
-            code_version="test",
-            experiment_version=brief.brief_id,
-            namespace=brief.provenance.namespace,
-        ),
-    )
-    run_factor_mining(
-        brief=brief,
-        phase="record",
-        data_root=data_root,
-        record_object={"object_type": "PoolDecision", "payload": to_plain_dict(pool)},
-    )
+    compare = _compare(data_root, brief, spec)
+    decision = _pool_decision(brief, spec, compare, incremental_evidence=(), residual_risks=())
     with pytest.raises(ValueError, match="empty-pool bootstrap evidence or Brief opt-in missing"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=(spec.factor_id,),
+        _record_pool(data_root, brief, decision)
+
+
+def _two_candidates():
+    return (
+        _candidate(),
+        _candidate(factor_id="etf18-roc-5", params={"period": 5}, window=5, warmup=5),
+    )
+
+
+def test_second_factor_needs_evidence_against_the_current_pool(tmp_path: Path) -> None:
+    brief, data_root, output_dir, panel, (first, second) = _screen(tmp_path, *_two_candidates())
+    _put_reviews(
+        data_root, brief, second, _load_validation(data_root, brief, second), include_pool=False
+    )
+    # Compared while the pool was still empty; the first factor is accepted afterwards.
+    stale = _compare(data_root, brief, second)
+    assert stale.pool_refs == ()
+    _put_reviews(data_root, brief, first, _load_validation(data_root, brief, first))
+    with pytest.raises(ValueError, match="run the compare phase first"):
+        _record_pool(data_root, brief, _pool_decision(brief, second, stale))
+
+    current = _compare(data_root, brief, second)
+    assert [ref.object_id for ref in current.pool_refs] == [f"{first.factor_id}__validation"]
+    summary = json.loads((output_dir / f"compare.{second.factor_id}.p1.json").read_text())
+    assert summary["pool_factor_ids"] == [first.factor_id]
+    uncited = _pool_decision(brief, second, current, incremental_evidence=())
+    with pytest.raises(ValueError, match="must cite incremental evidence"):
+        _record_pool(data_root, brief, uncited)
+    accepted = _record_pool(data_root, brief, _pool_decision(brief, second, current))
+    assert accepted.pool_factor_ids == (first.factor_id, second.factor_id)
+    with pytest.raises(ValueError, match="already in the pool"):
+        _compare(data_root, brief, second)
+
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, second.factor_id)
+    with pytest.raises(ValueError, match="first factors of the pool"):
+        _freeze(brief, data_root, output_dir, second.factor_id, first.factor_id)
+    frozen = _freeze(brief, data_root, output_dir, first.factor_id, second.factor_id)
+    assert len(frozen.manifest_hashes) == 2
+    manifests = [
+        _artifact_store(data_root).get_by_identity(
+            namespace=NAMESPACE, kind="freeze_manifest", artifact_id=spec.factor_id
         )
+        for spec in (first, second)
+    ]
+    assert manifests[0]["pool_baseline_refs"] == []
+    assert [ref["object_id"] for ref in manifests[1]["pool_baseline_refs"]] == [
+        f"{first.factor_id}__validation"
+    ]
+    final = run_factor_mining(
+        brief=brief,
+        phase="final",
+        data_root=data_root,
+        output_dir=output_dir,
+        write=True,
+        panel=panel,
+    )
+    assert final.factor_ids == (first.factor_id, second.factor_id)
+    sealed = json.loads((output_dir / "final_summary.json").read_text())["sealed"]
+    assert [row["factor_id"] for row in sealed] == [first.factor_id, second.factor_id]
+
+
+def test_a_leading_part_of_the_pool_can_be_frozen(tmp_path: Path) -> None:
+    brief, data_root, output_dir, _panel, (first, second) = _screen(tmp_path, *_two_candidates())
+    for spec in (first, second):
+        _put_reviews(data_root, brief, spec, _load_validation(data_root, brief, spec))
+    frozen = _freeze(brief, data_root, output_dir, first.factor_id)
+    assert frozen.factor_ids == (first.factor_id,)
 
 
 def test_second_final_with_same_manifest_digest_is_rejected(tmp_path: Path) -> None:
@@ -735,7 +779,7 @@ def test_record_rejects_wrong_type_missing_reference_and_duplicate_id(tmp_path: 
             record_object={"object_type": "ReviewReport", "payload": to_plain_dict(changed)},
         )
     evidence = next(fact.evidence for section in validation.sections for fact in section.facts)
-    pool = PoolDecision(
+    uncompared = PoolDecision(
         decision_id=f"pool.{spec.factor_id}",
         factor_ref=_factor_ref(spec),
         decision=PoolDecisionKind.ACCEPT,
@@ -750,21 +794,17 @@ def test_record_rejects_wrong_type_missing_reference_and_duplicate_id(tmp_path: 
             namespace=NAMESPACE,
         ),
     )
-    run_factor_mining(
-        brief=brief,
-        phase="record",
-        data_root=data_root,
-        record_object={"object_type": "PoolDecision", "payload": to_plain_dict(pool)},
-    )
-    stored = _artifact_store(data_root).get_by_identity(
-        namespace=NAMESPACE,
-        kind="pool_decision",
-        artifact_id=f"{spec.factor_id}.pool_synthesizer",
-    )
-    assert stored["content_hash"] == pool.content_hash
+    with pytest.raises(ValueError, match="run the compare phase first"):
+        _record_pool(data_root, brief, uncompared)
+    with pytest.raises(ArtifactStoreAdapterError):
+        _artifact_store(data_root).get_by_identity(
+            namespace=NAMESPACE,
+            kind="pool_decision",
+            artifact_id=f"{spec.factor_id}.pool_synthesizer",
+        )
 
 
-def test_freeze_rejects_rejected_pool_decision(tmp_path: Path) -> None:
+def test_rejected_pool_decision_does_not_enter_the_pool(tmp_path: Path) -> None:
     brief, data_root, output_dir, panel = _setup(tmp_path)
     candidate = _candidate()
     run_factor_mining(
@@ -800,7 +840,7 @@ def test_freeze_rejects_rejected_pool_decision(tmp_path: Path) -> None:
         data_root=data_root,
         record_object={"object_type": "PoolDecision", "payload": to_plain_dict(pool)},
     )
-    with pytest.raises(ValueError, match="PoolDecision rejected"):
+    with pytest.raises(ValueError, match="first factors of the pool"):
         run_factor_mining(
             brief=brief,
             phase="freeze",
@@ -810,7 +850,7 @@ def test_freeze_rejects_rejected_pool_decision(tmp_path: Path) -> None:
         )
 
 
-def test_freeze_rejects_review_bound_to_another_factor(tmp_path: Path) -> None:
+def test_pool_decision_rejects_review_bound_to_another_factor(tmp_path: Path) -> None:
     brief, data_root, output_dir, panel = _setup(tmp_path)
     candidates = (_candidate(), _candidate(factor_id="etf18-roc-4"))
     run_factor_mining(
@@ -851,14 +891,9 @@ def test_freeze_rejects_review_bound_to_another_factor(tmp_path: Path) -> None:
         artifact_id=f"{first.factor_id}.{REVIEW_ROLES[0]}",
         payload=to_plain_dict(review),
     )
+    compare = _compare(data_root, brief, first)
     with pytest.raises(ValueError, match="review factor reference mismatch"):
-        run_factor_mining(
-            brief=brief,
-            phase="freeze",
-            data_root=data_root,
-            output_dir=output_dir,
-            approve=(first.factor_id,),
-        )
+        _record_pool(data_root, brief, _pool_decision(brief, first, compare))
 
 
 def test_final_rejects_mutable_freeze_index_before_claim(tmp_path: Path) -> None:

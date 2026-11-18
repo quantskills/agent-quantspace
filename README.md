@@ -66,7 +66,7 @@ quantspace/
   strategies/
     cross_sectional/      具体横截面 factors、rules、ML 与 workflows
     time_series/          具体时序 features、rules、ML 与 workflows
-    factor_mining/        受治理的因子挖掘 workflow（筛选、记录审查、冻结、密封检验）
+    factor_mining/        受治理的因子挖掘 workflow（筛选、记录审查、因子池、冻结、密封检验）
   scripts/                全局数据导入、报告和维护入口
   data/                   本地数据根目录；行情和研究产物默认不提交
   reports/                本地生成报告目录；strategy_examples/ 是公开产物例外

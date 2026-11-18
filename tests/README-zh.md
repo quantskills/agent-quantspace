@@ -68,7 +68,7 @@ uv run python -m pytest -m "smoke and not research" -rs -q # 只跑 qs 命令，
   18 只大类资产 ETF 的完整 `1d_adj` 历史（不裁剪，复制到临时目录），以 `python -m <module>`
   方式在临时工作目录运行，使用临时数据根和临时 reports 根；另有一道守卫，仓库 `reports/`
   目录一旦变化就让测试失败。冒烟测试的 12 到 24 分钟（取决于机器负载）几乎都花在这些脚本上，
-  其中 governed 因子挖掘的 final 阶段一项就要 8 到 14 分钟；终端汇总会列出每个脚本的耗时。
+  其中因子挖掘 workflow（19 个候选的筛选加两个因子的入池、冻结与密封检验）耗时最长；终端汇总会列出每个脚本的耗时。
 - 没有合适本地输入的命令在 `tests/smoke/coverage.py` 中写明跳过原因。默认测试里有一道守卫：
   某个不联网命令既没有冒烟步骤、也没有列入该清单时，默认测试会失败。依赖可选包的命令
   （`store query` 需要 `duckdb`）保留冒烟步骤并列入 `OPTIONAL_DEPENDENCY`，只有模块无法导入时

@@ -1,4 +1,4 @@
-"""Governed factor-mining workflow: screening, record, freeze, and final.
+"""Governed factor-mining workflow: screening, compare, record, freeze, and final.
 
 Every phase reads and writes formal objects through ``DataManagerArtifactStore``.
 The sealed split is opened at most once per Brief: ``final`` first creates the
@@ -8,10 +8,13 @@ that artifact already exists.
 
 from __future__ import annotations
 
+import importlib
 import json
+import multiprocessing
 import re
 import tempfile
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -47,6 +50,7 @@ from skills.factor_mining import (
     Severity,
     SplitWindow,
     StructuredFormula,
+    TypedPoolMember,
     rebuild_dataclass,
     to_plain_dict,
 )
@@ -69,10 +73,11 @@ from strategies.factor_mining.brief import (
 )
 from strategies.factor_mining.mined_factors import CANDIDATES as PACKAGE_CANDIDATES
 
-PhaseName = Literal["screening", "record", "freeze", "final"]
+PhaseName = Literal["screening", "compare", "record", "freeze", "final"]
 
 MINED_MODULE_PREFIX = "strategies.factor_mining.mined_factors"
-# Generated factor code lives in the mined_factors package of any strategy domain.
+INDICATOR_MODULE = "skills.compute.indicators"
+# Factor code is a public indicator or lives in the mined_factors package of a strategy domain.
 MINED_MODULE_PATTERN = re.compile(
     r"strategies\.[A-Za-z_][A-Za-z0-9_]*\.mined_factors(\.[A-Za-z_][A-Za-z0-9_]*)*"
 )
@@ -82,6 +87,16 @@ UNBLIND_STARTED = "unblind_started"
 UNBLIND_COMPLETED = "unblind_completed"
 UNBLIND_FAILED = "unblind_failed"
 SCREENING_INDEX_NAME = "screening_index.json"
+SCREENING_RESULTS_NAME = "screening_results.csv"
+SCREENING_METRICS = (
+    "rank_ic_mean",
+    "rank_ic_ir",
+    "rank_ic_hac_t_stat",
+    "rank_ic_hac_p_value",
+    "rank_ic_positive_ratio",
+    "rank_ic_count",
+)
+POOL_MEMBER_KIND = "pool_member"
 FREEZE_INDEX_NAME = "freeze_index.json"
 
 
@@ -100,6 +115,7 @@ class PhaseResult:
     manifest_hashes: tuple[str, ...] = ()
     once_key: str | None = None
     event_ids: tuple[str, ...] = ()
+    pool_factor_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -113,6 +129,7 @@ class _Runtime:
     base_panel: pd.DataFrame | None = None
     artifacts: DataManagerArtifactStore | None = None
     dm: DataManager | None = None
+    pool: tuple[TypedPoolMember, ...] = ()
 
 
 def specs_from_candidates(
@@ -128,9 +145,10 @@ def specs_from_candidates(
     specs: list[FactorSpec] = []
     for row in rows:
         module = str(row["module"])
-        if MINED_MODULE_PATTERN.fullmatch(module) is None:
+        if module != INDICATOR_MODULE and MINED_MODULE_PATTERN.fullmatch(module) is None:
             raise ValueError(
-                f"function_ref.module must be inside a strategies mined_factors package: {module}"
+                f"function_ref.module must be {INDICATOR_MODULE} or inside a strategies "
+                f"mined_factors package: {module}"
             )
         specs.append(
             FactorSpec(
@@ -240,6 +258,13 @@ def write_example_brief(
     brief = make_example_brief(data_version=research_data_version(panel, draft))
     dump_brief(brief, target)
     return brief
+
+
+def load_candidates(module: str | None) -> tuple[Mapping[str, Any], ...]:
+    """CANDIDATES of ``module``, or of this package's mined_factors when it is None."""
+    if module is None:
+        return tuple(PACKAGE_CANDIDATES)
+    return tuple(importlib.import_module(module).CANDIDATES)
 
 
 def _brief_ref(brief: ResearchBrief) -> ObjectRef:
@@ -385,6 +410,57 @@ def _resolve_object_ref(store: DataManagerArtifactStore, ref: ObjectRef) -> Any:
     return obj
 
 
+def _pool_members(store: DataManagerArtifactStore, brief: ResearchBrief) -> list[dict[str, Any]]:
+    """Accepted factors of this Brief in the order they entered the pool."""
+    namespace = brief.provenance.namespace
+    members = [
+        dict(store.get_by_identity(namespace=namespace, kind=POOL_MEMBER_KIND, artifact_id=item))
+        for item in store.list_artifact_ids(namespace=namespace, kind=POOL_MEMBER_KIND)
+    ]
+    members.sort(key=lambda member: int(member["seq"]))
+    if [int(member["seq"]) for member in members] != list(range(1, len(members) + 1)):
+        raise ValueError("pool member sequence is not contiguous")
+    return members
+
+
+def _member_execution_ref(brief: ResearchBrief, member: Mapping[str, Any]) -> ObjectRef:
+    return ObjectRef(
+        object_type="FactorExecutionResult",
+        object_id=str(member["execution_id"]),
+        content_hash=str(member["execution_fingerprint"]),
+        namespace=brief.provenance.namespace,
+    )
+
+
+def _compare_artifact_id(factor_id: str, pool_size: int) -> str:
+    return f"compare.{factor_id}.p{pool_size}"
+
+
+def _load_reviews(
+    store: DataManagerArtifactStore, brief: ResearchBrief, factor_ref: ObjectRef
+) -> list[ReviewReport]:
+    """Both independent reviews of one candidate, in REVIEW_ROLES order."""
+    factor_id = factor_ref.object_id
+    reviews: list[ReviewReport] = []
+    for role_id in REVIEW_ROLES:
+        try:
+            review = _load_typed(
+                store,
+                ReviewReport,
+                namespace=brief.provenance.namespace,
+                kind="review_report",
+                artifact_id=f"{factor_id}.{role_id}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"missing review {role_id} for {factor_id}") from exc
+        if review.role_id != role_id:
+            raise ValueError(f"review role mismatch for {factor_id}: {review.role_id}")
+        if review.factor_ref != factor_ref:
+            raise ValueError(f"review factor reference mismatch for {factor_id}")
+        reviews.append(review)
+    return reviews
+
+
 def run_record(
     brief: ResearchBrief,
     *,
@@ -401,6 +477,7 @@ def run_record(
     if not payload.get("content_hash"):
         raise ValueError("record requires a supplied content_hash")
     cls = ReviewReport if object_type == "ReviewReport" else PoolDecision
+    new_member: dict[str, Any] | None = None
     obj = rebuild_dataclass(cls, payload)
     obj.validate_hash()
     namespace = brief.provenance.namespace
@@ -434,6 +511,8 @@ def run_record(
             raise ValueError("record PoolDecision identity mismatch")
         refs = list(obj.incremental_evidence)
         kind, artifact_id = "pool_decision", f"{obj.factor_ref.object_id}.{POOL_ROLE}"
+        if obj.decision is PoolDecisionKind.ACCEPT:
+            new_member = _new_pool_member(store, brief, obj)
     for source_ref in obj.provenance.input_refs:
         if isinstance(source_ref, ObjectRef):
             _resolve_object_ref(store, source_ref)
@@ -477,6 +556,17 @@ def run_record(
         input_refs=(obj.factor_ref,),
         append_only=True,
     )
+    if new_member is not None:
+        # Written after the decision; recording the same decision again repairs a crash here.
+        _put_payload(
+            store,
+            namespace=namespace,
+            kind=POOL_MEMBER_KIND,
+            artifact_id=f"{brief.brief_id}.{int(new_member['seq']):04d}",
+            payload=new_member,
+            input_refs=(obj.factor_ref,),
+            append_only=True,
+        )
     return PhaseResult(
         "record",
         brief.brief_id,
@@ -486,6 +576,7 @@ def run_record(
         None,
         False,
         (obj.factor_ref.object_id,),
+        pool_factor_ids=tuple(str(item["factor_id"]) for item in _pool_members(store, brief)),
     )
 
 
@@ -514,10 +605,19 @@ def _validate_pool_acceptance(
     reviews: Sequence[ReviewReport],
     pool: PoolDecision,
 ) -> None:
-    """An empty pool may bootstrap one candidate, never imply incremental value."""
+    """Accepting needs incremental evidence; an empty pool may bootstrap one candidate."""
     if pool.decision is not PoolDecisionKind.ACCEPT:
         raise ValueError("PoolDecision rejected")
+    if _hard_failed_report(compare) or any(_hard_failed_review(review) for review in reviews):
+        raise ValueError("pool acceptance needs a clean comparison and reviews without hard fail")
     if compare.pool_refs:
+        if not any(
+            evidence.source_report_id == compare.report_id for evidence in pool.incremental_evidence
+        ):
+            raise ValueError(
+                "PoolDecision must cite incremental evidence from the comparison against "
+                f"the current pool: {compare.report_id}"
+            )
         return
     section = next((item for item in compare.sections if item.name == "pool_incremental"), None)
     unavailable = (
@@ -540,6 +640,44 @@ def _validate_pool_acceptance(
         or EMPTY_POOL_RISK not in pool.residual_risks
     ):
         raise ValueError("empty-pool bootstrap evidence or Brief opt-in missing")
+
+
+def _new_pool_member(
+    store: DataManagerArtifactStore, brief: ResearchBrief, decision: PoolDecision
+) -> dict[str, Any] | None:
+    """Check an accepting decision against the current pool; return the member to append."""
+    factor_id = decision.factor_ref.object_id
+    members = _pool_members(store, brief)
+    if any(member["factor_id"] == factor_id for member in members):
+        return None
+    artifact_id = _compare_artifact_id(factor_id, len(members))
+    try:
+        compare = _load_typed(
+            store,
+            EvaluationReport,
+            namespace=brief.provenance.namespace,
+            kind="evaluation_report",
+            artifact_id=artifact_id,
+        )
+    except ArtifactStoreAdapterError as exc:
+        raise ValueError(
+            f"no comparison of {factor_id} against the current pool of {len(members)}; "
+            "run the compare phase first"
+        ) from exc
+    _validate_pool_acceptance(
+        brief, compare, _load_reviews(store, brief, decision.factor_ref), decision
+    )
+    if compare.execution_ref is None:
+        raise ValueError(f"comparison has no execution reference: {factor_id}")
+    return {
+        "seq": len(members) + 1,
+        "factor_id": factor_id,
+        "execution_id": compare.execution_ref.object_id,
+        "execution_fingerprint": compare.execution_ref.content_hash,
+        "compare_artifact_id": artifact_id,
+        "compare_report_hash": compare.content_hash,
+        "pool_decision_hash": decision.content_hash,
+    }
 
 
 def _panel_end(panel: pd.DataFrame, datetime_level: str) -> str:
@@ -632,7 +770,7 @@ def _build_adapters(runtime: _Runtime) -> tuple[FactorExecutionAdapter, AnalyzeA
         resolve_execution=resolve_execution,
         load_series=lambda ref: load_execution_series(artifacts, ref),
         load_panel=load_panel,
-        load_pool=lambda request: None,
+        load_pool=lambda request: runtime.pool or None,
     )
     return execution_adapter, analyze_adapter
 
@@ -691,6 +829,118 @@ def _evaluate_split(
     return execution, report
 
 
+def _screen_candidate(
+    brief_payload: Mapping[str, Any],
+    spec_payload: Mapping[str, Any],
+    data_root: str | None,
+    panel: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    """Preflight one candidate and evaluate it on train and validation.
+
+    Takes plain payloads so it can run in a worker process. Every formal object is
+    written to the artifact store; the returned row is the candidate's index entry.
+    """
+    brief = rebuild_dataclass(ResearchBrief, brief_payload)
+    spec = rebuild_dataclass(FactorSpec, spec_payload)
+    dm = _data_manager(data_root)
+    artifacts = DataManagerArtifactStore(dm)
+    market = panel if panel is not None else _load_market_panel(brief, dm, research_only=True)
+    runtime = _Runtime(
+        brief=brief,
+        specs={spec.factor_id: spec},
+        allow_sealed=False,
+        base_panel=slice_research_panel(market, brief),
+        artifacts=artifacts,
+        dm=dm,
+    )
+    execution_adapter, analyze_adapter = _build_adapters(runtime)
+    namespace = brief.provenance.namespace
+    _put_object(
+        artifacts,
+        spec,
+        kind="factor_spec",
+        artifact_id=spec.factor_id,
+        input_refs=(_brief_ref(brief),),
+    )
+    preflight = analyze_adapter.preflight(
+        EvaluationRequest(
+            request_id=f"preflight.{spec.factor_id}",
+            namespace=namespace,
+            brief_ref=_brief_ref(brief),
+            factor_ref=_factor_ref(spec),
+            execution_ref=None,
+            protocol_id=protocol_id_for(spec),
+            data_version=brief.data_version,
+            split_id=brief.train.split_id,
+        )
+    )
+    _put_object(
+        artifacts,
+        preflight,
+        kind="evaluation_report",
+        artifact_id=f"preflight.{spec.factor_id}",
+        input_refs=(_brief_ref(brief), _factor_ref(spec)),
+    )
+    row: dict[str, Any] = {
+        "factor_id": spec.factor_id,
+        "spec": to_plain_dict(spec),
+        "preflight_report_id": preflight.report_id,
+        "preflight_hash": preflight.content_hash,
+        "preflight_failed": _hard_failed_report(preflight),
+        "splits": {},
+    }
+    if not row["preflight_failed"]:
+        for split in (brief.train, brief.validation):
+            execution, report = _evaluate_split(
+                runtime,
+                spec,
+                split.split_id,
+                execution_adapter=execution_adapter,
+                analyze_adapter=analyze_adapter,
+            )
+            row["splits"][split.split_id] = {
+                "execution_id": execution.execution_id,
+                "execution_fingerprint": execution.fingerprint,
+                "report_id": report.report_id,
+                "report_hash": report.content_hash,
+                "failed": execution.failure is not None or _hard_failed_report(report),
+                **{name: _metric(report, name) for name in SCREENING_METRICS},
+            }
+    row["observed_panel_end"] = (
+        max(_panel_end(item, brief.datetime_level) for item in runtime.observed_panels)
+        if runtime.observed_panels
+        else None
+    )
+    row["contains_sealed_rows"] = _contains_sealed(runtime.observed_panels, brief)
+    return row
+
+
+def _screening_table(brief: ResearchBrief, rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    """One line per candidate: its definition and the headline metrics of each split."""
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        spec = row["spec"]
+        formula = spec["formula"]
+        function_ref = formula.get("function_ref") or {}
+        record: dict[str, Any] = {
+            "factor_id": row["factor_id"],
+            "family": spec["family"],
+            "direction": spec["expected_direction"],
+            "function": ":".join(
+                str(function_ref[key]) for key in ("module", "name") if function_ref.get(key)
+            ),
+            "params": json.dumps(formula.get("params") or {}, ensure_ascii=False, sort_keys=True),
+            "preflight_failed": row["preflight_failed"],
+        }
+        for split in (brief.train, brief.validation):
+            facts = row["splits"].get(split.split_id, {})
+            record[f"{split.split_id}_failed"] = facts.get("failed")
+            for name in SCREENING_METRICS:
+                record[f"{split.split_id}_{name}"] = facts.get(name)
+        records.append(record)
+    return pd.DataFrame.from_records(records)
+
+
 def run_screening(
     brief: ResearchBrief,
     *,
@@ -698,7 +948,14 @@ def run_screening(
     output_dir: str | Path | None = None,
     candidates: Sequence[Mapping[str, Any]] | None = None,
     panel: pd.DataFrame | None = None,
+    jobs: int = 1,
 ) -> PhaseResult:
+    """Evaluate the candidates that have not been screened yet.
+
+    A candidate already in the screening index is kept as it is, so an interrupted
+    run resumes and a later run can add candidates within the budget. Reviews and
+    pool decisions bind to the stored reports, which is why they are never rewritten.
+    """
     specs = specs_from_candidates(brief, candidates)
     dm = _data_manager(data_root)
     artifacts = DataManagerArtifactStore(dm)
@@ -713,140 +970,233 @@ def run_screening(
             raise
     else:
         raise ValueError("screening is closed after this Brief was frozen")
+    out = Path(output_dir) if output_dir is not None else _default_output_dir(brief.brief_id)
+    index_path = out / SCREENING_INDEX_NAME
+    rows: dict[str, dict[str, Any]] = {}
+    if index_path.is_file():
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        if index.get("brief_hash") != brief.content_hash:
+            raise ValueError("screening index in the output directory belongs to another Brief")
+        rows = {row["factor_id"]: row for row in index["candidates"]}
+    pending: list[FactorSpec] = []
+    for spec in specs:
+        screened = rows.get(spec.factor_id)
+        if screened is None:
+            pending.append(spec)
+        elif screened["spec"]["content_hash"] != spec.content_hash:
+            raise ValueError(
+                f"candidate changed after it was screened: {spec.factor_id}; "
+                "a revision is a new candidate with a new factor_id"
+            )
+    if len(rows) + len(pending) > brief.budget.max_candidates:
+        raise ValueError(
+            f"candidate count exceeds budget: {len(rows) + len(pending)} > "
+            f"{brief.budget.max_candidates}"
+        )
     market = panel if panel is not None else _load_market_panel(brief, dm, research_only=True)
     assert_data_version(market, brief)
-    research = slice_research_panel(market, brief)
-    runtime = _Runtime(
-        brief=brief,
-        specs={spec.factor_id: spec for spec in specs},
-        allow_sealed=False,
-        base_panel=research,
-        artifacts=artifacts,
-        dm=dm,
-    )
-    execution_adapter, analyze_adapter = _build_adapters(runtime)
     namespace = brief.provenance.namespace
-    _put_object(
-        artifacts,
-        brief,
-        kind="research_brief",
-        artifact_id=brief.brief_id,
-    )
-    candidate_rows: list[dict[str, Any]] = []
-    for spec in specs:
-        _put_object(
-            artifacts,
-            spec,
-            kind="factor_spec",
-            artifact_id=spec.factor_id,
-            input_refs=(_brief_ref(brief),),
-        )
-        preflight_req = EvaluationRequest(
-            request_id=f"preflight.{spec.factor_id}",
-            namespace=namespace,
-            brief_ref=_brief_ref(brief),
-            factor_ref=_factor_ref(spec),
-            execution_ref=None,
-            protocol_id=protocol_id_for(spec),
-            data_version=brief.data_version,
-            split_id=brief.train.split_id,
-        )
-        preflight = analyze_adapter.preflight(preflight_req)
-        runtime.reports[preflight.report_id] = preflight
-        _put_object(
-            artifacts,
-            preflight,
-            kind="evaluation_report",
-            artifact_id=f"preflight.{spec.factor_id}",
-            input_refs=(_brief_ref(brief), _factor_ref(spec)),
-        )
-        row: dict[str, Any] = {
-            "factor_id": spec.factor_id,
-            "spec": to_plain_dict(spec),
-            "preflight_report_id": preflight.report_id,
-            "preflight_hash": preflight.content_hash,
-            "preflight_failed": _hard_failed_report(preflight),
-            "splits": {},
-        }
-        if not _hard_failed_report(preflight):
-            for split in (brief.train, brief.validation):
-                execution, report = _evaluate_split(
-                    runtime,
-                    spec,
-                    split.split_id,
-                    execution_adapter=execution_adapter,
-                    analyze_adapter=analyze_adapter,
-                )
-                row["splits"][split.split_id] = {
-                    "execution_id": execution.execution_id,
-                    "execution_fingerprint": execution.fingerprint,
-                    "report_id": report.report_id,
-                    "report_hash": report.content_hash,
-                    "failed": execution.failure is not None or _hard_failed_report(report),
-                    "rank_ic_ir": _metric(report, "rank_ic_ir"),
-                }
-            if (
-                brief.validation.split_id in row["splits"]
-                and not row["splits"][brief.validation.split_id]["failed"]
-            ):
-                compare_req = EvaluationRequest(
-                    request_id=f"compare.{spec.factor_id}",
-                    namespace=namespace,
-                    brief_ref=_brief_ref(brief),
-                    factor_ref=_factor_ref(spec),
-                    execution_ref=_execution_ref(
-                        runtime.executions[f"{spec.factor_id}__{brief.validation.split_id}"]
-                    ),
-                    protocol_id=protocol_id_for(spec),
-                    data_version=brief.data_version,
-                    split_id=brief.validation.split_id,
-                )
-                compare = analyze_adapter.compare_to_pool(compare_req)
-                runtime.reports[compare.report_id] = compare
-                _put_object(
-                    artifacts,
-                    compare,
-                    kind="evaluation_report",
-                    artifact_id=f"compare.{spec.factor_id}",
-                    input_refs=(_brief_ref(brief), _factor_ref(spec)),
-                )
-                row["compare_report_id"] = compare.report_id
-                row["compare_hash"] = compare.content_hash
-        candidate_rows.append(row)
+    _put_object(artifacts, brief, kind="research_brief", artifact_id=brief.brief_id)
 
-    out = Path(output_dir) if output_dir is not None else _default_output_dir(brief.brief_id)
-    index = {
-        "brief_id": brief.brief_id,
-        "brief_hash": brief.content_hash,
-        "namespace": namespace,
-        "data_version": brief.data_version,
-        "schema_version": SCHEMA_VERSION,
-        "candidates": candidate_rows,
-    }
-    _write_json(out / SCREENING_INDEX_NAME, index)
-    _write_json(
-        out / "screening_summary.json",
-        {
-            "brief_id": brief.brief_id,
-            "data_version": brief.data_version,
-            "factor_ids": [row["factor_id"] for row in candidate_rows],
-            "candidates": candidate_rows,
-        },
-    )
-    observed_end = (
-        max(_panel_end(item, brief.datetime_level) for item in runtime.observed_panels)
-        if runtime.observed_panels
-        else None
-    )
+    done: dict[str, dict[str, Any]] = {}
+
+    def publish() -> list[dict[str, Any]]:
+        # Earlier rows first, then this run's candidates in candidate order.
+        ordered = [*rows.values(), *(done[s.factor_id] for s in pending if s.factor_id in done)]
+        _write_json(
+            index_path,
+            {
+                "brief_id": brief.brief_id,
+                "brief_hash": brief.content_hash,
+                "namespace": namespace,
+                "data_version": brief.data_version,
+                "schema_version": SCHEMA_VERSION,
+                "candidates": ordered,
+            },
+        )
+        _screening_table(brief, ordered).to_csv(out / SCREENING_RESULTS_NAME, index=False)
+        return ordered
+
+    brief_payload = to_plain_dict(brief)
+    root = None if data_root is None else str(data_root)
+    if jobs > 1 and panel is None and len(pending) > 1:
+        with ProcessPoolExecutor(
+            max_workers=min(jobs, len(pending)), mp_context=multiprocessing.get_context("spawn")
+        ) as pool:
+            futures = {
+                pool.submit(_screen_candidate, brief_payload, to_plain_dict(spec), root): spec
+                for spec in pending
+            }
+            for future in as_completed(futures):
+                done[futures[future].factor_id] = future.result()
+                publish()
+    else:
+        for spec in pending:
+            done[spec.factor_id] = _screen_candidate(
+                brief_payload, to_plain_dict(spec), root, panel
+            )
+            publish()
+    ordered = publish()
+    screened_now = list(done.values())
+    ends = [row["observed_panel_end"] for row in screened_now if row["observed_panel_end"]]
     return PhaseResult(
         phase="screening",
         brief_id=brief.brief_id,
         brief_hash=brief.content_hash,
         data_version=brief.data_version,
         output_dir=str(out),
-        observed_panel_end=observed_end,
-        contains_sealed_rows=_contains_sealed(runtime.observed_panels, brief),
-        factor_ids=tuple(spec.factor_id for spec in specs),
+        observed_panel_end=max(ends) if ends else None,
+        contains_sealed_rows=any(row["contains_sealed_rows"] for row in screened_now),
+        factor_ids=tuple(row["factor_id"] for row in ordered),
+        pool_factor_ids=tuple(str(item["factor_id"]) for item in _pool_members(artifacts, brief)),
+    )
+
+
+def run_compare(
+    brief: ResearchBrief,
+    *,
+    factor_id: str,
+    data_root: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    panel: pd.DataFrame | None = None,
+) -> PhaseResult:
+    """Compare one screened candidate with the factors already accepted into the pool.
+
+    The report is stored once per (candidate, pool size). When another factor enters
+    the pool first, the comparison is out of date and has to be run again.
+    """
+    dm = _data_manager(data_root)
+    artifacts = DataManagerArtifactStore(dm)
+    out = Path(output_dir) if output_dir is not None else _default_output_dir(brief.brief_id)
+    index_path = out / SCREENING_INDEX_NAME
+    if not index_path.is_file():
+        raise FileNotFoundError(f"screening index not found: {index_path}")
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    if index.get("brief_hash") != brief.content_hash:
+        raise ValueError("screening index brief_hash does not match the loaded Brief")
+    row = next((item for item in index["candidates"] if item["factor_id"] == factor_id), None)
+    if row is None:
+        raise ValueError(f"unknown factor_id: {factor_id}")
+    validation_row = row["splits"].get(brief.validation.split_id)
+    if row["preflight_failed"] or validation_row is None or validation_row["failed"]:
+        raise ValueError(f"cannot compare a candidate without a clean validation: {factor_id}")
+    namespace = brief.provenance.namespace
+    members = _pool_members(artifacts, brief)
+    pool_ids = tuple(str(member["factor_id"]) for member in members)
+    if factor_id in pool_ids:
+        raise ValueError(f"factor is already in the pool: {factor_id}")
+    artifact_id = _compare_artifact_id(factor_id, len(members))
+    spec = _resolve_object_ref(
+        artifacts,
+        ObjectRef(
+            object_type="FactorSpec",
+            object_id=factor_id,
+            content_hash=row["spec"]["content_hash"],
+            namespace=namespace,
+        ),
+    )
+    execution = _resolve_object_ref(
+        artifacts,
+        ObjectRef(
+            object_type="FactorExecutionResult",
+            object_id=validation_row["execution_id"],
+            content_hash=validation_row["execution_fingerprint"],
+            namespace=namespace,
+        ),
+    )
+    try:
+        compare = _load_typed(
+            artifacts,
+            EvaluationReport,
+            namespace=namespace,
+            kind="evaluation_report",
+            artifact_id=artifact_id,
+        )
+    except ArtifactStoreAdapterError as exc:
+        if exc.code is not FailureCode.INVALID_REFERENCE:
+            raise
+        market = panel if panel is not None else _load_market_panel(brief, dm, research_only=True)
+        assert_data_version(market, brief)
+        pool_refs = tuple(_member_execution_ref(brief, member) for member in members)
+        pool: list[TypedPoolMember] = []
+        for ref in pool_refs:
+            member_execution = _resolve_object_ref(artifacts, ref)
+            pool.append(
+                TypedPoolMember(
+                    execution=member_execution,
+                    values=load_execution_series(artifacts, member_execution.values_ref),
+                )
+            )
+        runtime = _Runtime(
+            brief=brief,
+            specs={spec.factor_id: spec},
+            executions={execution.execution_id: execution},
+            allow_sealed=False,
+            base_panel=slice_research_panel(market, brief),
+            artifacts=artifacts,
+            dm=dm,
+            pool=tuple(pool),
+        )
+        _, analyze_adapter = _build_adapters(runtime)
+        compare = analyze_adapter.compare_to_pool(
+            EvaluationRequest(
+                request_id=artifact_id,
+                namespace=namespace,
+                brief_ref=_brief_ref(brief),
+                factor_ref=_factor_ref(spec),
+                execution_ref=_execution_ref(execution),
+                protocol_id=protocol_id_for(spec),
+                data_version=brief.data_version,
+                split_id=brief.validation.split_id,
+                pool_refs=pool_refs,
+            )
+        )
+        _put_object(
+            artifacts,
+            compare,
+            kind="evaluation_report",
+            artifact_id=artifact_id,
+            input_refs=(_brief_ref(brief), _factor_ref(spec), *pool_refs),
+            append_only=True,
+        )
+    section = next((item for item in compare.sections if item.name == "pool_incremental"), None)
+    _write_json(
+        out / f"{artifact_id}.json",
+        {
+            "factor_id": factor_id,
+            "pool_factor_ids": list(pool_ids),
+            "report_id": compare.report_id,
+            "report_hash": compare.content_hash,
+            "hard_failed": _hard_failed_report(compare),
+            "facts": []
+            if section is None
+            else [
+                {"name": fact.name, "value": fact.value, "evidence": to_plain_dict(fact.evidence)}
+                for fact in section.facts
+            ],
+            "checks": []
+            if section is None
+            else [
+                {
+                    "name": check.name,
+                    "passed": check.passed,
+                    "severity": check.severity.value,
+                    "evidence": None if check.evidence is None else to_plain_dict(check.evidence),
+                }
+                for check in section.checks
+            ],
+        },
+    )
+    return PhaseResult(
+        phase="compare",
+        brief_id=brief.brief_id,
+        brief_hash=brief.content_hash,
+        data_version=brief.data_version,
+        output_dir=str(out),
+        observed_panel_end=None,
+        contains_sealed_rows=False,
+        factor_ids=(factor_id,),
+        pool_factor_ids=pool_ids,
     )
 
 
@@ -903,8 +1253,17 @@ def run_freeze(
         raise ValueError("screening index brief_hash does not match the loaded Brief")
     by_id = {row["factor_id"]: row for row in index["candidates"]}
     namespace = brief.provenance.namespace
+    members = _pool_members(artifacts, brief)
+    pool_order = [str(member["factor_id"]) for member in members]
+    if list(approve) != pool_order[: len(approve)]:
+        # Each member was compared with the members before it, so only a leading
+        # part of the pool is a self-contained set.
+        raise ValueError(
+            f"--approve must be the first factors of the pool in pool order: {pool_order}"
+        )
     manifests: list[FreezeManifest] = []
-    for factor_id in approve:
+    for position, factor_id in enumerate(approve):
+        member = members[position]
         if factor_id not in by_id:
             raise ValueError(f"unknown factor_id in --approve: {factor_id}")
         row = by_id[factor_id]
@@ -923,26 +1282,11 @@ def run_freeze(
                 raise ValueError(
                     f"cannot freeze candidate without a clean {split_id} evaluation: {factor_id}"
                 )
+        reviews = _load_reviews(artifacts, brief, _factor_ref(spec))
         review_refs: list[ObjectRef] = []
-        reviews: list[ReviewReport] = []
-        for role_id in REVIEW_ROLES:
-            try:
-                review = _load_typed(
-                    artifacts,
-                    ReviewReport,
-                    namespace=namespace,
-                    kind="review_report",
-                    artifact_id=f"{factor_id}.{role_id}",
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise ValueError(f"missing review {role_id} for {factor_id}") from exc
-            if review.role_id != role_id:
-                raise ValueError(f"review role mismatch for {factor_id}: {review.role_id}")
-            if review.factor_ref != _factor_ref(spec):
-                raise ValueError(f"review factor reference mismatch for {factor_id}")
+        for role_id, review in zip(REVIEW_ROLES, reviews, strict=True):
             if _hard_failed_review(review):
                 raise ValueError(f"hard fail review {role_id} for {factor_id}")
-            reviews.append(review)
             review_refs.append(
                 ObjectRef(
                     object_type="ReviewReport",
@@ -984,8 +1328,9 @@ def run_freeze(
             EvaluationReport,
             namespace=namespace,
             kind="evaluation_report",
-            artifact_id=f"compare.{factor_id}",
+            artifact_id=str(member["compare_artifact_id"]),
         )
+        baseline_refs = tuple(_member_execution_ref(brief, item) for item in members[:position])
         validation_execution_id = row["splits"][brief.validation.split_id]["execution_id"]
         execution_fp = row["splits"][brief.validation.split_id]["execution_fingerprint"]
         for label, report in (
@@ -998,11 +1343,16 @@ def run_freeze(
         if (
             validation.content_hash != row["splits"][brief.validation.split_id]["report_hash"]
             or preflight.content_hash != row["preflight_hash"]
-            or compare.content_hash != row["compare_hash"]
         ):
             raise ValueError(f"screening report hash mismatch for {factor_id}")
-        if not compare.pool_refs and len(approve) != 1:
-            raise ValueError("empty-pool bootstrap requires exactly one approved factor")
+        if (
+            compare.content_hash != member["compare_report_hash"]
+            or tuple(compare.pool_refs) != baseline_refs
+            or member["execution_id"] != validation_execution_id
+            or member["execution_fingerprint"] != execution_fp
+            or member["pool_decision_hash"] != pool.content_hash
+        ):
+            raise ValueError(f"pool member record mismatch for {factor_id}")
         _validate_pool_acceptance(brief, compare, reviews, pool)
         for role_id, review_ref in zip(REVIEW_ROLES, review_refs, strict=True):
             review = _resolve_object_ref(artifacts, review_ref)
@@ -1055,7 +1405,7 @@ def run_freeze(
             holding_horizon_bars=brief.horizon_bars,
             rebalance=brief.rebalance,
             cost=brief.cost,
-            pool_baseline_refs=(),
+            pool_baseline_refs=baseline_refs,
             preflight_ref=_report_ref(preflight),
             execution_ref=ObjectRef(
                 object_type="FactorExecutionResult",
@@ -1247,6 +1597,11 @@ def _frozen_batch(
         if pool.factor_ref != manifest.factor_ref or pool.decision is not PoolDecisionKind.ACCEPT:
             raise ValueError(f"FreezeManifest PoolDecision mismatch: {factor_id}")
         _validate_pool_acceptance(brief, compare, reviews, pool)
+        # The baseline of each frozen factor is exactly the factors frozen before it.
+        if tuple(manifest.pool_baseline_refs) != tuple(compare.pool_refs) or tuple(
+            manifest.pool_baseline_refs
+        ) != tuple(earlier.execution_ref for _, earlier in result):
+            raise ValueError(f"FreezeManifest pool baseline mismatch: {factor_id}")
         approval = artifacts.get(manifest.approval_ref)
         if (
             approval.get("factor_id") != factor_id
@@ -1270,7 +1625,6 @@ def run_final(
     write: bool,
     output_dir: str | Path | None = None,
     panel: pd.DataFrame | None = None,
-    candidates: Sequence[Mapping[str, Any]] | None = None,
 ) -> PhaseResult:
     if not write:
         raise ValueError("final requires --write")
@@ -1280,10 +1634,7 @@ def run_final(
     frozen = _frozen_batch(brief, artifacts, out)
     manifest_hashes = [manifest.content_hash for _, manifest in frozen]
     once_key = brief.content_hash
-    current_specs = {spec.factor_id: spec for spec in specs_from_candidates(brief, candidates)}
     for spec, manifest in frozen:
-        if current_specs.get(spec.factor_id) != spec:
-            raise ValueError(f"frozen candidate implementation changed: {spec.factor_id}")
         execution = _resolve_object_ref(artifacts, manifest.execution_ref)
         _, callable_fp, _ = compile_formula(
             spec.formula,
@@ -1450,6 +1801,8 @@ def run_factor_mining(
     write: bool = False,
     candidates: Sequence[Mapping[str, Any]] | None = None,
     panel: pd.DataFrame | None = None,
+    factor_id: str | None = None,
+    jobs: int = 1,
 ) -> PhaseResult:
     loaded = brief if isinstance(brief, ResearchBrief) else load_brief(brief)
     if phase == "screening":
@@ -1459,6 +1812,13 @@ def run_factor_mining(
             output_dir=output_dir,
             candidates=candidates,
             panel=panel,
+            jobs=jobs,
+        )
+    if phase == "compare":
+        if not factor_id:
+            raise ValueError("compare requires --factor")
+        return run_compare(
+            loaded, factor_id=factor_id, data_root=data_root, output_dir=output_dir, panel=panel
         )
     if phase == "record":
         if record_object is None:
@@ -1480,7 +1840,6 @@ def run_factor_mining(
             write=write,
             output_dir=output_dir,
             panel=panel,
-            candidates=candidates,
         )
     raise ValueError(f"unknown phase: {phase}")
 

@@ -1,4 +1,4 @@
-"""Run governed factor mining: init, screening, record, freeze, or sealed final."""
+"""Run governed factor mining: init, screening, compare, record, freeze, or sealed final."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from strategies.factor_mining.research import (
+    load_candidates,
     result_to_json,
     run_factor_mining,
     write_example_brief,
@@ -17,8 +18,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brief", required=True, type=Path, help="ResearchBrief JSON path")
     parser.add_argument(
-        "--phase", required=True, choices=("init", "screening", "record", "freeze", "final")
+        "--phase",
+        required=True,
+        choices=("init", "screening", "compare", "record", "freeze", "final"),
     )
+    parser.add_argument(
+        "--candidates",
+        help="Module whose CANDIDATES list screening evaluates; default is the baseline list",
+    )
+    parser.add_argument("--jobs", type=int, default=1, help="Worker processes for screening")
+    parser.add_argument("--factor", help="factor_id for compare")
     parser.add_argument("--object", type=Path, help="ReviewReport or PoolDecision JSON for record")
     parser.add_argument("--approve", default="", help="Comma-separated factor_id list for freeze")
     parser.add_argument("--write", action="store_true", help="Required by final")
@@ -56,6 +65,9 @@ def main() -> None:
         approve=approve,
         record_object=json.loads(args.object.read_text(encoding="utf-8")) if args.object else None,
         write=args.write,
+        candidates=load_candidates(args.candidates) if args.phase == "screening" else None,
+        factor_id=args.factor,
+        jobs=args.jobs,
     )
     print(result_to_json(result))
 

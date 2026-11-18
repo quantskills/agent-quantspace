@@ -105,7 +105,8 @@ def make_example_brief(*, data_version: str) -> ResearchBrief:
     ``data_version`` must be the fingerprint of the research-window panel
     (``research.research_data_version``); the ``init`` phase computes it from local data.
     The factor pool starts empty, so ``freeze_criteria.require_pool_incremental`` is
-    false and at most one candidate can be frozen.
+    false: the first factor enters the pool without incremental evidence, and every
+    later one must cite its comparison with the pool.
     """
     namespace = f"factor_mining.{EXAMPLE_BRIEF_ID}"
     provenance = Provenance(
@@ -143,7 +144,7 @@ def make_example_brief(*, data_version: str) -> ResearchBrief:
         robustness=RobustnessGrid(random_seed=7),
         multiple_testing_budget=20,
         budget=ResearchBudget(
-            max_candidates=12,
+            max_candidates=24,
             max_experiments=40,
             max_revisions=2,
             max_debate_rounds=2,

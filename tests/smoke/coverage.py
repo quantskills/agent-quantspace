@@ -35,7 +35,7 @@ RESEARCH_SCRIPTS = {
     "prompt_test_correlation": "strategies.cross_sectional.workflows.run_prompt_test_correlation",
     "ma_cross_report": "strategies.time_series.workflows.run_ma_cross_report",
     "mine_etf18_factors": "scripts.mine_etf18_factors",
-    "mine_etf18_factors_governed": "scripts.mine_etf18_factors_governed",
+    "factor_mining_workflow": "strategies.factor_mining.workflows.run_factor_mining",
     "evaluate_mined_factors": "scripts.evaluate_mined_factors",
     "mined_factors_corr": "scripts.mined_factors_corr",
     "prompt_test_ic": "scripts.run_prompt_test_ic",

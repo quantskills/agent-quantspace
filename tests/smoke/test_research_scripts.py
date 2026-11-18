@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -186,38 +187,146 @@ def test_mine_etf18_factors_prints_its_summary(research):
     assert "Appendix: All candidates ranked" in completed.stdout
 
 
+# ---------------------------------------------------------------------------
+# strategies/factor_mining workflow: every phase through its command line
+# ---------------------------------------------------------------------------
+
+MINING = "factor_mining_workflow"
+MINING_JOBS = str(min(8, os.cpu_count() or 1))
+
+
+def mining(research, label: str, *args: str) -> dict:
+    """Run one workflow phase; returns the JSON summary it prints."""
+    out = research.work.dir / "out" / MINING
+    completed = run_module(
+        research.work, f"{MINING} ({label})", RESEARCH_SCRIPTS[MINING],
+        "--brief", str(out / "brief.json"), "--output-dir", str(out), *args,
+    )  # fmt: skip
+    return json.loads(completed.stdout[completed.stdout.index("{") :])
+
+
 @pytest.fixture(scope="module")
-def governed_screening(research):
-    out = run_script(
-        research, "mine_etf18_factors_governed", "--phase", "screening",
-        *with_output(research, "mine_etf18_factors_governed", "--output-dir"),
-    )  # fmt: skip
-    return out
+def mining_screening(research):
+    out = research.work.dir / "out" / MINING
+    out.mkdir(parents=True)
+    brief = mining(research, "init", "--phase", "init")
+    screening = mining(research, "screening", "--phase", "screening", "--jobs", MINING_JOBS)
+    assert screening["contains_sealed_rows"] is False
+    return out, brief
 
 
-def test_governed_mining_screening_phase(governed_screening):
-    assert_files(governed_screening, ["screening_results.csv", "screening_manifest.json"])
-    screening = csv(governed_screening / "screening_results.csv")
-    assert screening["factor_id"].is_unique and len(screening) >= 3
-    assert screening["compute_failure"].isna().all()
-    assert_finite(screening, ["train_rank_ic_mean", "train_rank_ic_ir"])
-    assert json_file(governed_screening / "screening_manifest.json")
+def test_factor_mining_screening_phase(mining_screening):
+    out, _brief = mining_screening
+    assert_files(out, ["brief.json", "screening_index.json", "screening_results.csv"])
+    screening = csv(out / "screening_results.csv")
+    assert screening["factor_id"].is_unique and len(screening) == 19
+    # A candidate may fail the preflight (a causality hard failure is a valid research
+    # outcome); the ones that pass must carry finite statistics.
+    passed = screening[~screening["preflight_failed"]]
+    assert len(passed) >= 2
+    assert_finite(passed, ["train_rank_ic_mean", "validation_rank_ic_mean"])
 
 
-def test_governed_mining_final_phase_opens_the_sealed_window_once(research, governed_screening):
-    run_module(
-        research.work, "mine_etf18_factors_governed (final)",
-        RESEARCH_SCRIPTS["mine_etf18_factors_governed"], "--phase", "final",
-        "--output-dir", str(governed_screening),
-    )  # fmt: skip
-    assert_files(governed_screening, ["selected_factors.csv", "final_manifest.json"])
-    selected = csv(governed_screening / "selected_factors.csv")
-    assert_finite(selected, ["sealed_rank_ic_mean", "full_rank_ic_mean"])
-    assert json_file(governed_screening / "final_manifest.json")["sealed_opened_once"] is True
-    formal = sorted((governed_screening / "formal_analyze").glob("*.json"))
-    assert len(formal) == len(selected) and all(json_file(path) for path in formal)
-    # Governed artifacts went into the throwaway data root, not the real one.
-    assert any((research.work.data_root / "factors").rglob("*"))
+def test_factor_mining_pool_freeze_and_sealed_test(research, mining_screening):
+    """Two factors enter the pool in turn, both are frozen, and the sealed split opens."""
+    from skills.factor_mining import (
+        EvidenceRef,
+        ObjectRef,
+        PoolDecision,
+        PoolDecisionKind,
+        Provenance,
+        ReviewConclusion,
+        ReviewReport,
+        rebuild_dataclass,
+        to_plain_dict,
+    )
+
+    out, brief = mining_screening
+    namespace = f"factor_mining.{brief['brief_id']}"
+    index = json_file(out / "screening_index.json")
+    clean = [
+        row
+        for row in index["candidates"]
+        if not row["preflight_failed"] and not row["splits"]["validation"]["failed"]
+    ]
+    chosen = sorted(clean, key=lambda row: -row["splits"]["validation"]["rank_ic_mean"])[:2]
+    assert len(chosen) == 2
+
+    def provenance(producer: str, factor_ref: ObjectRef) -> Provenance:
+        return Provenance(
+            producer=producer,
+            data_version=brief["data_version"],
+            code_version="smoke",
+            experiment_version=brief["brief_id"],
+            namespace=namespace,
+            input_refs=(factor_ref,),
+        )
+
+    def record(label: str, object_type: str, obj) -> dict:
+        path = out / f"{label}.json"
+        payload = {"object_type": object_type, "payload": to_plain_dict(obj)}
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return mining(research, f"record {label}", "--phase", "record", "--object", str(path))
+
+    for position, row in enumerate(chosen):
+        factor_id = row["factor_id"]
+        factor_ref = ObjectRef(
+            "FactorSpec", factor_id, content_hash=row["spec"]["content_hash"], namespace=namespace
+        )
+        validation = row["splits"]["validation"]
+        evaluation_ref = ObjectRef(
+            "EvaluationReport",
+            validation["report_id"],
+            content_hash=validation["report_hash"],
+            namespace=namespace,
+        )
+        for role_id in ("methodology_critic", "leakage_and_code_reviewer"):
+            review = ReviewReport(
+                report_id=f"rev.{factor_id}.{role_id}",
+                role_id=role_id,
+                factor_ref=factor_ref,
+                evaluation_ref=evaluation_ref,
+                conclusion=ReviewConclusion.PASS,
+                issues=(),
+                allow_revision=False,
+                requires_full_rerun=False,
+                provenance=provenance(role_id, factor_ref),
+            )
+            record(f"review.{factor_id}.{role_id}", "ReviewReport", review)
+        compared = mining(research, f"compare {position}", "--phase", "compare", "--factor", factor_id)  # fmt: skip
+        assert len(compared["pool_factor_ids"]) == position
+        summary = json_file(out / f"compare.{factor_id}.p{position}.json")
+        assert summary["hard_failed"] is False
+        if position == 0:
+            cited = next(
+                c["evidence"] for c in summary["checks"] if c["name"] == "POOL_UNAVAILABLE"
+            )
+        else:
+            facts = {fact["name"]: fact for fact in summary["facts"]}
+            assert math.isfinite(facts["pool_spearman_corr_max_abs"]["value"])
+            cited = facts["pool_spearman_corr_max_abs"]["evidence"]
+        decision = PoolDecision(
+            decision_id=f"pool.{factor_id}",
+            factor_ref=factor_ref,
+            decision=PoolDecisionKind.ACCEPT,
+            incremental_evidence=(rebuild_dataclass(EvidenceRef, cited),),
+            residual_risks=("POOL_INCREMENTAL_UNAVAILABLE",) if position == 0 else (),
+            role_id="pool_synthesizer",
+            provenance=provenance("pool_synthesizer", factor_ref),
+        )
+        accepted = record(f"pool.{factor_id}", "PoolDecision", decision)
+        assert len(accepted["pool_factor_ids"]) == position + 1
+
+    approved = [row["factor_id"] for row in chosen]
+    frozen = mining(research, "freeze", "--phase", "freeze", "--approve", ",".join(approved))
+    assert len(frozen["manifest_hashes"]) == 2
+    final = mining(research, "final", "--phase", "final", "--write")
+    assert final["factor_ids"] == approved and final["contains_sealed_rows"] is True
+    sealed = json_file(out / "final_summary.json")["sealed"]
+    assert [row["factor_id"] for row in sealed] == approved
+    assert all(not row["failed"] and math.isfinite(row["rank_ic_ir"]) for row in sealed)
+    # Formal objects went into the throwaway data root, not the real one.
+    assert any((research.work.data_root / "factors" / namespace).rglob("*.json"))
 
 
 def test_evaluate_then_correlate_mined_factors(research):
