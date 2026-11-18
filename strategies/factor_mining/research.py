@@ -73,7 +73,7 @@ from strategies.factor_mining.brief import (
 )
 from strategies.factor_mining.mined_factors import CANDIDATES as PACKAGE_CANDIDATES
 
-PhaseName = Literal["screening", "compare", "record", "freeze", "final"]
+PhaseName = Literal["screening", "draft", "compare", "record", "freeze", "final"]
 
 MINED_MODULE_PREFIX = "strategies.factor_mining.mined_factors"
 INDICATOR_MODULE = "skills.compute.indicators"
@@ -116,6 +116,7 @@ class PhaseResult:
     once_key: str | None = None
     event_ids: tuple[str, ...] = ()
     pool_factor_ids: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
 
 
 @dataclass
@@ -461,6 +462,147 @@ def _load_reviews(
     return reviews
 
 
+def _evidence_choices(report: EvaluationReport) -> list[dict[str, Any]]:
+    """Every fact and check of a report with the evidence reference that cites it."""
+    choices: list[dict[str, Any]] = []
+    for section in report.sections:
+        for fact in section.facts:
+            choices.append(
+                {
+                    "section": section.name,
+                    "fact": fact.name,
+                    "value": fact.value,
+                    "evidence": to_plain_dict(fact.evidence),
+                }
+            )
+        for check in section.checks:
+            if check.evidence is not None:
+                choices.append(
+                    {
+                        "section": section.name,
+                        "check": check.name,
+                        "passed": check.passed,
+                        "severity": check.severity.value,
+                        "evidence": to_plain_dict(check.evidence),
+                    }
+                )
+    return choices
+
+
+def run_draft(
+    brief: ResearchBrief,
+    *,
+    factor_id: str,
+    role_id: str,
+    data_root: str | Path | None = None,
+    output_dir: str | Path | None = None,
+) -> PhaseResult:
+    """Write a ReviewReport or PoolDecision skeleton with its identifiers and references set.
+
+    The role fills in the judgement (conclusion or decision, issues, evidence,
+    rationale), fills the hash with ``qs factor-mining validate --fill-hash``, and
+    hands the result to ``record``. Nothing is stored here.
+    """
+    if role_id not in (*REVIEW_ROLES, POOL_ROLE):
+        raise ValueError(f"draft role must be one of {(*REVIEW_ROLES, POOL_ROLE)}")
+    store = DataManagerArtifactStore(_data_manager(data_root))
+    out = Path(output_dir) if output_dir is not None else _default_output_dir(brief.brief_id)
+    namespace = brief.provenance.namespace
+    try:
+        spec = _load_typed(
+            store, FactorSpec, namespace=namespace, kind="factor_spec", artifact_id=factor_id
+        )
+    except Exception as exc:
+        raise ValueError(f"{factor_id} has not been screened under this Brief") from exc
+    factor_ref = _factor_ref(spec)
+    provenance = Provenance(
+        producer=role_id,
+        data_version=brief.data_version,
+        code_version=CODE_VERSION_WORKFLOW,
+        experiment_version=brief.brief_id,
+        namespace=namespace,
+        input_refs=(factor_ref,),
+    )
+    common = {
+        "factor_ref": to_plain_dict(factor_ref),
+        "role_id": role_id,
+        "provenance": to_plain_dict(provenance),
+        "rationale": "",
+        "schema_version": spec.schema_version,
+        "content_hash": "",
+    }
+    pool_ids: tuple[str, ...] = ()
+    if role_id in REVIEW_ROLES:
+        artifact_id = f"eval.{factor_id}.{brief.validation.split_id}"
+        try:
+            report = _load_typed(
+                store,
+                EvaluationReport,
+                namespace=namespace,
+                kind="evaluation_report",
+                artifact_id=artifact_id,
+            )
+        except Exception as exc:
+            raise ValueError(f"{factor_id} has no validation evaluation to review") from exc
+        payload = {
+            "report_id": f"rev.{factor_id}.{role_id}",
+            "evaluation_ref": to_plain_dict(_report_ref(report)),
+            "conclusion": "",
+            "issues": [],
+            "allow_revision": False,
+            "requires_full_rerun": False,
+            **common,
+        }
+        fill = "conclusion (pass, fail, revise, debate), issues, rationale"
+    else:
+        members = _pool_members(store, brief)
+        pool_ids = tuple(str(member["factor_id"]) for member in members)
+        try:
+            report = _load_typed(
+                store,
+                EvaluationReport,
+                namespace=namespace,
+                kind="evaluation_report",
+                artifact_id=_compare_artifact_id(factor_id, len(members)),
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"no comparison of {factor_id} with the current pool of {len(members)}: "
+                "run the compare phase first"
+            ) from exc
+        payload = {
+            "decision_id": f"pool.{factor_id}",
+            "decision": "",
+            "incremental_evidence": [],
+            "residual_risks": [],
+            **common,
+        }
+        fill = "decision (accept, watch, reject), incremental_evidence, residual_risks, rationale"
+    target = out / "drafts" / f"{factor_id}.{role_id}.json"
+    evidence_path = out / "drafts" / f"{factor_id}.{role_id}.evidence.json"
+    _write_json(target, payload)
+    _write_json(
+        evidence_path,
+        {
+            "source_report_id": report.report_id,
+            "fill_in": fill,
+            "choices": _evidence_choices(report),
+        },
+    )
+    return PhaseResult(
+        phase="draft",
+        brief_id=brief.brief_id,
+        brief_hash=brief.content_hash,
+        data_version=brief.data_version,
+        output_dir=str(out),
+        observed_panel_end=None,
+        contains_sealed_rows=False,
+        factor_ids=(factor_id,),
+        pool_factor_ids=pool_ids,
+        files=(str(target), str(evidence_path)),
+    )
+
+
 def run_record(
     brief: ResearchBrief,
     *,
@@ -468,10 +610,21 @@ def run_record(
     record_object: Mapping[str, Any],
     output_dir: str | Path | None = None,
 ) -> PhaseResult:
-    object_type = record_object.get("object_type")
+    if "object_type" in record_object:
+        object_type = record_object.get("object_type")
+        payload = record_object.get("payload")
+    else:
+        # A bare contract, as `qs factor-mining validate --output` writes it.
+        object_type = (
+            "ReviewReport"
+            if "report_id" in record_object
+            else "PoolDecision"
+            if "decision_id" in record_object
+            else None
+        )
+        payload = record_object
     if object_type not in {"ReviewReport", "PoolDecision"}:
         raise ValueError("record supports ReviewReport or PoolDecision")
-    payload = record_object.get("payload")
     if not isinstance(payload, Mapping):
         raise ValueError("record requires an object payload")
     if not payload.get("content_hash"):
@@ -1803,6 +1956,7 @@ def run_factor_mining(
     panel: pd.DataFrame | None = None,
     factor_id: str | None = None,
     jobs: int = 1,
+    role_id: str | None = None,
 ) -> PhaseResult:
     loaded = brief if isinstance(brief, ResearchBrief) else load_brief(brief)
     if phase == "screening":
@@ -1819,6 +1973,16 @@ def run_factor_mining(
             raise ValueError("compare requires --factor")
         return run_compare(
             loaded, factor_id=factor_id, data_root=data_root, output_dir=output_dir, panel=panel
+        )
+    if phase == "draft":
+        if not factor_id or not role_id:
+            raise ValueError("draft requires --factor and --role")
+        return run_draft(
+            loaded,
+            factor_id=factor_id,
+            role_id=role_id,
+            data_root=data_root,
+            output_dir=output_dir,
         )
     if phase == "record":
         if record_object is None:

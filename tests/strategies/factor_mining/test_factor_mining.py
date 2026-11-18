@@ -35,6 +35,7 @@ from strategies.factor_mining.brief import (
 from strategies.factor_mining.mined_factors import CANDIDATES
 from strategies.factor_mining.research import (
     MINED_MODULE_PREFIX,
+    POOL_ROLE,
     REVIEW_ROLES,
     UNBLIND_COMPLETED,
     UNBLIND_FAILED,
@@ -1032,3 +1033,66 @@ def test_final_failure_after_claim_consumes_brief(
             write=True,
             candidates=(candidate,),
         )
+
+
+def test_drafts_carry_identifiers_and_references_that_record_accepts(tmp_path: Path) -> None:
+    """draft -> fill in the judgement -> fill the hash -> record, for all three roles."""
+    brief, data_root, output_dir, panel, (spec,) = _screen(tmp_path)
+
+    def draft(role_id: str) -> tuple[dict, dict]:
+        result = run_factor_mining(
+            brief=brief,
+            phase="draft",
+            data_root=data_root,
+            output_dir=output_dir,
+            factor_id=spec.factor_id,
+            role_id=role_id,
+        )
+        payload_path, evidence_path = (Path(item) for item in result.files)
+        return json.loads(payload_path.read_text()), json.loads(evidence_path.read_text())
+
+    def record(cls, payload: dict):
+        # The bare contract, as `qs factor-mining validate --fill-hash --output` writes it.
+        finished = to_plain_dict(rebuild_dataclass(cls, payload))
+        assert finished["content_hash"]
+        return run_factor_mining(
+            brief=brief, phase="record", data_root=data_root, record_object=finished
+        )
+
+    with pytest.raises(ValueError, match="run the compare phase first"):
+        draft(POOL_ROLE)
+    for role_id in REVIEW_ROLES:
+        payload, evidence = draft(role_id)
+        assert payload["report_id"] == f"rev.{spec.factor_id}.{role_id}"
+        assert payload["conclusion"] == "" and payload["content_hash"] == ""
+        assert evidence["source_report_id"] == f"eval-eval.{spec.factor_id}__validation"
+        assert any(choice.get("fact") == "rank_ic_mean" for choice in evidence["choices"])
+        record(ReviewReport, {**payload, "conclusion": "pass", "rationale": "checked"})
+
+    _compare(data_root, brief, spec)
+    payload, evidence = draft(POOL_ROLE)
+    assert payload["decision_id"] == f"pool.{spec.factor_id}"
+    unavailable = next(
+        choice["evidence"]
+        for choice in evidence["choices"]
+        if choice.get("check") == "POOL_UNAVAILABLE"
+    )
+    accepted = record(
+        PoolDecision,
+        {
+            **payload,
+            "decision": "accept",
+            "incremental_evidence": [unavailable],
+            "residual_risks": ["POOL_INCREMENTAL_UNAVAILABLE"],
+        },
+    )
+    assert accepted.pool_factor_ids == (spec.factor_id,)
+
+
+def test_draft_rejects_unknown_role_and_unscreened_factor(tmp_path: Path) -> None:
+    brief, data_root, output_dir, panel, (spec,) = _screen(tmp_path)
+    common = {"brief": brief, "phase": "draft", "data_root": data_root, "output_dir": output_dir}
+    with pytest.raises(ValueError, match="draft role must be one of"):
+        run_factor_mining(**common, factor_id=spec.factor_id, role_id="supervisor")
+    with pytest.raises(ValueError, match="has not been screened"):
+        run_factor_mining(**common, factor_id="unknown-v1", role_id=REVIEW_ROLES[0])

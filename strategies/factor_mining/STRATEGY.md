@@ -10,6 +10,8 @@ This workspace runs governed cross-sectional factor research in six phases:
 ```
 init -> screening -> per candidate: record two reviews -> compare -> record pool decision
      -> freeze -> final
+
+draft, at any point after screening, writes the skeleton of a review or pool decision.
 ```
 
 Contracts, factor execution, and evaluation come from `skills/factor_mining` and
@@ -45,6 +47,7 @@ Run from the repository root:
 ```bash
 uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase init
 uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase screening --jobs 8
+uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase draft --factor <factor_id> --role <role_id>
 uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase record --object out/review.json
 uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase compare --factor <factor_id>
 uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json --phase record --object out/pool_decision.json
@@ -61,6 +64,7 @@ Each phase prints one JSON summary. `--data-root` selects another data root and
 |-------|-------|--------|
 | `init` | Research-window bars | The example Brief at `--brief` (`--overwrite` replaces it) |
 | `screening` | Research-window bars only | `research_brief`, `factor_spec`, `factor_execution_result`, `evaluation_report` (preflight, train, validation); `screening_index.json`, `screening_results.csv` |
+| `draft` | One candidate's stored spec and report | `drafts/<factor_id>.<role_id>.json` and `.evidence.json` in the summary folder; stores nothing |
 | `compare` | One candidate's validation values and the pool members' | One `evaluation_report` per candidate and pool size, written once; `compare.<factor_id>.p<N>.json` |
 | `record` | The object at `--object` and what it cites | One `review_report` or `pool_decision`, written once; an accepting decision also appends a `pool_member` |
 | `freeze` | Screening index, pool members, reviews, pool decisions | `human_gate_1`, `freeze_manifest`, `freeze_batch`, all written once; `freeze_index.json` |
@@ -112,9 +116,29 @@ before it, not against the ones that come later.
 
 ## Recording reviews and the pool decision
 
-`record` takes a JSON file `{"object_type": ..., "payload": ...}` where
-`object_type` is `ReviewReport` or `PoolDecision` and `payload` is the object with
-its `content_hash` filled in (`uv run qs factor-mining validate <type> --fill-hash`).
+`draft --factor <factor_id> --role <role_id>` writes the object's skeleton with
+its identifier, references, and provenance already set, so the role only adds its
+judgement. `<role_id>` is `methodology_critic`, `leakage_and_code_reviewer`, or
+`pool_synthesizer`; the last one needs the comparison with the current pool first.
+
+```bash
+uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json \
+  --phase draft --factor <factor_id> --role methodology_critic
+# fill in conclusion, issues, and rationale in drafts/<factor_id>.methodology_critic.json
+uv run qs factor-mining validate ReviewReport \
+  --file <summary folder>/drafts/<factor_id>.methodology_critic.json --fill-hash --output out/review.json
+uv run python -m strategies.factor_mining.workflows.run_factor_mining --brief out/brief.json \
+  --phase record --object out/review.json
+```
+
+Next to the skeleton, `<factor_id>.<role_id>.evidence.json` lists every fact and
+check of the report the role judges, each with the evidence reference to copy into
+`issues[].evidence_refs` (a review) or `incremental_evidence` (a pool decision).
+A review sets `conclusion` to `pass`, `fail`, `revise`, or `debate`; a pool decision
+sets `decision` to `accept`, `watch`, or `reject`.
+
+`record --object` takes the validated object itself, or the wrapped form
+`{"object_type": ..., "payload": ...}`. The `content_hash` must be filled in.
 The workflow refuses an object whose identity or references do not match:
 
 | Object | Required identity | Must reference |

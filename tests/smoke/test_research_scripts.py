@@ -229,18 +229,6 @@ def test_factor_mining_screening_phase(mining_screening):
 
 def test_factor_mining_pool_freeze_and_sealed_test(research, mining_screening):
     """Two factors enter the pool in turn, both are frozen, and the sealed split opens."""
-    from skills.factor_mining import (
-        EvidenceRef,
-        ObjectRef,
-        PoolDecision,
-        PoolDecisionKind,
-        Provenance,
-        ReviewConclusion,
-        ReviewReport,
-        rebuild_dataclass,
-        to_plain_dict,
-    )
-
     out, brief = mining_screening
     namespace = f"factor_mining.{brief['brief_id']}"
     index = json_file(out / "screening_index.json")
@@ -252,69 +240,49 @@ def test_factor_mining_pool_freeze_and_sealed_test(research, mining_screening):
     chosen = sorted(clean, key=lambda row: -row["splits"]["validation"]["rank_ic_mean"])[:2]
     assert len(chosen) == 2
 
-    def provenance(producer: str, factor_ref: ObjectRef) -> Provenance:
-        return Provenance(
-            producer=producer,
-            data_version=brief["data_version"],
-            code_version="smoke",
-            experiment_version=brief["brief_id"],
-            namespace=namespace,
-            input_refs=(factor_ref,),
-        )
+    def draft(factor_id: str, role_id: str) -> tuple[Path, dict, list[dict]]:
+        """The skeleton the workflow writes for a role, and the evidence it may cite."""
+        result = mining(
+            research, f"draft {factor_id} {role_id}",
+            "--phase", "draft", "--factor", factor_id, "--role", role_id,
+        )  # fmt: skip
+        path, evidence = (Path(item) for item in result["files"])
+        return path, json_file(path), json_file(evidence)["choices"]
 
-    def record(label: str, object_type: str, obj) -> dict:
-        path = out / f"{label}.json"
-        payload = {"object_type": object_type, "payload": to_plain_dict(obj)}
+    def record(type_name: str, path: Path, payload: dict) -> dict:
+        """Fill in the judgement, fill the hash with the contract command, then record."""
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        return mining(research, f"record {label}", "--phase", "record", "--object", str(path))
+        final = path.with_suffix(".final.json")
+        run_module(
+            research.work, f"validate {path.stem}", "skills", "factor-mining", "validate",
+            type_name, "--file", str(path), "--fill-hash", "--output", str(final),
+        )  # fmt: skip
+        return mining(research, f"record {path.stem}", "--phase", "record", "--object", str(final))
 
     for position, row in enumerate(chosen):
         factor_id = row["factor_id"]
-        factor_ref = ObjectRef(
-            "FactorSpec", factor_id, content_hash=row["spec"]["content_hash"], namespace=namespace
-        )
-        validation = row["splits"]["validation"]
-        evaluation_ref = ObjectRef(
-            "EvaluationReport",
-            validation["report_id"],
-            content_hash=validation["report_hash"],
-            namespace=namespace,
-        )
         for role_id in ("methodology_critic", "leakage_and_code_reviewer"):
-            review = ReviewReport(
-                report_id=f"rev.{factor_id}.{role_id}",
-                role_id=role_id,
-                factor_ref=factor_ref,
-                evaluation_ref=evaluation_ref,
-                conclusion=ReviewConclusion.PASS,
-                issues=(),
-                allow_revision=False,
-                requires_full_rerun=False,
-                provenance=provenance(role_id, factor_ref),
-            )
-            record(f"review.{factor_id}.{role_id}", "ReviewReport", review)
+            path, payload, _ = draft(factor_id, role_id)
+            record("ReviewReport", path, {**payload, "conclusion": "pass"})
         compared = mining(research, f"compare {position}", "--phase", "compare", "--factor", factor_id)  # fmt: skip
         assert len(compared["pool_factor_ids"]) == position
-        summary = json_file(out / f"compare.{factor_id}.p{position}.json")
-        assert summary["hard_failed"] is False
+        assert json_file(out / f"compare.{factor_id}.p{position}.json")["hard_failed"] is False
+        path, payload, choices = draft(factor_id, "pool_synthesizer")
         if position == 0:
-            cited = next(
-                c["evidence"] for c in summary["checks"] if c["name"] == "POOL_UNAVAILABLE"
-            )
+            cited = next(c for c in choices if c.get("check") == "POOL_UNAVAILABLE")
         else:
-            facts = {fact["name"]: fact for fact in summary["facts"]}
-            assert math.isfinite(facts["pool_spearman_corr_max_abs"]["value"])
-            cited = facts["pool_spearman_corr_max_abs"]["evidence"]
-        decision = PoolDecision(
-            decision_id=f"pool.{factor_id}",
-            factor_ref=factor_ref,
-            decision=PoolDecisionKind.ACCEPT,
-            incremental_evidence=(rebuild_dataclass(EvidenceRef, cited),),
-            residual_risks=("POOL_INCREMENTAL_UNAVAILABLE",) if position == 0 else (),
-            role_id="pool_synthesizer",
-            provenance=provenance("pool_synthesizer", factor_ref),
+            cited = next(c for c in choices if c.get("fact") == "pool_spearman_corr_max_abs")
+            assert math.isfinite(cited["value"])
+        accepted = record(
+            "PoolDecision",
+            path,
+            {
+                **payload,
+                "decision": "accept",
+                "incremental_evidence": [cited["evidence"]],
+                "residual_risks": ["POOL_INCREMENTAL_UNAVAILABLE"] if position == 0 else [],
+            },
         )
-        accepted = record(f"pool.{factor_id}", "PoolDecision", decision)
         assert len(accepted["pool_factor_ids"]) == position + 1
 
     approved = [row["factor_id"] for row in chosen]
