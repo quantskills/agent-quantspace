@@ -6,7 +6,6 @@ from skills.factor_mining import (
     ArtifactStorePort,
     FactorExecutionPort,
     FactorSpec,
-    ReportPort,
     ResearchBrief,
 )
 
@@ -20,7 +19,6 @@ def test_factor_mining_public_exports_include_contracts_and_ports() -> None:
     assert FactorExecutionPort is not None
     assert AnalyzePort is not None
     assert ArtifactStorePort is not None
-    assert ReportPort is not None
     assert fm.FactorExecutionAdapter is not None
     assert fm.DataManagerArtifactStore is not None
     assert fm.AnalyzeAdapter is not None
@@ -28,6 +26,7 @@ def test_factor_mining_public_exports_include_contracts_and_ports() -> None:
     assert "AnalyzeAdapter" in fm.__all__
     assert not hasattr(fm, "FactorComputeResult")
     assert "FactorComputeResult" not in fm.__all__
+    assert not hasattr(fm, "ResearchController")
 
 
 def test_analyze_public_exports_include_facade() -> None:

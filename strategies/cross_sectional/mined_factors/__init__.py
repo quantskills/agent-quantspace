@@ -1,6 +1,6 @@
 """AI-mined factor candidates for the 18 global-asset ETF universe.
 
-Output of the factor_mining skill Phase 05 multi-agent protocol. Each family
+Output of the factor_mining skill multi-agent role protocol. Each family
 module exposes a ``CANDIDATES`` list of metadata dicts::
 
     {

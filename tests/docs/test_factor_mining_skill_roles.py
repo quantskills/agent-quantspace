@@ -94,7 +94,7 @@ def test_skill_phase05_protocol_requires_equivalent_auditable_modes() -> None:
     text = SKILL.read_text(encoding="utf-8")
     lower = text.lower()
     assert "stable" in lower or "稳定" in text
-    assert "budget lease" in lower or "预算租约" in text
+    assert "candidate budget" in lower or "候选额度" in text
     assert "recursively spawn" in lower or "递归派生" in text
     assert re.search(r"at most two\s+(?:debate\s+)?rounds", lower) or "最多两轮" in text
     assert "at most one revision" in lower or "最多一次修订" in text

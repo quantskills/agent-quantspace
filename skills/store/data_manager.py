@@ -398,8 +398,8 @@ class DataManager:
     def namespaced_artifact_dir(self, namespace: str, *parts: str) -> Path:
         """Return ``data/factors/<namespace>/<parts...>/``, creating it if needed.
 
-        Generic helper for namespaced research artifacts (controller events,
-        snapshots, JSON payloads). Does not invent a second catalog — paths stay
+        Generic helper for namespaced research artifacts (workflow records,
+        JSON payloads). Does not invent a second catalog — paths stay
         under the existing factors root.
         """
         path = self.factor_namespace_dir(namespace)

@@ -84,6 +84,7 @@ quantspace/
   strategies/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
+    factor_mining/        governed factor-mining workflow (screening, review records, freeze, sealed test)
   scripts/                sample data, demos, PandaData import helper
   data/                   local data root; market and research artifacts stay local
   reports/                local generated report output
@@ -106,7 +107,7 @@ writing new research code.
 | `backtest` | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weighting, filters, costs, strategy blending, exit and overlay metrics |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
-| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, four ports, Research Controller, and cross-platform role task protocol |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, three ports with their adapters, and cross-platform role task protocol; the governed workflow lives in `strategies/factor_mining/` |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and

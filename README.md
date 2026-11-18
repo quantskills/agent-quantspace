@@ -66,6 +66,7 @@ quantspace/
   strategies/
     cross_sectional/      具体横截面 factors、rules、ML 与 workflows
     time_series/          具体时序 features、rules、ML 与 workflows
+    factor_mining/        受治理的因子挖掘 workflow（筛选、记录审查、冻结、密封检验）
   scripts/                全局数据导入、报告和维护入口
   data/                   本地数据根目录；行情和研究产物默认不提交
   reports/                本地生成报告目录；strategy_examples/ 是公开产物例外
@@ -86,7 +87,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `backtest` | `from skills.backtest import VectorBacktester` | 向量化执行、组合权重、过滤器、成本、策略组合、exit 和 overlay 指标 |
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告和图表工具 |
-| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter, ResearchController` | AI 多因子挖掘的版本化契约、任意本地 Python 因子生成/解析、四端口、Research Controller 与跨平台角色任务协议 |
+| `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | AI 多因子挖掘的版本化契约、任意本地 Python 因子生成/解析、三个端口及其适配器、跨平台角色任务协议；治理流程在 `strategies/factor_mining/` |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
 target-weight 原语；具体因子、特征、规则、模型行为和 workflow 放在 `strategies/`。

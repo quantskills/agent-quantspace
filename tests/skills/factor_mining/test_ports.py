@@ -18,8 +18,6 @@ from skills.factor_mining import (
     FailureCode,
     FailureDetail,
     IndexSchema,
-    ReportPort,
-    ReportRequest,
     SectionStatus,
 )
 from tests.skills.factor_mining.builders import (
@@ -214,24 +212,10 @@ class FakeArtifactStore:
         return (ref.namespace, ref.kind, ref.artifact_id) in self._items
 
 
-class FakeReportPort:
-    def __init__(self, store: FakeArtifactStore) -> None:
-        self.store = store
-
-    def render(self, request: ReportRequest) -> ArtifactRef:
-        return self.store.put(
-            namespace=request.namespace,
-            kind="report",
-            artifact_id=request.request_id,
-            payload={"title": request.title, "run_id": request.run_id},
-        )
-
-
 def test_ports_are_structural_and_dependency_inverted() -> None:
     execution: FactorExecutionPort = FakeExecutionPort()
     analyze: AnalyzePort = FakeAnalyzePort()
     store: ArtifactStorePort = FakeArtifactStore()
-    report: ReportPort = FakeReportPort(store)  # type: ignore[arg-type]
 
     factor = make_factor_spec()
     factor_ref = make_object_ref(
@@ -275,17 +259,6 @@ def test_ports_are_structural_and_dependency_inverted() -> None:
     )
     assert store.exists(ref)
     assert store.get(ref)["ok"] is True
-
-    report_ref = report.render(
-        ReportRequest(
-            request_id="r1",
-            namespace="ns.demo",
-            run_id="run-1",
-            title="demo",
-            object_refs=(factor_ref,),
-        )
-    )
-    assert report_ref.kind == "report"
 
 
 def test_fake_execution_port_propagates_structured_failure() -> None:

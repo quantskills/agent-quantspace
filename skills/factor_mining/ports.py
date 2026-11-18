@@ -1,7 +1,6 @@
-"""Abstract ports used by factor_mining orchestration.
+"""Abstract ports used by factor_mining adapters and strategy workflows.
 
 Concrete adapters live under factor_mining and call outward into other skills.
-Phase 01 freezes the protocol shapes only; no compute/analyze/store/report logic.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from skills.factor_mining.contracts import (
     FactorComputeRequest,
     FactorExecutionResult,
     ObjectRef,
-    ReportRequest,
 )
 
 
@@ -105,17 +103,8 @@ class ArtifactStorePort(Protocol):
         """Return True when the artifact is present and checksum-valid."""
 
 
-@runtime_checkable
-class ReportPort(Protocol):
-    """Render research reports from formal object/evidence/artifact refs only."""
-
-    def render(self, request: ReportRequest) -> ArtifactRef:
-        """Create a report artifact; numeric claims must cite formal evidence refs."""
-
-
 __all__ = [
     "FactorExecutionPort",
     "AnalyzePort",
     "ArtifactStorePort",
-    "ReportPort",
 ]

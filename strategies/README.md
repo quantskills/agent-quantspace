@@ -9,6 +9,8 @@ example workflow that composes reusable skills into a complete research path.
 
 - `cross_sectional/`: cross-sectional rotation using generic factors, rule
   weights, XGBoost rank weights, and the shared vectorized backtester.
+- `factor_mining/`: governed factor-mining workflow (screening, review records,
+  freeze, and the one sealed test) built on `skills.factor_mining` contracts and adapters.
 - `time_series/`: single-instrument workflow using raw OHLCV bars, public
   features, triple-barrier labels, rule/ML weights, and the shared vectorized backtester.
 

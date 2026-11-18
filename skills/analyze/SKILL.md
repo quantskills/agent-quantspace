@@ -19,7 +19,7 @@ returns and costs call `skills.backtest.VectorBacktester` by default;
 while the formal pool pair always uses `VectorBacktester`.
 
 `skills.analyze` must not import `skills.factor_mining`, `strategies`, report
-rendering, controller/role/workflow code, or LLM SDKs; only `tearsheet.py` reads
+rendering, role/workflow code, or LLM SDKs; only `tearsheet.py` reads
 the store workspace paths (for its default output directory).
 
 Install plotting and parallel-analysis dependencies with

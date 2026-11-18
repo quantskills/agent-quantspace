@@ -536,7 +536,7 @@ class DataManagerArtifactStore:
         """Load payload by namespace/kind/id after verifying on-disk checksum.
 
         Unlike ``get(ArtifactRef)``, callers need not know the content hash in
-        advance. Used for controller snapshot recovery and event replay.
+        advance. Used to reload an object a workflow wrote earlier.
         """
         namespace = _safe_segment(namespace, label="namespace")
         kind = _safe_segment(kind, label="kind")
@@ -598,7 +598,7 @@ class DataManagerArtifactStore:
         kind: str,
         artifact_id: str,
     ) -> Mapping[str, Any]:
-        """Alias for ``get_by_identity`` (controller recovery hook)."""
+        """Alias for ``get_by_identity`` (workflow recovery hook)."""
         return self.get_by_identity(namespace=namespace, kind=kind, artifact_id=artifact_id)
 
     def list_artifact_ids(self, *, namespace: str, kind: str) -> list[str]:

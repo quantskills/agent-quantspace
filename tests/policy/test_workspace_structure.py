@@ -27,7 +27,7 @@ def test_public_skill_directories_are_exact() -> None:
 
 
 def test_public_strategy_directories_are_exact() -> None:
-    expected = {"cross_sectional", "time_series"}
+    expected = {"cross_sectional", "factor_mining", "time_series"}
     actual = {
         path.name
         for path in (ROOT / "strategies").iterdir()

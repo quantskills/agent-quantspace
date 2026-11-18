@@ -51,19 +51,19 @@ def test_put_if_absent_crash_before_temp_write_leaves_no_final(tmp_path) -> None
     with pytest.raises(ArtifactStoreAdapterError) as excinfo:
         store.put_if_absent(
             namespace=NS,
-            kind="controller_event",
+            kind="workflow_event",
             artifact_id="run-1-00000001",
             payload={"sequence": 1},
         )
     assert excinfo.value.code is FailureCode.ARTIFACT_PERSIST_FAILED
     assert "before_temp_write" in hits
     assert "run-1-00000001" not in store.list_artifact_ids(
-        namespace=NS, kind="controller_event"
+        namespace=NS, kind="workflow_event"
     )
     final = _final_artifact_path(
         Path(tmp_path),
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-1-00000001",
     )
     assert not final.exists()
@@ -80,17 +80,17 @@ def test_put_if_absent_crash_after_temp_fsync_before_link_no_final(tmp_path) -> 
     with pytest.raises(ArtifactStoreAdapterError):
         store.put_if_absent(
             namespace=NS,
-            kind="controller_event",
+            kind="workflow_event",
             artifact_id="run-1-00000001",
             payload={"sequence": 1, "body": "x"},
         )
     assert "run-1-00000001" not in store.list_artifact_ids(
-        namespace=NS, kind="controller_event"
+        namespace=NS, kind="workflow_event"
     )
     final = _final_artifact_path(
         Path(tmp_path),
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-1-00000001",
     )
     assert not final.exists()
@@ -113,7 +113,7 @@ def test_put_if_absent_concurrent_identical_converges(tmp_path) -> None:
             barrier.wait(timeout=5)
             out = store.put_if_absent(
                 namespace=NS,
-                kind="controller_object",
+                kind="workflow_object",
                 artifact_id="ResearchBrief-brief-1",
                 payload={
                     "object_type": "ResearchBrief",
@@ -146,7 +146,7 @@ def test_put_if_absent_concurrent_divergent_raises(tmp_path) -> None:
     store = _store(tmp_path)
     first = store.put_if_absent(
         namespace=NS,
-        kind="controller_object",
+        kind="workflow_object",
         artifact_id="PoolDecision-pd-1",
         payload={"v": 1},
     )
@@ -154,41 +154,37 @@ def test_put_if_absent_concurrent_divergent_raises(tmp_path) -> None:
     with pytest.raises(ArtifactStoreAdapterError) as excinfo:
         store.put_if_absent(
             namespace=NS,
-            kind="controller_object",
+            kind="workflow_object",
             artifact_id="PoolDecision-pd-1",
             payload={"v": 2},
         )
     assert excinfo.value.code is FailureCode.DUPLICATE_LOGICAL_KEY
 
 
-def test_listed_event_corrupt_file_fail_closed_via_public_get(tmp_path) -> None:
-    """P1-C: corrupt on-disk listed event → load_run_event_payloads RECOVERY_REQUIRED."""
-    from skills.factor_mining.event_chain import EventChainError, load_run_event_payloads
-
+def test_listed_corrupt_file_fail_closed_via_public_get(tmp_path) -> None:
+    """A listed artifact whose file was corrupted on disk is refused, not returned."""
     store = _store(tmp_path)
     put = store.put_if_absent(
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-corrupt-00000001",
         payload={"sequence": 1, "run_id": "run-corrupt", "namespace": NS},
     )
     assert put.created is True
-    assert "run-corrupt-00000001" in store.list_artifact_ids(
-        namespace=NS, kind="controller_event"
-    )
+    assert "run-corrupt-00000001" in store.list_artifact_ids(namespace=NS, kind="workflow_event")
     path = _final_artifact_path(
         Path(tmp_path),
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-corrupt-00000001",
     )
     assert path.is_file()
     # Deliberate on-disk corruption through test-scoped path helper (not private store maps).
     path.write_text("{not-json", encoding="utf-8")
-    with pytest.raises(EventChainError) as excinfo:
-        load_run_event_payloads(store, namespace=NS, run_id="run-corrupt")
-    assert excinfo.value.failure.code is FailureCode.RECOVERY_REQUIRED
-    assert "unreadable" in excinfo.value.failure.message
+    with pytest.raises(ArtifactStoreAdapterError):
+        store.get_by_identity(
+            namespace=NS, kind="workflow_event", artifact_id="run-corrupt-00000001"
+        )
 
 
 def test_put_if_absent_directory_fsync_invoked_after_link(tmp_path, monkeypatch) -> None:
@@ -209,7 +205,7 @@ def test_put_if_absent_directory_fsync_invoked_after_link(tmp_path, monkeypatch)
     monkeypatch.setattr(os, "fsync", tracking_fsync)
     result = store.put_if_absent(
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-fsync-00000001",
         payload={"sequence": 1},
     )
@@ -230,7 +226,7 @@ def test_put_if_absent_skips_directory_fsync_when_unsupported(
         / "factors"
         / NS
         / "artifacts"
-        / "controller_event"
+        / "workflow_event"
     )
     real_open = os.open
 
@@ -246,7 +242,7 @@ def test_put_if_absent_skips_directory_fsync_when_unsupported(
 
     result = store.put_if_absent(
         namespace=NS,
-        kind="controller_event",
+        kind="workflow_event",
         artifact_id="run-no-dir-fsync-00000001",
         payload={"sequence": 1},
     )
@@ -260,7 +256,7 @@ def _mp_identical_worker(data_root: str, queue) -> None:
     try:
         out = store.put_if_absent(
             namespace=NS,
-            kind="controller_object",
+            kind="workflow_object",
             artifact_id="ResearchBrief-mp-1",
             payload={"object_type": "ResearchBrief", "object_id": "mp-1", "body": {"k": 1}},
         )
@@ -274,7 +270,7 @@ def _mp_divergent_worker(data_root: str, payload_v: int, queue) -> None:
     try:
         out = store.put_if_absent(
             namespace=NS,
-            kind="controller_object",
+            kind="workflow_object",
             artifact_id="PoolDecision-mp-1",
             payload={"v": payload_v},
         )

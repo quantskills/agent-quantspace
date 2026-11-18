@@ -1,4 +1,4 @@
-"""Execution envelope identity for FactorExecutionResult (Phase 02 coherent).
+"""Execution envelope identity for FactorExecutionResult.
 
 ``FactorExecutionResult.fingerprint`` / ``execution_content_hash`` is the
 envelope identity hash of the execution result. It is **not** the raw formula

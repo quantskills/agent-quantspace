@@ -1,4 +1,4 @@
-"""AnalyzePort adapter mapping analyze-native results to Phase 01 reports."""
+"""AnalyzePort adapter mapping analyze-native results to factor-mining reports."""
 
 from __future__ import annotations
 
@@ -55,8 +55,8 @@ LoadPanel = Callable[[EvaluationRequest], pd.DataFrame]
 LoadPool = Callable[[EvaluationRequest], Sequence[TypedPoolMember] | None]
 PersistArtifact = Callable[[str, Mapping[str, Any]], ArtifactRef | None]
 
-# Gate-1 freezes these official Analyze observations alongside thresholds.  The
-# Controller deliberately does not derive coverage or select similarly named
+# Gate-1 freezes these official Analyze observations alongside thresholds.  A
+# workflow deliberately does not derive coverage or select similarly named
 # user-facing facts itself.
 _OOS_THRESHOLD_SELECTORS: Mapping[str, Mapping[str, str]] = {
     "min_rank_ic_ir": {"fact_name": "rank_ic_ir", "operator": "gte"},
@@ -89,7 +89,7 @@ def oos_report_passes_frozen_thresholds(
     """Compare a report to Gate-1 frozen official observations only.
 
     This is an Analyze boundary operation: it never recomputes metrics or
-    aggregates per-field coverage in the Controller.
+    aggregates per-field coverage in the workflow.
     """
     if report.failure is not None or any(
         (not check.passed) and check.severity is Severity.HARD_FAIL
@@ -652,7 +652,7 @@ def map_analyze_result_to_report(
     provenance: Provenance,
     persist_artifact: PersistArtifact | None = None,
 ) -> EvaluationReport:
-    """Map analyze-native AnalyzeResult into a Phase 01 EvaluationReport."""
+    """Map analyze-native AnalyzeResult into an EvaluationReport."""
     report_id = f"eval-{request.request_id}"
     checks_by_name: dict[str, list[RuleCheck]] = {name: [] for name in EVALUATION_SECTIONS}
     facts_by_name: dict[str, list[MetricFact]] = {name: [] for name in EVALUATION_SECTIONS}

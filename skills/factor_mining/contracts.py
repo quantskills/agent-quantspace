@@ -61,35 +61,6 @@ class CandidateStatus(str, Enum):
     OOS_TESTED = "oos_tested"
     PROMOTED = "promoted"
 
-class ResearchRunStatus(str, Enum):
-    """Research-run aggregate lifecycle (Phase 04 implements through FROZEN)."""
-
-    BRIEFED = "briefed"
-    ACTIVE = "active"
-    FREEZE_PENDING = "freeze_pending"
-    FROZEN = "frozen"
-    OOS_AUTHORIZED = "oos_authorized"
-    OOS_TESTED = "oos_tested"
-    PROMOTED = "promoted"
-    REJECTED = "rejected"
-
-class TaskLifecycleStatus(str, Enum):
-    """Task-lease aggregate lifecycle for Phase 04→05 handoff."""
-
-    PENDING = "pending"
-    CLAIMED = "claimed"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TIMED_OUT = "timed_out"
-
-class TaskResultStatus(str, Enum):
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TIMED_OUT = "timed_out"
 
 class FormulaKind(str, Enum):
     FUNCTION_REF = "function_ref"
@@ -353,7 +324,7 @@ class Provenance:
 
 @dataclass(frozen=True)
 class FailureDetail:
-    """Structured failure envelope used across ports and controllers."""
+    """Structured failure envelope used across ports and workflows."""
 
     code: FailureCode
     message: str
@@ -683,7 +654,7 @@ class IndexSchema:
 
 @dataclass(frozen=True)
 class FactorComputeRequest:
-    """Execution request envelope. Phase 01 does not execute it."""
+    """Execution request envelope."""
 
     request_id: str
     namespace: str
@@ -926,7 +897,7 @@ class EvaluationRequest:
 class EvaluationReport:
     """Deterministic facts/checks/failure only. Agent decisions live elsewhere.
 
-    Schema 1.4.0 requires exact request lineage fields so controllers can
+    Schema 1.4.0 requires exact request lineage fields so workflows can
     fail-closed on port-output binding without permissive getattr checks.
     """
 
@@ -1095,318 +1066,6 @@ class PoolDecision:
     def validate_hash(self) -> None:
         _validate_content_hash(self, "PoolDecision")
 
-@dataclass(frozen=True)
-class ControllerEvent:
-    """Append-only audit event; hash-chained by sequence + prev_hash."""
-
-    sequence: int
-    prev_hash: str
-    event_hash: str
-    run_id: str
-    aggregate_kind: str
-    aggregate_id: str
-    command: str
-    idempotency_key: str
-    actor_id: str
-    role_id: str
-    from_status: str
-    to_status: str
-    input_refs: tuple[ObjectRef | ArtifactRef | EvidenceRef, ...] = ()
-    output_refs: tuple[ObjectRef | ArtifactRef | EvidenceRef, ...] = ()
-    budget_delta: Mapping[str, int] = field(default_factory=dict)
-    parent_task_id: str | None = None
-    result_status: str = "ok"
-    failure: FailureDetail | None = None
-    state_after_digest: str = ""
-    outputs: Mapping[str, Any] = field(default_factory=dict)
-    schema_version: str = SCHEMA_VERSION
-
-    def __post_init__(self) -> None:
-        for name in (
-            "run_id",
-            "aggregate_kind",
-            "aggregate_id",
-            "command",
-            "idempotency_key",
-            "actor_id",
-            "role_id",
-            "from_status",
-            "to_status",
-            "result_status",
-            "state_after_digest",
-        ):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        if self.sequence < 1:
-            raise ValueError("sequence must be >= 1")
-        if self.prev_hash != "0" * 64:
-            _require_content_hash_hex("prev_hash", self.prev_hash)
-        _require_content_hash_hex("event_hash", self.event_hash)
-        _require_content_hash_hex("state_after_digest", self.state_after_digest)
-        object.__setattr__(self, "input_refs", tuple(self.input_refs))
-        object.__setattr__(self, "output_refs", tuple(self.output_refs))
-        _set_frozen_mapping(self, "budget_delta", self.budget_delta)
-        _set_frozen_mapping(self, "outputs", self.outputs)
-
-    def payload_for_hash(self) -> dict[str, Any]:
-        """Canonical hash payload — matches persisted event body (no event_hash)."""
-        failure_plain = to_plain_dict(self.failure) if self.failure is not None else None
-        return {
-            "sequence": int(self.sequence),
-            "prev_hash": self.prev_hash,
-            "run_id": self.run_id,
-            "aggregate_kind": self.aggregate_kind,
-            "aggregate_id": self.aggregate_id,
-            "command": self.command,
-            "idempotency_key": self.idempotency_key,
-            "actor_id": self.actor_id,
-            "role_id": self.role_id,
-            "parent_task_id": self.parent_task_id,
-            "from_status": self.from_status,
-            "to_status": self.to_status,
-            "input_refs": [to_plain_dict(ref) for ref in self.input_refs],
-            "output_refs": [to_plain_dict(ref) for ref in self.output_refs],
-            "budget_delta": dict(self.budget_delta),
-            "result_status": self.result_status,
-            "failure": failure_plain,
-            "state_after_digest": self.state_after_digest,
-            "outputs": dict(self.outputs),
-            "schema_version": self.schema_version,
-        }
-
-    def compute_hash(self) -> str:
-        return content_hash(self.payload_for_hash())
-
-@dataclass(frozen=True)
-class FailureKnowledgeEntry:
-    """Append-only failure knowledge for authorized non-sealed splits only."""
-
-    knowledge_id: str
-    run_id: str
-    family_fingerprint: str
-    formula_fingerprint: str
-    failure_type: str
-    disposition: str
-    split_id: str
-    repairable: bool
-    evidence_refs: tuple[EvidenceRef, ...] = ()
-    factor_ref: ObjectRef | None = None
-    sealed: bool = False
-    schema_version: str = SCHEMA_VERSION
-    content_hash: str = ""
-
-    def __post_init__(self) -> None:
-        for name in (
-            "knowledge_id",
-            "run_id",
-            "family_fingerprint",
-            "formula_fingerprint",
-            "failure_type",
-            "disposition",
-            "split_id",
-        ):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        if self.sealed:
-            raise ValueError("failure knowledge must not record sealed facts")
-        object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
-        if self.factor_ref is not None:
-            _require_ref_namespace(self.factor_ref.namespace, self.factor_ref, *self.evidence_refs)
-        _finalize_content_hash(self, "FailureKnowledgeEntry")
-
-    def payload_for_hash(self) -> dict[str, Any]:
-        return _payload_without_hash(self)
-
-    def compute_hash(self) -> str:
-        return content_hash(self.payload_for_hash())
-
-    def validate_hash(self) -> None:
-        _validate_content_hash(self, "FailureKnowledgeEntry")
-
-@dataclass(frozen=True)
-class TaskLease:
-    """Budget lease granting a role a finite amount of work."""
-
-    lease_id: str
-    run_id: str
-    task_id: str
-    role_id: str
-    candidates_remaining: int
-    experiments_remaining: int
-    revisions_remaining: int
-    debate_rounds_remaining: int
-    expires_at: str = ""
-
-    def __post_init__(self) -> None:
-        for name in ("lease_id", "run_id", "task_id", "role_id"):
-            _require_non_empty(name, getattr(self, name))
-        for name in (
-            "candidates_remaining",
-            "experiments_remaining",
-            "revisions_remaining",
-            "debate_rounds_remaining",
-        ):
-            if getattr(self, name) < 0:
-                raise ValueError(f"{name} must be non-negative")
-
-@dataclass(frozen=True)
-class AgentTaskView:
-    """Minimal immutable context for one role task.
-
-    ``role_id`` is a plain string. ``candidate_ref`` is optional for run-level
-    tasks; role/task-specific requiredness is validated later by the Controller
-    against ``SKILL.md``, not in this Phase 01 contract module.
-    """
-
-    task_id: str
-    run_id: str
-    parent_task_id: str | None
-    role_id: str
-    goal: str
-    input_refs: tuple[ObjectRef | ArtifactRef | EvidenceRef, ...]
-    input_hashes: Mapping[str, str]
-    visibility: tuple[str, ...]
-    lease: TaskLease
-    attempt: int
-    debate_round: int
-    expected_output_type: str
-    candidate_ref: ObjectRef | None = None
-    expected_schema_version: str = SCHEMA_VERSION
-    forbidden_actions: tuple[str, ...] = ()
-    must_check: tuple[str, ...] = ()
-    stop_conditions: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in ("task_id", "run_id", "role_id", "goal", "expected_output_type"):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.expected_schema_version)
-        if self.attempt < 1:
-            raise ValueError("attempt must be >= 1")
-        if self.debate_round < 0:
-            raise ValueError("debate_round must be non-negative")
-        if self.lease.run_id != self.run_id:
-            raise ValueError("task lease run_id must match task run_id")
-        if self.lease.task_id != self.task_id:
-            raise ValueError("task lease task_id must match task_id")
-        if self.lease.role_id != self.role_id:
-            raise ValueError("task lease role_id must match task role_id")
-        object.__setattr__(self, "input_refs", tuple(self.input_refs))
-        expected_hashes = {
-            f"ref:{index}": getattr(ref, "content_hash", "")
-            or content_hash(to_plain_dict(ref))
-            for index, ref in enumerate(self.input_refs)
-        }
-        if dict(self.input_hashes) != expected_hashes:
-            raise ValueError("input_hashes must exact-match input_refs")
-        if self.candidate_ref is not None:
-            _require_ref_namespace(
-                self.candidate_ref.namespace,
-                self.candidate_ref,
-                *self.input_refs,
-            )
-        elif self.input_refs:
-            _require_ref_namespace(self.input_refs[0].namespace, *self.input_refs)
-        _set_frozen_mapping(self, "input_hashes", self.input_hashes)
-        object.__setattr__(self, "visibility", tuple(self.visibility))
-        object.__setattr__(self, "forbidden_actions", tuple(self.forbidden_actions))
-        object.__setattr__(self, "must_check", tuple(self.must_check))
-        object.__setattr__(self, "stop_conditions", tuple(self.stop_conditions))
-
-@dataclass(frozen=True)
-class AgentTaskResult:
-    task_id: str
-    run_id: str
-    role_id: str
-    status: TaskResultStatus
-    output_type: str
-    output_ref: ObjectRef | None
-    handoff_to: str
-    evidence_refs: tuple[EvidenceRef, ...] = ()
-    artifact_refs: tuple[ArtifactRef, ...] = ()
-    budget_consumed: Mapping[str, int] = field(default_factory=dict)
-    failure: FailureDetail | None = None
-    parent_task_id: str | None = None
-
-    def __post_init__(self) -> None:
-        for name in ("task_id", "run_id", "role_id", "output_type", "handoff_to"):
-            _require_non_empty(name, getattr(self, name))
-        object.__setattr__(self, "status", _enum_or_value(TaskResultStatus, self.status))
-        object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
-        object.__setattr__(self, "artifact_refs", tuple(self.artifact_refs))
-        _set_frozen_mapping(self, "budget_consumed", self.budget_consumed)
-        if self.parent_task_id is not None:
-            _require_non_empty("parent_task_id", self.parent_task_id)
-        for key, value in self.budget_consumed.items():
-            _require_non_empty("budget_consumed key", key)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError("budget_consumed values must be nonnegative ints")
-        if self.status is TaskResultStatus.RUNNING:
-            raise ValueError("AgentTaskResult rejects RUNNING; it is a result envelope")
-        if self.status is TaskResultStatus.SUCCEEDED:
-            if self.output_ref is None:
-                raise ValueError("successful task results require output_ref")
-            if not isinstance(self.output_ref, ObjectRef):
-                raise ValueError("successful task results require one ObjectRef output_ref")
-            if self.failure is not None:
-                raise ValueError("successful task results must not include failure")
-            _require_ref_namespace(
-                self.output_ref.namespace,
-                self.output_ref,
-                *self.evidence_refs,
-                *self.artifact_refs,
-            )
-        else:
-            if self.failure is None:
-                raise ValueError("non-success task results require failure detail")
-            if self.output_ref is not None:
-                raise ValueError("non-success task results must not include output_ref")
-
-
-def _agent_task_view_authorized_namespace(view: AgentTaskView) -> str:
-    refs = tuple(ref for ref in (view.candidate_ref, *view.input_refs) if ref is not None)
-    namespaces = {getattr(ref, "namespace", None) for ref in refs}
-    if len(namespaces) != 1 or None in namespaces:
-        raise ValueError("task view has no unique authorized namespace")
-    return next(iter(namespaces))
-
-
-def validate_agent_task_handoff(
-    view: AgentTaskView, result: AgentTaskResult
-) -> None:
-    """Bind one returned result to the immutable Controller-issued task view.
-
-    This function intentionally does not select roles or invoke an agent runtime.
-    It checks only platform-neutral envelope identity and lease limits; trusted
-    object existence/content verification remains the Controller/store boundary.
-    """
-    for identity_field in ("task_id", "run_id", "role_id", "parent_task_id"):
-        if getattr(result, identity_field) != getattr(view, identity_field):
-            raise ValueError(f"task result {identity_field} must match task view")
-    if result.output_type != view.expected_output_type:
-        raise ValueError("task result output_type must match task expected_output_type")
-    if (
-        result.status is TaskResultStatus.SUCCEEDED
-        and result.output_ref is not None
-        and result.output_ref.object_type != view.expected_output_type
-    ):
-        raise ValueError("task result output_ref.object_type must match expected_output_type")
-    authorized_namespace = _agent_task_view_authorized_namespace(view)
-    returned_refs = (*result.evidence_refs, *result.artifact_refs)
-    if result.status is TaskResultStatus.SUCCEEDED and result.output_ref is not None:
-        returned_refs = (result.output_ref, *returned_refs)
-    if any(getattr(ref, "namespace", None) != authorized_namespace for ref in returned_refs):
-        raise ValueError("task result refs must match task view authorized namespace")
-    remaining = {
-        "candidates": view.lease.candidates_remaining,
-        "experiments": view.lease.experiments_remaining,
-        "revisions": view.lease.revisions_remaining,
-        "debate_rounds": view.lease.debate_rounds_remaining,
-    }
-    for key, consumed in result.budget_consumed.items():
-        if key not in remaining:
-            raise ValueError("task result budget_consumed has unknown budget key")
-        if consumed > remaining[key]:
-            raise ValueError("task result budget_consumed exceeds task lease")
 
 @dataclass(frozen=True)
 class ResearchDecision:
@@ -1599,179 +1258,6 @@ class FreezeManifest:
     def validate_hash(self) -> None:
         _validate_content_hash(self, "FreezeManifest")
 
-@dataclass(frozen=True)
-class OOSAuthorization:
-    authorization_id: str
-    run_id: str
-    candidate_id: str
-    manifest_ref: ObjectRef
-    sealed_split_id: str
-    one_shot_key: str
-    issued_at: str
-    schema_version: str = SCHEMA_VERSION
-    content_hash: str = ""
-
-    def __post_init__(self) -> None:
-        for name in (
-            "authorization_id",
-            "run_id",
-            "candidate_id",
-            "sealed_split_id",
-            "one_shot_key",
-            "issued_at",
-        ):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        if self.manifest_ref.object_type != "FreezeManifest":
-            raise ValueError("manifest_ref.object_type must be FreezeManifest")
-        _finalize_content_hash(self, "OOSAuthorization")
-
-    def payload_for_hash(self) -> dict[str, Any]:
-        return _payload_without_hash(self)
-
-    def compute_hash(self) -> str:
-        return content_hash(self.payload_for_hash())
-
-    def validate_hash(self) -> None:
-        _validate_content_hash(self, "OOSAuthorization")
-
-@dataclass(frozen=True)
-class OOSAttempt:
-    """One-shot sealed OOS claim ledger entry.
-
-    Defaults to RUNNING after claim/start. Terminal statuses require finished_at.
-    """
-
-    attempt_id: str
-    authorization_id: str
-    run_id: str
-    candidate_id: str
-    manifest_ref: ObjectRef
-    sealed_split_id: str
-    one_shot_key: str
-    started_at: str
-    finished_at: str = ""
-    status: TaskResultStatus = TaskResultStatus.RUNNING
-    failure: FailureDetail | None = None
-    schema_version: str = SCHEMA_VERSION
-    content_hash: str = ""
-
-    def __post_init__(self) -> None:
-        for name in (
-            "attempt_id",
-            "authorization_id",
-            "run_id",
-            "candidate_id",
-            "sealed_split_id",
-            "one_shot_key",
-            "started_at",
-        ):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        if self.manifest_ref.object_type != "FreezeManifest":
-            raise ValueError("manifest_ref.object_type must be FreezeManifest")
-        object.__setattr__(self, "status", _enum_or_value(TaskResultStatus, self.status))
-        if self.status is TaskResultStatus.RUNNING:
-            if self.finished_at:
-                raise ValueError("RUNNING OOSAttempt must have empty finished_at")
-            if self.failure is not None:
-                raise ValueError("RUNNING OOSAttempt must not include failure")
-        elif self.status is TaskResultStatus.SUCCEEDED:
-            _require_non_empty("finished_at", self.finished_at)
-            if self.failure is not None:
-                raise ValueError("successful OOSAttempt must not include failure")
-        else:
-            _require_non_empty("finished_at", self.finished_at)
-            if self.failure is None:
-                raise ValueError("non-success OOSAttempt requires failure detail")
-        _finalize_content_hash(self, "OOSAttempt")
-
-    def payload_for_hash(self) -> dict[str, Any]:
-        return _payload_without_hash(self)
-
-    def compute_hash(self) -> str:
-        return content_hash(self.payload_for_hash())
-
-    def validate_hash(self) -> None:
-        _validate_content_hash(self, "OOSAttempt")
-
-@dataclass(frozen=True)
-class OOSResult:
-    result_id: str
-    attempt_id: str
-    authorization_id: str
-    run_id: str
-    candidate_id: str
-    manifest_ref: ObjectRef
-    sealed_split_id: str
-    evaluation_ref: ObjectRef
-    passed: bool
-    evidence_refs: tuple[EvidenceRef, ...]
-    provenance: Provenance
-    artifact_refs: tuple[ArtifactRef, ...] = ()
-    schema_version: str = SCHEMA_VERSION
-    content_hash: str = ""
-
-    def __post_init__(self) -> None:
-        for name in (
-            "result_id",
-            "attempt_id",
-            "authorization_id",
-            "run_id",
-            "candidate_id",
-            "sealed_split_id",
-        ):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        if self.manifest_ref.object_type != "FreezeManifest":
-            raise ValueError("manifest_ref.object_type must be FreezeManifest")
-        if self.evaluation_ref.object_type != "EvaluationReport":
-            raise ValueError("evaluation_ref.object_type must be EvaluationReport")
-        object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
-        object.__setattr__(self, "artifact_refs", tuple(self.artifact_refs))
-        _require_provenance(self.provenance, namespace=self.manifest_ref.namespace)
-        _require_ref_namespace(
-            self.provenance.namespace,
-            self.manifest_ref,
-            self.evaluation_ref,
-            *self.evidence_refs,
-            *self.artifact_refs,
-        )
-        _finalize_content_hash(self, "OOSResult")
-
-    def payload_for_hash(self) -> dict[str, Any]:
-        return _payload_without_hash(self)
-
-    def compute_hash(self) -> str:
-        return content_hash(self.payload_for_hash())
-
-    def validate_hash(self) -> None:
-        _validate_content_hash(self, "OOSResult")
-
-@dataclass(frozen=True)
-class ReportRequest:
-    request_id: str
-    namespace: str
-    run_id: str
-    title: str
-    object_refs: tuple[ObjectRef, ...]
-    evidence_refs: tuple[EvidenceRef, ...] = ()
-    artifact_refs: tuple[ArtifactRef, ...] = ()
-    schema_version: str = SCHEMA_VERSION
-
-    def __post_init__(self) -> None:
-        for name in ("request_id", "namespace", "run_id", "title"):
-            _require_non_empty(name, getattr(self, name))
-        _require_schema(self.schema_version)
-        object.__setattr__(self, "object_refs", tuple(self.object_refs))
-        object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
-        object.__setattr__(self, "artifact_refs", tuple(self.artifact_refs))
-        _require_ref_namespace(
-            self.namespace,
-            *self.object_refs,
-            *self.evidence_refs,
-            *self.artifact_refs,
-        )
 
 def _is_union(annotation: Any) -> bool:
     origin = get_origin(annotation)
@@ -1925,9 +1411,6 @@ __all__ = [
     "PoolDecisionKind",
     "ResearchDecisionKind",
     "CandidateStatus",
-    "ResearchRunStatus",
-    "TaskLifecycleStatus",
-    "TaskResultStatus",
     "FormulaKind",
     "FailureCode",
     "canonical_value",
@@ -1963,16 +1446,6 @@ __all__ = [
     "ReviewIssue",
     "ReviewReport",
     "PoolDecision",
-    "ControllerEvent",
-    "FailureKnowledgeEntry",
-    "TaskLease",
-    "AgentTaskView",
-    "AgentTaskResult",
-    "validate_agent_task_handoff",
     "ResearchDecision",
     "FreezeManifest",
-    "OOSAuthorization",
-    "OOSAttempt",
-    "OOSResult",
-    "ReportRequest",
 ]

@@ -81,7 +81,7 @@ def test_escaped_names_contain_no_forbidden_characters() -> None:
 
 
 def test_names_that_need_no_escaping_are_unchanged() -> None:
-    for value in ("run-1-00000001", "ns.demo", "controller_event", "a.b-c_d", "sha256-ab12"):
+    for value in ("run-1-00000001", "ns.demo", "workflow_event", "a.b-c_d", "sha256-ab12"):
         assert escape_file_name(value) == value
 
 

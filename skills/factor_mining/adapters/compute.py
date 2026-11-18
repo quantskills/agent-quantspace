@@ -136,7 +136,7 @@ def _refs_equal(left: ObjectRef, right: ObjectRef) -> bool:
 
 
 class FactorExecutionAdapter:
-    """Phase 02 deterministic implementation of ``FactorExecutionPort``.
+    """Deterministic implementation of ``FactorExecutionPort``.
 
     The adapter is explicitly configured with an ``ArtifactStorePort``. On
     success it persists values/mask through that store and returns real
@@ -420,17 +420,17 @@ class FactorExecutionAdapter:
         if spec.missing_policy != _SUPPORTED_MISSING_POLICY:
             raise FactorExecutionAdapterError(
                 FailureCode.INVALID_PARAMETERS,
-                "unsupported missing_policy for Phase 02",
+                "unsupported missing_policy",
             )
         if spec.output_dtype != _SUPPORTED_OUTPUT_DTYPE:
             raise FactorExecutionAdapterError(
                 FailureCode.INVALID_OUTPUT_DTYPE,
-                "unsupported output_dtype for Phase 02",
+                "unsupported output_dtype",
             )
         if spec.index_restore_policy != _SUPPORTED_INDEX_RESTORE_POLICY:
             raise FactorExecutionAdapterError(
                 FailureCode.INVALID_PARAMETERS,
-                "unsupported index_restore_policy for Phase 02",
+                "unsupported index_restore_policy",
             )
 
     def _persist_series(

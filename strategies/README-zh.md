@@ -7,6 +7,7 @@
 ## 公开策略域
 
 - `cross_sectional/`：横截面轮动，使用 generic 因子、规则权重、XGBoost rank 权重和共享向量化回测器。
+- `factor_mining/`：受治理的因子挖掘 workflow（筛选、记录审查、冻结、密封检验），基于 `skills.factor_mining` 的契约与适配器。
 - `time_series/`：单品种 workflow，使用原始 OHLCV、公开特征、三重屏障标签、规则/ML 权重和共享向量化回测器。
 
 ## 边界

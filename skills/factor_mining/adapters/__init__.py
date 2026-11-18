@@ -1,4 +1,4 @@
-"""Phase 02/03 factor_mining adapters (compute / panel / store / analyze)."""
+"""factor_mining adapters (compute / panel / store / analyze)."""
 
 from skills.factor_mining.adapters.analyze import (
     AnalyzeAdapter,
