@@ -117,3 +117,25 @@ def test_bias_momentum_value_does_not_depend_on_series_length(ma_period, momentu
             momentum_day=momentum_day,
         )
         pd.testing.assert_series_equal(prefix, full.iloc[:length])
+
+
+def test_williams_r_trend_filter_matches_the_window_definition():
+    """The vectorised trend term equals (last - first) / first over each full window."""
+    rng = np.random.default_rng(5)
+    close = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.01, 300))))
+    close.iloc[[40, 41, 120]] = np.nan
+    bars = pd.DataFrame({"high": close * 1.01, "low": close * 0.99, "close": close})
+    period, window = 14, 60
+
+    trend = close.rolling(window=period).apply(
+        lambda x: (x.iloc[-1] - x.iloc[0]) / x.iloc[0] if x.iloc[0] != 0 else 0, raw=False
+    )
+    highest, lowest = bars["high"].rolling(period).max(), bars["low"].rolling(period).min()
+    raw = ((highest - close) / (highest - lowest)).replace([np.inf, -np.inf], np.nan).fillna(0.5)
+    combined = (raw * -100 + 50) * (1 - abs(np.tanh(trend * 20)) * 0.5)
+    mean = combined.rolling(window, min_periods=period).mean()
+    std = combined.rolling(window, min_periods=period).std()
+    expected = ((combined - mean) / std.where(std > 1e-6, 1e-6)).clip(-3, 3)
+
+    actual = indicators.williams_r(bars, period=period, standardize_window=window)
+    pd.testing.assert_series_equal(actual, expected, check_names=False, check_exact=True)

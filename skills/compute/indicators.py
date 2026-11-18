@@ -705,9 +705,12 @@ def williams_r(group: pd.DataFrame, period: int = 14, standardize_window: int = 
     reversal_signal = williams_r_raw + 50  # 转换到-50到50的范围
 
     # 添加趋势过滤
-    price_trend = close_prices.rolling(window=period).apply(
-        lambda x: (x.iloc[-1] - x.iloc[0]) / x.iloc[0] if x.iloc[0] != 0 else 0, raw=False
+    # 窗口首尾的涨跌幅；窗口内有缺失值时为 NaN，首值为 0 时取 0
+    window_start = close_prices.shift(period - 1)
+    price_trend = ((close_prices - window_start) / window_start.where(window_start != 0)).where(
+        window_start != 0, 0.0
     )
+    price_trend = price_trend.where(close_prices.rolling(window=period).count() == period)
     trend_filter = np.tanh(price_trend * 20)  # 趋势强度调整
 
     # 综合反转因子

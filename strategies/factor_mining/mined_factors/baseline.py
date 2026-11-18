@@ -45,7 +45,7 @@ _MEAN_REVERSION_PRICE_STRUCTURE = (
      "极端CCI刻画超买超卖后的反转。"),
     ("mrps-slowkdj-14-3-3-v1", "long_high", "slowkdj", {"k_period": 14, "k_smooth": 3, "d_smooth": 3, "standardize_window": 60}, ("high", "low", "close"), 60, 30,
      "慢速KDJ的超卖结构预示反转。"),
-    ("mrps-williams-r-14d-v1", "long_low", "williams_r", {"period": 14, "standardize_window": 60}, ("high", "low", "close"), 60, 26,
+    ("mrps-williams-r-14d-v1", "long_low", "williams_r", {"period": 14, "standardize_window": 60}, ("high", "low", "close"), 14, 26,
      "Williams %R的区间极值会回归。"),
 )  # fmt: skip
 
