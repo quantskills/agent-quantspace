@@ -1,7 +1,6 @@
 """Download RB (rebar) dominant continuous contract with post-adjustment.
 
-Futures dominant/continuous contracts (e.g. ``RB_DOMINANT.SHF`` -> ``SHFE.RB99``)
-need *backward* adjustment to splice across contract rolls, which is provided by
+Futures dominant/continuous contracts (e.g. ``RB_DOMINANT.SHF``) need *backward* adjustment to splice across contract rolls, which is provided by
 PandaData's ``get_future_market_post`` interface. This is the standard way to
 "复权" a futures continuous contract (not the stock adj-factor path).
 
@@ -18,8 +17,7 @@ import pandas as pd
 from skills.ingest import PandaDataClient
 from skills.store.data_manager import DataManager
 
-RAW_SYMBOL = "RB_DOMINANT.SHF"
-STORE_SYMBOL = "SHFE.RB99"
+SYMBOL = "RB_DOMINANT.SHF"
 FREQUENCY = "1d_adj"
 
 
@@ -63,7 +61,7 @@ def download(
     for chunk_start, chunk_end in _year_chunks(start_date, end_date):
         raw = client._call(
             "get_future_market_post",
-            symbol=[RAW_SYMBOL],
+            symbol=[SYMBOL],
             start_date=chunk_start,
             end_date=chunk_end,
             fields=[],
@@ -74,13 +72,13 @@ def download(
     bars = pd.concat(parts).sort_index()
     bars = bars[~bars.index.duplicated(keep="last")]
     if bars.empty:
-        print(f"{STORE_SYMBOL}: no data returned")
+        print(f"{SYMBOL}: no data returned")
         return
 
     dm = DataManager(data_root=data_root)
-    dm.save_symbol(STORE_SYMBOL, bars, frequency=FREQUENCY, source="panda_data_future_post")
+    dm.save_symbol(SYMBOL, bars, frequency=FREQUENCY, source="panda_data_future_post")
     print(
-        f"Saved {len(bars)} rows for {STORE_SYMBOL} (post-adjusted): "
+        f"Saved {len(bars)} rows for {SYMBOL} (post-adjusted): "
         f"{bars.index.min().date()} -> {bars.index.max().date()}"
     )
     print(f"distinct dominant contracts: {bars['dominant_id'].nunique()}")

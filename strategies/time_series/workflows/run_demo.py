@@ -12,7 +12,7 @@ from skills.strategy import MarketDataReader
 from skills.strategy.time_series import signal_to_single_asset_weights
 from strategies.time_series.features import make_price_volume_features
 
-DEFAULT_TS_SYMBOL = "SHSE.510300"
+DEFAULT_TS_SYMBOL = "510300.SH"
 DEFAULT_FREQUENCY = "1d"
 
 

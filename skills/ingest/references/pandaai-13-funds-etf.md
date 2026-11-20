@@ -72,7 +72,7 @@ funds = client.get_fund_detail(
 bars = client.get_fund_daily(
     "20250610",
     "20250613",
-    symbol="SHSE.510300",
+    symbol="510300.SH",
     fields=["open", "high", "low", "close", "volume", "amount"],
 )
 ```

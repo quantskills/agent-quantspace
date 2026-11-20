@@ -30,14 +30,14 @@ def _bars(prices: list[float]) -> pd.DataFrame:
 def test_ma_reversion_atr_stop_weights_exit_on_trailing_stop() -> None:
     weights = ma_reversion_atr_stop_weights(
         _bars([10.0, 9.0, 8.0, 11.0, 12.0, 8.0]),
-        symbol="CFFEX.IF99",
+        symbol="IF_DOMINANT.CFE",
         ma_lookback=3,
         atr_lookback=2,
         atr_multiplier=1.0,
     )
 
-    assert weights.columns.tolist() == ["CFFEX.IF99"]
-    assert weights["CFFEX.IF99"].tolist() == [0.0, 0.0, 1.0, 1.0, 1.0, 0.0]
+    assert weights.columns.tolist() == ["IF_DOMINANT.CFE"]
+    assert weights["IF_DOMINANT.CFE"].tolist() == [0.0, 0.0, 1.0, 1.0, 1.0, 0.0]
 
 
 def test_ma_reversion_atr_stop_signal_stays_flat_during_warmup() -> None:
@@ -76,13 +76,13 @@ def test_ma_golden_death_cross_goes_long_after_golden_and_flat_after_death() -> 
     prices = [10.0] * 6 + [14.0, 16.0, 18.0, 20.0, 22.0] + [8.0, 6.0, 4.0, 2.0]
     weights = ma_golden_death_cross_weights(
         _bars(prices),
-        symbol="SHSE.510300",
+        symbol="510300.SH",
         short=2,
         long=4,
     )
-    series = weights["SHSE.510300"]
+    series = weights["510300.SH"]
 
-    assert weights.columns.tolist() == ["SHSE.510300"]
+    assert weights.columns.tolist() == ["510300.SH"]
     assert series.iloc[:3].tolist() == [0.0, 0.0, 0.0]
     assert series.max() == 1.0
     assert series.eq(1.0).any()

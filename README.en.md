@@ -169,19 +169,19 @@ Then try a small import:
 
 ```bash
 uv run python -m scripts.import_panda_data_demo \
-  --symbol SHSE.600000 \
+  --symbol 600000.SH \
   --start-date 20230101 \
   --end-date 20231231
 ```
 
-QuantSpace uses `EXCHANGE.CODE` symbols, such as `SHSE.510300`. PandaData-style
-symbols are converted through:
+PandaData data is stored and referenced by PandaData platform codes, such as
+`510300.SH`, `RB2601.SHF`, and the dominant continuous `RB_DOMINANT.SHF`, with no
+format conversion. Local data saved by older versions as `SHSE.510300` is renamed
+by one migration command:
 
-```python
-from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
-
-to_panda_data_symbol("SHSE.510300")  # "510300.SH"
-to_quantspace_symbol("510300.SH")    # "SHSE.510300"
+```bash
+uv run qs store migrate-symbols          # review the rename plan
+uv run qs store migrate-symbols --write  # rename the files
 ```
 
 Listed ETF/LOF bars use the fund endpoints, not stock or backtest-factor
@@ -194,7 +194,7 @@ client = PandaDataClient()
 bars = client.get_fund_daily(
     "20250610",
     "20250613",
-    symbol="SHSE.510300",
+    symbol="510300.SH",
 )
 ```
 
@@ -223,7 +223,7 @@ Strategies and callers own explicit symbol lists and load them through
 from skills.store.data_manager import DataManager
 
 panel = DataManager().read_symbols(
-    ["SHSE.510300", "SHSE.510500"],
+    ["510300.SH", "510500.SH"],
     frequency="1d",
 )
 ```

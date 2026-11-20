@@ -20,17 +20,17 @@ TIMINGS: dict[str, float] = {}
 
 # Eight ETFs with daily bars across the whole local history, plus one index for benchmarks.
 SYMBOLS = (
-    "SHSE.510300",
-    "SHSE.510170",
-    "SHSE.513030",
-    "SHSE.513100",
-    "SHSE.513500",
-    "SHSE.518880",
-    "SZSE.159915",
-    "SZSE.159920",
+    "510300.SH",
+    "510170.SH",
+    "513030.SH",
+    "513100.SH",
+    "513500.SH",
+    "518880.SH",
+    "159915.SZ",
+    "159920.SZ",
 )
-INDEX_SYMBOL = "SHSE.000300"
-ADJUSTED_SYMBOLS = ("SHSE.510300", "SZSE.159915")
+INDEX_SYMBOL = "000300.SH"
+ADJUSTED_SYMBOLS = ("510300.SH", "159915.SZ")
 # Recent rows copied per symbol; keeps every command fast while leaving real history.
 KEEP_ROWS = 600
 

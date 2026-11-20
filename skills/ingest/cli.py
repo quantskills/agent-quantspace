@@ -29,7 +29,6 @@ from skills.cli.io import (
 )
 from skills.cli.models import Artifact, CLIError, CLIModel, CommandResult, OutputOptions
 from skills.cli.registry import Command
-from skills.ingest.symbol_map import try_to_quantspace_symbol
 
 SDK_HINT = "uv sync --extra panda_data"
 CREDENTIAL_HINT = (
@@ -95,11 +94,6 @@ def _one_or_many(values):
 
 def _today() -> str:
     return date.today().strftime("%Y%m%d")
-
-
-def _quantspace(symbols: list[str]) -> list[str]:
-    """Names the client returns for these requested symbols (QuantSpace format)."""
-    return list(dict.fromkeys(try_to_quantspace_symbol(symbol) for symbol in symbols))
 
 
 def _require_sdk():
@@ -275,14 +269,14 @@ def _eob(frame, freq: str):
     )
 
 
-def _by_symbol(frame, requested: list[str]):
+def _by_symbol(frame, symbols: list[str]):
     """Rows per returned symbol, or None when they cannot be attributed."""
     if len(frame) == 0:
         return {}
     if "symbol" in frame.columns:
         return {str(symbol): rows for symbol, rows in frame.groupby("symbol", sort=False)}
-    if len(requested) == 1:
-        return {requested[0]: frame}
+    if len(symbols) == 1:
+        return {symbols[0]: frame}
     return None
 
 
@@ -293,7 +287,7 @@ def _by_symbol(frame, requested: list[str]):
 
 class SymbolSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    symbol: str = Field(description="QuantSpace symbol as returned by the client.")
+    symbol: str = Field(description="PandaData symbol as returned by the client.")
     rows: int = Field(description="Rows returned for this symbol.")
     start: str | None = Field(description="First bar timestamp, if the time columns are present.")
     end: str | None = Field(description="Last bar timestamp, if the time columns are present.")
@@ -305,7 +299,7 @@ class BarsInput(OutputOptions):
     )
     symbols: list[str] = Field(
         default_factory=list,
-        description="QuantSpace (SHSE.510300) or native (510300.SH) symbols; "
+        description="PandaData symbols such as 510300.SH or RB_DOMINANT.SHF; "
         "repeat flag or comma-separate.",
     )
     symbols_file: Path | None = Field(
@@ -356,7 +350,7 @@ class BarsOutput(BaseModel):
     adjust: str = Field(description="Fund adjustment mode.")
     start: str = Field(description="Request start, YYYYMMDD.")
     end: str = Field(description="Request end, YYYYMMDD.")
-    requested_symbols: list[str] = Field(description="Requested symbols in QuantSpace format.")
+    requested_symbols: list[str] = Field(description="Requested PandaData symbols.")
     dry_run: bool = Field(description="True when nothing was fetched or written.")
     saved: bool = Field(description="Whether bars were written to the market store.")
     rows: int = Field(description="Rows fetched.")
@@ -478,11 +472,10 @@ def bars(args: BarsInput) -> CommandResult:
     start, end = args.start, args.end or _today()
     if start > end:
         raise CLIError("INVALID_INPUT", "start must be on or before end")
-    requested = _quantspace(symbols)
     dm = data_manager(args.data_root)
     frequency = args.save_frequency
     planned = (
-        {symbol: _market_path(dm, frequency, symbol) for symbol in requested} if frequency else {}
+        {symbol: _market_path(dm, frequency, symbol) for symbol in symbols} if frequency else {}
     )
     planned_paths = [str(path.resolve()) for path in planned.values()]
     _prepare_output(args)
@@ -499,7 +492,7 @@ def bars(args: BarsInput) -> CommandResult:
             "adjust": args.adjust,
             "start": start,
             "end": end,
-            "requested_symbols": requested,
+            "requested_symbols": symbols,
             "dry_run": False,
             "saved": False,
             "rows": 0,
@@ -526,7 +519,7 @@ def bars(args: BarsInput) -> CommandResult:
 
     client = _client()
     frame = _table(_fetch_bars(client, args, symbols, start, end), "bars")
-    groups = _by_symbol(frame, requested)
+    groups = _by_symbol(frame, symbols)
 
     summaries = []
     for symbol, rows in (groups or {}).items():
@@ -544,7 +537,7 @@ def bars(args: BarsInput) -> CommandResult:
         )
     if groups is None:
         warnings.append("Returned rows carry no symbol column; per-symbol summaries are omitted.")
-    no_data = [symbol for symbol in requested if symbol not in groups] if groups is not None else []
+    no_data = [symbol for symbol in symbols if symbol not in groups] if groups is not None else []
     if no_data and len(frame):
         warnings.append(f"No rows returned for: {no_data}")
     if len(frame) == 0:
@@ -594,7 +587,7 @@ def bars(args: BarsInput) -> CommandResult:
 class AdjFactorInput(OutputOptions):
     symbols: list[str] = Field(
         default_factory=list,
-        description="Stock symbols (QuantSpace or native); empty queries the whole market.",
+        description="PandaData stock symbols such as 600000.SH; empty queries the whole market.",
     )
     symbols_file: Path | None = Field(
         None, description="Text lines or JSON list of symbols, instead of symbols."
@@ -617,7 +610,7 @@ class AdjFactorInput(OutputOptions):
 class AdjFactorOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scope: Literal["explicit-symbols", "all-market"] = Field(description="Symbol selection scope.")
-    requested_symbols: list[str] = Field(description="Requested symbols in QuantSpace format.")
+    requested_symbols: list[str] = Field(description="Requested PandaData symbols.")
     start: str | None = Field(description="Request start, YYYYMMDD.")
     end: str | None = Field(description="Request end, YYYYMMDD.")
     dry_run: bool = Field(description="True when nothing was fetched or written.")
@@ -650,19 +643,18 @@ def _store_events(rows):
 
 def adj_factor(args: AdjFactorInput) -> CommandResult:
     symbols = resolve_symbols(args.symbols, args.symbols_file)
-    requested = _quantspace(symbols)
     dm = data_manager(args.data_root)
-    scope = "explicit-symbols" if requested else "all-market"
-    planned = {symbol: _adj_path(dm, symbol) for symbol in requested}
+    scope = "explicit-symbols" if symbols else "all-market"
+    planned = {symbol: _adj_path(dm, symbol) for symbol in symbols}
     planned_paths = [str(path.resolve()) for path in planned.values()]
-    template = None if requested else str((dm.root / "adj_factor" / "{symbol}.parquet").resolve())
+    template = None if symbols else str((dm.root / "adj_factor" / "{symbol}.parquet").resolve())
     _prepare_output(args)
     warnings: list[str] = []
 
     def result(**values) -> CommandResult:
         base = {
             "scope": scope,
-            "requested_symbols": requested,
+            "requested_symbols": symbols,
             "start": args.start,
             "end": args.end,
             "dry_run": False,
@@ -701,7 +693,7 @@ def adj_factor(args: AdjFactorInput) -> CommandResult:
     groups: dict[str, Any] = {}
     if len(frame) and "symbol" in frame.columns:
         groups = {str(symbol): rows for symbol, rows in frame.groupby("symbol", sort=False)}
-    no_data = [symbol for symbol in requested if symbol not in groups] if len(frame) else []
+    no_data = [symbol for symbol in symbols if symbol not in groups] if len(frame) else []
     if len(frame) == 0:
         warnings.append("PandaData returned no adjustment events.")
     elif no_data:
@@ -741,7 +733,7 @@ def adj_factor(args: AdjFactorInput) -> CommandResult:
 # Reference data and ETF creation/redemption: one typed command per endpoint
 # ---------------------------------------------------------------------------
 
-SYMBOLS_HELP = "Symbols (QuantSpace or native); repeat flag or comma-separate."
+SYMBOLS_HELP = "PandaData symbols such as 510300.SH; repeat flag or comma-separate."
 FIELDS_HELP = "SDK fields subset; empty returns all columns."
 START_HELP = "Inclusive start date: YYYY-MM-DD or YYYYMMDD."
 END_HELP = "Inclusive end date: YYYY-MM-DD or YYYYMMDD."
@@ -877,7 +869,7 @@ class IndexWeightsInput(OutputOptions):
     end: Date = Field(description=END_HELP)
     index_symbol: list[str] = Field(
         default_factory=list,
-        description="Index symbols, such as SHSE.000300 (QuantSpace or native).",
+        description="PandaData index symbols, such as 000300.SH.",
     )
     stock_symbol: list[str] = Field(
         default_factory=list, description="Constituent stock symbols to filter by."
@@ -934,7 +926,7 @@ def industry_constituents(args: IndustryConstituentsInput) -> CommandResult:
 
 
 class StockIndustryInput(OutputOptions):
-    stock_symbol: str = Field(description="One stock symbol, QuantSpace or native.")
+    stock_symbol: str = Field(description="One PandaData stock symbol, such as 600000.SH.")
     level: str | None = Field(None, description="Industry level.")
 
 
@@ -1026,8 +1018,7 @@ class RawInput(OutputOptions):
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="JSON object of keyword arguments passed unchanged to the SDK function. "
-        "Symbols are NOT converted: use the SDK's native format (510300.SH). "
-        "Returned symbol columns are converted to QuantSpace format.",
+        "Symbols are PandaData codes such as 510300.SH, as everywhere else.",
     )
     list: bool = Field(
         False, description="List the callable public SDK functions instead of calling one."

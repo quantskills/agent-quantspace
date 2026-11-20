@@ -12,7 +12,7 @@ from skills.store.data_manager import DataManager
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbol", default="SHSE.600000")
+    parser.add_argument("--symbol", default="600000.SH")
     parser.add_argument("--start-date", default="20230101")
     parser.add_argument("--end-date", default="20231231")
     parser.add_argument("--frequency", default="1d")

@@ -44,7 +44,7 @@ def test_winsorization_helpers_clip_outliers() -> None:
 def _noise_panel(n_days: int = 120, n_symbols: int = 50, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range("2024-01-01", periods=n_days)
-    symbols = [f"SHSE.{600000 + i}" for i in range(n_symbols)]
+    symbols = [f"{600000 + i}.SH" for i in range(n_symbols)]
     close = pd.DataFrame(
         100 * np.cumprod(1 + rng.normal(0, 0.01, (n_days, n_symbols)), axis=0),
         index=dates,

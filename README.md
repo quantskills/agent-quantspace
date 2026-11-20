@@ -142,19 +142,18 @@ PANDA_DATA_PASSWORD=your-password
 
 ```bash
 uv run python -m scripts.import_panda_data_demo \
-  --symbol SHSE.600000 \
+  --symbol 600000.SH \
   --start-date 20230101 \
   --end-date 20231231
 ```
 
-QuantSpace 使用 `EXCHANGE.CODE` 符号格式，例如 `SHSE.510300`。PandaData 格式可以
-通过 helper 转换：
+PandaData 的数据直接用 PandaData 平台代码存储和引用，例如 `510300.SH`、
+`RB2601.SHF`、主力连续 `RB_DOMINANT.SHF`，不做格式转换。旧版本按
+`SHSE.510300` 写法存下的本地数据，运行一次迁移命令即可改名：
 
-```python
-from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
-
-to_panda_data_symbol("SHSE.510300")  # "510300.SH"
-to_quantspace_symbol("510300.SH")    # "SHSE.510300"
+```bash
+uv run qs store migrate-symbols          # 先看改名清单
+uv run qs store migrate-symbols --write  # 执行改名
 ```
 
 场内 ETF/LOF 行情使用基金接口，不按股票或回测因子获取：
@@ -166,7 +165,7 @@ client = PandaDataClient()
 bars = client.get_fund_daily(
     "20250610",
     "20250613",
-    symbol="SHSE.510300",
+    symbol="510300.SH",
 )
 ```
 
@@ -200,7 +199,7 @@ open, high, low, close, volume
 from skills.store.data_manager import DataManager
 
 panel = DataManager().read_symbols(
-    ["SHSE.510300", "SHSE.510500"],
+    ["510300.SH", "510500.SH"],
     frequency="1d",
 )
 ```

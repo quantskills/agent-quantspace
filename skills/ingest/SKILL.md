@@ -28,13 +28,13 @@ Use the `uv run qs ingest` commands below; data tasks do not require reading
 ## Workflow
 
 ```bash
-uv run qs ingest bars --asset fund --symbols SHSE.510300,SHSE.518880 \
+uv run qs ingest bars --asset fund --symbols 510300.SH,518880.SH \
   --start 2019-01-01 --adjust post --save-frequency 1d_adj --write
-uv run qs ingest bars --asset stock --symbols SHSE.600000 --start 2023-01-01 \
+uv run qs ingest bars --asset stock --symbols 600000.SH --start 2023-01-01 \
   --end 2023-12-31 --save-frequency 1d --write
-uv run qs ingest adj-factor --symbols SHSE.600000 --write
-uv run qs compute adjust --symbols SHSE.600000 --frequency 1d --write
-uv run qs store validate --symbols SHSE.600000
+uv run qs ingest adj-factor --symbols 600000.SH --write
+uv run qs compute adjust --symbols 600000.SH --frequency 1d --write
+uv run qs store validate --symbols 600000.SH
 uv run qs ingest ref fund-detail --output out/fund_detail.parquet
 uv run qs ingest etf list --start 2025-06-10 --end 2025-06-13 --output out/etf_cr.parquet
 uv run qs ingest raw --list
@@ -60,9 +60,10 @@ uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-3
 - `--freq` is the real bar interval sent to PandaData (`1d`, `1m`, `5m`, ...).
   `1d_adj` is only the store directory for adjusted daily bars and is never
   sent to the provider.
-- Symbols may be QuantSpace (`SHSE.510300`) or native (`510300.SH`); returned
-  symbols are converted to QuantSpace format. `ingest raw` passes parameters
-  unchanged, so it needs native symbols.
+- Symbols are PandaData codes in both directions and are never converted:
+  `510300.SH`, `600000.SH`, `RB2601.SHF`, `CF509.CZC` (Zhengzhou contracts use a
+  three-digit year-month), dominant continuous `RB_DOMINANT.SHF`. Stored files
+  and returned `symbol` columns use the same codes.
 - Only stocks, indexes (1m only), and futures have minute bars, and the
   provider caps the rows of one minute request: split long ranges across runs.
 - Commands that reach the network are marked `network` in the command list

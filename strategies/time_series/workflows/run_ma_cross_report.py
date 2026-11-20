@@ -20,7 +20,7 @@ from skills.report import (
 from skills.store.data_manager import DataManager
 from strategies.time_series.rules import ma_golden_death_cross_weights
 
-SYMBOL = "SHSE.510300"
+SYMBOL = "510300.SH"
 FREQUENCY = "1d_adj"
 SHORT = 10
 LONG = 60
@@ -137,7 +137,7 @@ def run_report(*, data_manager: DataManager | None = None) -> dict:
         slug=SLUG,
         title="沪深300ETF 均线金叉死叉",
         question=(
-            "在 SHSE.510300 上，MA10 上穿 MA60 做多、下穿平仓，"
+            "在 510300.SH 上，MA10 上穿 MA60 做多、下穿平仓，"
             "在给定交易成本下是否优于买入持有？"
         ),
         universe=[SYMBOL],
@@ -176,7 +176,7 @@ def run_report(*, data_manager: DataManager | None = None) -> dict:
                     bars,
                     SHORT,
                     LONG,
-                    title="SHSE.510300 收盘价与均线",
+                    title="510300.SH 收盘价与均线",
                 ),
             ),
         ],

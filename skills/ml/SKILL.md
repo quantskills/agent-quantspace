@@ -29,7 +29,7 @@ uv run qs ml factor-rank --panel out/panel.parquet \
   --output out/factor_rank.parquet
 uv run qs ml pca-predict --train out/train.parquet --predict out/predict.parquet \
   --target-col forward_return --model ols --n-pca 5 --output out/predictions.parquet
-uv run qs ml lasso-track --panel out/panel.parquet --index-symbol SHSE.000300 \
+uv run qs ml lasso-track --panel out/panel.parquet --index-symbol 000300.SH \
   --lookback 120 --min-periods 60 --output out/lasso_weights.parquet
 uv run qs ml train --train out/train.parquet --target state --model-name lr --namespace demo
 uv run qs ml train --train out/train.parquet --target state --model-name lr --namespace demo --write

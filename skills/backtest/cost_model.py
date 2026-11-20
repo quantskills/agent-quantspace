@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-# Baseline calibration is from SZSE.002460 minute-level slippage profile.
+# Baseline calibration is from 002460.SZ minute-level slippage profile.
 COST_LAYERS: dict[str, int] = {
     "tight": 16,
     "base": 21,

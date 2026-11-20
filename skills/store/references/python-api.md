@@ -80,10 +80,32 @@ content-addressed `cache_key`. `DataManager.namespaced_artifact_dir(namespace,
 from skills.store.data_manager import DataManager
 
 panel = DataManager().read_symbols(
-    ["SHSE.510300", "SHSE.510500"],
+    ["510300.SH", "510500.SH"],
     frequency="1d_adj",
 )
 ```
+
+## Legacy symbol migration
+
+```python
+from skills.store.legacy_symbols import (
+    apply_symbol_migration,
+    legacy_to_panda_data,
+    plan_symbol_migration,
+)
+
+assert legacy_to_panda_data("SHSE.510300") == "510300.SH"
+assert legacy_to_panda_data("SHFE.RB99") == "RB_DOMINANT.SHF"
+assert legacy_to_panda_data("510300.SH") is None  # already a PandaData code
+
+plan = plan_symbol_migration(dm.root)    # list[Rename(source, target, conflict)]
+renamed = apply_symbol_migration(plan)   # renames entries without a conflict
+```
+
+This module is the only code that knows the legacy `<EXCHANGE>.<CODE>` format.
+`DataManager.read_symbol`, `read_symbols`, and `read_adj_factor` append a
+migration hint to `FileNotFoundError` when the directory still holds legacy
+names.
 
 ## Boundary Rules
 

@@ -22,7 +22,7 @@ Exact options: `uv run qs backtest <command> --help` or
 ## Workflow
 
 ```bash
-uv run qs store read --symbols SHSE.510300,SZSE.159915,SHSE.518880 --frequency 1d_adj \
+uv run qs store read --symbols 510300.SH,159915.SZ,518880.SH --frequency 1d_adj \
   --output out/panel.parquet
 uv run qs backtest weigh --votes out/targets.parquet --panel out/panel.parquet \
   --method risk_parity --lookback 60 --min-periods 20 --output out/weights.parquet

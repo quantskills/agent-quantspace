@@ -90,7 +90,7 @@ do not pre-normalize inputs.
 from skills.backtest import VectorBacktester
 from skills.strategy.time_series import signal_to_single_asset_weights
 
-weights = signal_to_single_asset_weights(signal, symbol="SHSE.510300")
+weights = signal_to_single_asset_weights(signal, symbol="510300.SH")
 result = VectorBacktester(
     panel,
     signal_lag=1,

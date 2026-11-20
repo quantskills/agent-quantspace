@@ -11,7 +11,7 @@ import pytest
 
 from tests.fixtures.market_data import make_ohlcv, write_symbol_parquet
 
-SYMBOLS = ("SHSE.510300", "SHSE.510500", "SZSE.159915")
+SYMBOLS = ("510300.SH", "510500.SH", "159915.SZ")
 
 
 def invoke(capsys, *args):
@@ -262,13 +262,13 @@ def test_resample_matches_resample_to_5m(tmp_path, capsys):
 @pytest.fixture
 def raw_store(tmp_path):
     root = tmp_path / "data"
-    for index, symbol in enumerate(("SHSE.600000", "SHSE.600036")):
+    for index, symbol in enumerate(("600000.SH", "600036.SH")):
         write_symbol_parquet(root, symbol, make_ohlcv(walk(index, 40)))
     (root / "adj_factor").mkdir()
     pd.DataFrame(
         {"ex_cum_factor": [1.5], "ex_factor": [1.5]},
         index=pd.DatetimeIndex(["2024-01-20"], name="ex_date"),
-    ).to_parquet(root / "adj_factor" / "SHSE.600000.parquet")
+    ).to_parquet(root / "adj_factor" / "600000.SH.parquet")
     return root
 
 
@@ -279,14 +279,14 @@ def test_adjust_dry_run_writes_nothing(raw_store, capsys):
         "compute",
         "adjust",
         "--symbols",
-        "SHSE.600000,SHSE.600036",
+        "600000.SH,600036.SH",
         "--data-root",
         str(raw_store),
     )
     assert code == 0
     assert result["data"]["dry_run"] is True and result["data"]["target_frequency"] == "1d_adj"
-    assert result["data"]["unadjusted"] == ["SHSE.600036"]
-    assert result["warnings"] and "SHSE.600036" in result["warnings"][0]
+    assert result["data"]["unadjusted"] == ["600036.SH"]
+    assert result["warnings"] and "600036.SH" in result["warnings"][0]
     assert sorted(str(path) for path in raw_store.rglob("*")) == before
 
 
@@ -299,27 +299,27 @@ def test_adjust_output_and_write_match_load_adjusted(raw_store, tmp_path, capsys
         "compute",
         "adjust",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--data-root",
         str(raw_store),
         "--output",
         str(output),
     )
     assert code == 0, result
-    expected = load_adjusted("SHSE.600000", data_root=str(raw_store))
+    expected = load_adjusted("600000.SH", data_root=str(raw_store))
     pd.testing.assert_frame_equal(pd.read_parquet(output), expected)
     code, result = invoke(
         capsys,
         "compute",
         "adjust",
         "--symbols",
-        "SHSE.600000,SHSE.600036",
+        "600000.SH,600036.SH",
         "--data-root",
         str(raw_store),
         "--write",
     )
     assert code == 0 and result["data"]["saved"] is True
-    for symbol in ("SHSE.600000", "SHSE.600036"):
+    for symbol in ("600000.SH", "600036.SH"):
         stored = pd.read_parquet(raw_store / "market" / "1d_adj" / f"{symbol}.parquet")
         pd.testing.assert_frame_equal(
             stored, load_adjusted(symbol, data_root=str(raw_store)), check_freq=False
@@ -329,7 +329,7 @@ def test_adjust_output_and_write_match_load_adjusted(raw_store, tmp_path, capsys
         "compute",
         "adjust",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--data-root",
         str(raw_store),
         "--write",
@@ -340,9 +340,9 @@ def test_adjust_output_and_write_match_load_adjusted(raw_store, tmp_path, capsys
 @pytest.mark.parametrize(
     ("extra", "code", "message"),
     [
-        (["--symbols", "SHSE.000001"], 3, "Missing 1d raw bars"),
-        (["--symbols", "SHSE.600000,SHSE.600036", "--output", "OUT"], 2, "exactly one symbol"),
-        (["--symbols", "SHSE.600000", "--output", "OUT", "--write"], 2, "not both"),
+        (["--symbols", "000001.SH"], 3, "Missing 1d raw bars"),
+        (["--symbols", "600000.SH,600036.SH", "--output", "OUT"], 2, "exactly one symbol"),
+        (["--symbols", "600000.SH", "--output", "OUT", "--write"], 2, "not both"),
     ],
 )
 def test_adjust_rejects_bad_requests(raw_store, tmp_path, capsys, extra, code, message):

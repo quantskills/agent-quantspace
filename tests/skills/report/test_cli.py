@@ -354,7 +354,7 @@ def study_payload(chart, params, **overrides):
         "slug": "momentum",
         "title": "Momentum study",
         "question": "Does 20-day momentum predict next-week ETF returns?",
-        "universe": ["SHSE.510300", "SHSE.510500"],
+        "universe": ["510300.SH", "510500.SH"],
         "frequency": "1d",
         "sample_start": "2020-01-01",
         "sample_end": "2023-12-31",
@@ -518,7 +518,7 @@ def test_bundle_refuses_an_existing_study_without_overwrite(capsys, tmp_path, ev
 
 
 def test_bundle_without_figures_tables_or_metrics(capsys, tmp_path):
-    payload = study_payload(None, None, figures=[], tables=[], metrics={}, universe=["SHSE.510300"])
+    payload = study_payload(None, None, figures=[], tables=[], metrics={}, universe=["510300.SH"])
     root = tmp_path / "reports"
     code, body = run(
         capsys, "bundle", "--input-json", str(write_payload(tmp_path, payload)),

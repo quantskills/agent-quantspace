@@ -23,9 +23,9 @@ def test_time_series_public_workflow_runs_with_triple_barrier_labels() -> None:
         index=index,
     )
     labels = TripleBarrierLabelMaker(data=bars, L=3, pt_sl=0.5, t_limit=5).generate_labels()
-    weights = signal_to_single_asset_weights(labels["state"], symbol="SHSE.510300")
+    weights = signal_to_single_asset_weights(labels["state"], symbol="510300.SH")
     panel = bars.copy()
-    panel["symbol"] = "SHSE.510300"
+    panel["symbol"] = "510300.SH"
     panel = panel.reset_index().set_index(["symbol", "eob"])
 
     result = VectorBacktester(

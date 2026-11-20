@@ -8,7 +8,7 @@ import strategies.time_series.workflows.run_demo as demo
 
 def test_run_demo_reads_standard_panel_and_executes_target_weights(monkeypatch) -> None:
     dates = pd.date_range("2024-01-01", periods=10, name="eob")
-    symbol = "SHSE.510300"
+    symbol = "510300.SH"
     bars = pd.DataFrame(
         {
             "open": np.arange(10.0, 20.0),

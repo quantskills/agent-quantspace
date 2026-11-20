@@ -18,14 +18,19 @@ from skills.cli.io import (
 )
 from skills.cli.models import CLIError, CLIModel, CommandResult, OutputOptions
 from skills.cli.registry import Command
+from skills.store.legacy_symbols import (
+    apply_symbol_migration,
+    legacy_hint,
+    plan_symbol_migration,
+)
 
 DATA_ROOT_HELP = "Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/."
 FREQUENCY_HELP = (
     "Directory under data/market: real bar frequency plus optional _adj suffix, "
     "for example 1d, 1d_adj, 5m."
 )
-SYMBOLS_HELP = "QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate."
-SYMBOLS_FILE_HELP = "Text lines or JSON list of QuantSpace symbols."
+SYMBOLS_HELP = "Stored symbols such as 510300.SH; repeat flag or comma-separate."
+SYMBOLS_FILE_HELP = "Text lines or JSON list of stored symbols."
 # Namespaces whose per-namespace Parquet counts DataManager.info prints.
 INFO_NAMESPACES = ("factors", "backtest")
 
@@ -173,7 +178,8 @@ def read(args: ReadInput) -> CommandResult:
             f"Missing {args.frequency} Parquet files for symbols: {missing}",
             3,
             details=missing,
-            hint=f"Run `uv run qs store list --frequency {args.frequency}` to see stored symbols.",
+            hint=legacy_hint(dm.root / "market" / args.frequency).strip()
+            or f"Run `uv run qs store list --frequency {args.frequency}` to see stored symbols.",
         )
     panel = load_panel(
         PanelSource(
@@ -217,7 +223,9 @@ class ImportInput(CLIModel):
         description="single: one symbol per file (import_symbol_csv); "
         "combined: a symbol column splits the file (import_combined_csv).",
     )
-    symbol: str | None = Field(default=None, description="QuantSpace symbol for single layout.")
+    symbol: str | None = Field(
+        default=None, description="Symbol for single layout, such as 510300.SH."
+    )
     frequency: str = Field(default="1d", description=FREQUENCY_HELP)
     symbol_col: str = Field(default="symbol", description="Symbol column for combined layout.")
     time_col: str = Field(
@@ -462,6 +470,64 @@ def query(args: QueryInput) -> CommandResult:
     )
 
 
+class MigrateSymbolsInput(CLIModel):
+    write: bool = Field(default=False, description="Rename the files; otherwise a dry run.")
+    data_root: Path | None = Field(default=None, description=DATA_ROOT_HELP)
+
+
+class SymbolRename(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    directory: str = Field(description="Store directory relative to the data root.")
+    old: str = Field(description="Legacy symbol, such as 510300.SH.")
+    new: str = Field(description="PandaData symbol, such as 510300.SH.")
+
+
+class MigrateSymbolsOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    data_root: str = Field(description="Resolved data root.")
+    dry_run: bool = Field(description="Whether this was a rename plan only.")
+    renamed: list[SymbolRename] = Field(
+        description="Files renamed, or with --write absent, files that would be renamed."
+    )
+    conflicts: list[SymbolRename] = Field(
+        description="Legacy files left in place because the PandaData-named file already exists."
+    )
+
+
+def migrate_symbols(args: MigrateSymbolsInput) -> CommandResult:
+    dm = data_manager(args.data_root)
+    plan = plan_symbol_migration(dm.root)
+
+    def rows(items):
+        return [
+            SymbolRename(
+                directory=str(item.source.parent.relative_to(dm.root)),
+                old=item.source.stem,
+                new=item.target.stem,
+            )
+            for item in items
+        ]
+
+    pending = [item for item in plan if not item.conflict]
+    done = apply_symbol_migration(plan) if args.write else pending
+    conflicts = [item for item in plan if item not in done]
+    warnings = []
+    if conflicts:
+        warnings.append(
+            f"{len(conflicts)} legacy files kept: their PandaData-named files already exist. "
+            "Compare and delete the copy you do not need."
+        )
+    return CommandResult(
+        data=MigrateSymbolsOutput(
+            data_root=str(dm.root.resolve()),
+            dry_run=not args.write,
+            renamed=rows(done),
+            conflicts=rows(conflicts),
+        ),
+        warnings=warnings,
+    )
+
+
 COMMANDS = [
     Command(
         "store.info",
@@ -519,5 +585,13 @@ COMMANDS = [
         "Run DuckDB SQL over stored Parquet files (needs --extra query).",
         side_effects=("writes-output",),
         priority="P2",
+    ),
+    Command(
+        "store.migrate-symbols",
+        MigrateSymbolsInput,
+        MigrateSymbolsOutput,
+        migrate_symbols,
+        "Rename legacy 510300.SH-style store files to PandaData codes such as 510300.SH.",
+        side_effects=("writes-store",),
     ),
 ]

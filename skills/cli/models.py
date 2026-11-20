@@ -36,10 +36,10 @@ class PanelSource(CLIModel):
     )
     symbols: list[str] = Field(
         default_factory=list,
-        description="QuantSpace symbols such as SHSE.510300; repeat flag or comma-separate.",
+        description="Stored symbols such as 510300.SH; repeat flag or comma-separate.",
     )
     symbols_file: Path | None = Field(
-        None, description="Text lines or JSON list of QuantSpace symbols."
+        None, description="Text lines or JSON list of stored symbols."
     )
     frequency: str = Field(
         "1d", description="Market store directory under data/market, for example 1d or 1d_adj."

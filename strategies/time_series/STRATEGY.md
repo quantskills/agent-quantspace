@@ -34,10 +34,10 @@ from strategies.time_series.ml import xgboost_triple_barrier_weights
 
 weights = xgboost_triple_barrier_weights(
     bars,
-    symbol="CFFEX.IF99",
+    symbol="IF_DOMINANT.CFE",
     split_date="2024-01-01",
 )
-panel = bars.assign(symbol="CFFEX.IF99").reset_index().set_index(["symbol", "eob"])
+panel = bars.assign(symbol="IF_DOMINANT.CFE").reset_index().set_index(["symbol", "eob"])
 
 result = VectorBacktester(
     panel,

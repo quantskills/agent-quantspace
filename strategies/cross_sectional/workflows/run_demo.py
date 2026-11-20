@@ -8,7 +8,7 @@ from skills.store.data_manager import DataManager
 from skills.strategy.cross_sectional import ModularBacktester
 from strategies.cross_sectional.factors import momentum_score, volatility_score
 
-DEFAULT_SYMBOLS = ("SHSE.510300", "SHSE.510500", "SZSE.159915", "SHSE.513100")
+DEFAULT_SYMBOLS = ("510300.SH", "510500.SH", "159915.SZ", "513100.SH")
 
 
 def load_panel(

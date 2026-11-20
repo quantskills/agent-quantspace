@@ -13,9 +13,9 @@ def test_signal_to_single_asset_weights_maps_signal_to_symbol_column() -> None:
         index=pd.DatetimeIndex(["2026-01-02", "2026-01-03", "2026-01-04"], name="eob"),
     )
 
-    weights = signal_to_single_asset_weights(signal, symbol="SHSE.510300")
+    weights = signal_to_single_asset_weights(signal, symbol="510300.SH")
 
-    expected = pd.DataFrame({"SHSE.510300": [1.0, 0.0, -1.0]}, index=signal.index)
+    expected = pd.DataFrame({"510300.SH": [1.0, 0.0, -1.0]}, index=signal.index)
     pd.testing.assert_frame_equal(weights, expected)
 
 
@@ -27,12 +27,12 @@ def test_signal_to_single_asset_weights_fills_clips_and_scales() -> None:
 
     weights = signal_to_single_asset_weights(
         signal,
-        symbol="SHSE.510300",
+        symbol="510300.SH",
         exposure=0.4,
     )
 
     expected = pd.DataFrame(
-        {"SHSE.510300": [0.0, 0.4, -0.4, -0.2]},
+        {"510300.SH": [0.0, 0.4, -0.4, -0.2]},
         index=signal.index,
     )
     pd.testing.assert_frame_equal(weights, expected)

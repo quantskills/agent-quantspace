@@ -30,7 +30,7 @@ def test_strategy_context_stores_run_identity_and_is_frozen() -> None:
 
 def test_weight_generator_returns_target_weights_and_diagnostics() -> None:
     weights = pd.DataFrame(
-        {"SHSE.510300": [1.0]},
+        {"510300.SH": [1.0]},
         index=pd.DatetimeIndex(["2026-01-02"], name="eob"),
     )
 
@@ -70,6 +70,6 @@ def test_market_data_reader_port_matches_current_read_symbols_shape() -> None:
             return pd.DataFrame({"close": 1.0}, index=index)
 
     reader: MarketDataReader = MemoryReader()
-    panel = reader.read_symbols(["SHSE.510300"])
+    panel = reader.read_symbols(["510300.SH"])
 
     assert panel.index.names == ["symbol", "eob"]

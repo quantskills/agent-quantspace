@@ -20,12 +20,12 @@ def test_data_manager_saves_symbol_and_reads_explicit_panel(tmp_path) -> None:
         },
         index=dates,
     )
-    dm.save_symbol("SHSE.510300", bars, frequency="1d")
+    dm.save_symbol("510300.SH", bars, frequency="1d")
 
-    panel = dm.read_symbols(["SHSE.510300"], frequency="1d")
+    panel = dm.read_symbols(["510300.SH"], frequency="1d")
 
     assert panel.index.names == ["symbol", "eob"]
-    assert panel.index.get_level_values("symbol").unique().tolist() == ["SHSE.510300"]
+    assert panel.index.get_level_values("symbol").unique().tolist() == ["510300.SH"]
     assert validate_ohlcv(bars).passed
     assert not (tmp_path / "pools").exists()
 
@@ -59,7 +59,7 @@ def test_data_manager_does_not_expose_legacy_registry_api(tmp_path) -> None:
 def test_data_manager_reads_explicit_symbol_list_as_panel(tmp_path) -> None:
     dm = DataManager(data_root=str(tmp_path))
     dates = pd.date_range("2024-01-01", periods=3, name="eob")
-    for symbol, offset in [("SHSE.510300", 0.0), ("CFFEX.IF99", 10.0)]:
+    for symbol, offset in [("510300.SH", 0.0), ("IF_DOMINANT.CFE", 10.0)]:
         close = pd.Series([1.0, 2.0, 3.0], index=dates) + offset
         bars = pd.DataFrame(
             {
@@ -73,14 +73,14 @@ def test_data_manager_reads_explicit_symbol_list_as_panel(tmp_path) -> None:
         )
         dm.save_symbol(symbol, bars, frequency="1d")
 
-    panel = dm.read_symbols(["CFFEX.IF99", "SHSE.510300"], frequency="1d")
+    panel = dm.read_symbols(["IF_DOMINANT.CFE", "510300.SH"], frequency="1d")
 
     assert panel.index.names == ["symbol", "eob"]
     assert panel.index.get_level_values("symbol").unique().tolist() == [
-        "CFFEX.IF99",
-        "SHSE.510300",
+        "510300.SH",
+        "IF_DOMINANT.CFE",
     ]
-    assert panel.loc[("CFFEX.IF99", dates[-1]), "close"] == 13.0
+    assert panel.loc[("IF_DOMINANT.CFE", dates[-1]), "close"] == 13.0
 
 
 def test_artifacts_are_scoped_by_namespace(tmp_path) -> None:

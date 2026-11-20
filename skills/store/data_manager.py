@@ -17,8 +17,8 @@ Usage:
     from skills.store.data_manager import DataManager
     dm = DataManager()
     dm.import_combined_csv('E:/datasets/ETF_1d/etf_rotation_daily.csv')
-    data = dm.read_symbols(['SHSE.510300', 'SHSE.510500'], frequency='1d')
-    adj = dm.read_symbols(['SHSE.510300', 'SHSE.510500'], frequency='1d_adj')
+    data = dm.read_symbols(['510300.SH', '510500.SH'], frequency='1d')
+    adj = dm.read_symbols(['510300.SH', '510500.SH'], frequency='1d_adj')
 """
 
 import json
@@ -29,6 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from skills.store.legacy_symbols import legacy_hint
 from skills.store.workspace import resolve_workspace_paths
 
 # ======================================================================
@@ -153,7 +154,7 @@ class DataManager:
 
     Usage:
         dm = DataManager()
-        data = dm.read_symbols(['SHSE.510300', 'SHSE.510500'], frequency='1d')
+        data = dm.read_symbols(['510300.SH', '510500.SH'], frequency='1d')
     """
 
     def __init__(self, data_root: str = None):
@@ -186,7 +187,7 @@ class DataManager:
         """Read a single symbol's OHLCV data. Index: eob."""
         path = self.root / "market" / frequency / f"{symbol}.parquet"
         if not path.exists():
-            raise FileNotFoundError(f"{path}")
+            raise FileNotFoundError(f"{path}{legacy_hint(path.parent)}")
         return pd.read_parquet(path)
 
     def read_symbols(self, symbols: list[str], frequency: str = "1d") -> pd.DataFrame:
@@ -211,6 +212,7 @@ class DataManager:
             raise FileNotFoundError(
                 f"Missing {frequency} Parquet files for symbols: {missing}. "
                 f"Expected files under {self.root / 'market' / frequency}."
+                f"{legacy_hint(self.root / 'market' / frequency)}"
             )
         if not frames:
             raise ValueError("symbols cannot be empty.")
@@ -312,7 +314,7 @@ class DataManager:
         """Read per-symbol adjustment factor events."""
         path = self._adj_factor_dir() / f"{symbol}.parquet"
         if not path.exists():
-            raise FileNotFoundError(f"{path}")
+            raise FileNotFoundError(f"{path}{legacy_hint(path.parent)}")
         return pd.read_parquet(path)
 
     def list_adj_factors(self) -> list[str]:
@@ -623,7 +625,7 @@ class DataManager:
 
         Example::
 
-            dm.query_market("WHERE symbol = 'SHSE.510300' AND eob >= '2024-01-01'")
+            dm.query_market("WHERE symbol = '510300.SH' AND eob >= '2024-01-01'")
             dm.query_market("", frequency="1m")
 
         The underlying glob is ``market/{frequency}/*.parquet`` with

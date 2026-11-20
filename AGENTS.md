@@ -78,7 +78,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Skill | Import | Purpose |
 |-------|--------|---------|
-| ingest | `from skills.ingest import PandaDataClient` | PandaData data access and symbol conversion |
+| ingest | `from skills.ingest import PandaDataClient` | PandaData data access |
 | store | `from skills.store.data_manager import DataManager` | Parquet data and research artifact storage |
 | compute | `from skills.compute.indicators import trend_score` | Strategy-neutral OHLCV indicators, labels, utilities, and the `Factor` wrapper |
 | strategy | `from skills.strategy import StrategyResult` | Reusable strategy contracts, selection types, and cross-sectional/time-series target-weight helpers |
@@ -125,7 +125,7 @@ unchanged. After changing a command model, run `uv run qs docs render`.
 
 ## Data Conventions
 
-- Symbol format: exchange prefix plus code, such as `SHSE.510300`.
+- Symbol format: the data source's own code. PandaData data keeps PandaData codes, such as `510300.SH`, `RB2601.SHF`, and dominant continuous `RB_DOMINANT.SHF`; never convert them. `uv run qs store migrate-symbols` renames stores written in the old `SHSE.510300` format.
 - Time column/index: `eob`, timezone-naive.
 - OHLCV columns: `open`, `high`, `low`, `close`, `volume`.
 - Panel format: MultiIndex `(symbol, eob)`.

@@ -11,24 +11,24 @@ from skills.compute.adjust import forward_adjust
 from skills.strategy.cross_sectional import apply_rebalance_schedule, top_n_weights
 
 ASSET_CLASS_ETF_UNIVERSE = {
-    "gold": "SHSE.518880",
-    "crude_oil": "SHSE.501018",
-    "china_government_bond": "SHSE.511130",
-    "csi_300": "SHSE.510300",
-    "csi_2000": "SHSE.563300",
-    "chi_next": "SZSE.159915",
-    "star_50": "SHSE.588000",
-    "hang_seng": "SZSE.159920",
-    "hang_seng_internet": "SHSE.513330",
-    "nasdaq_100": "SHSE.513100",
-    "sp_500": "SHSE.513500",
-    "nikkei_225": "SHSE.513520",
-    "dax": "SHSE.513030",
-    "cac_40": "SHSE.513080",
-    "india_equity": "SZSE.164824",
-    "soybean_meal": "SZSE.159985",
-    "nonferrous_metals": "SZSE.159980",
-    "broad_commodity": "SHSE.510170",
+    "gold": "518880.SH",
+    "crude_oil": "501018.SH",
+    "china_government_bond": "511130.SH",
+    "csi_300": "510300.SH",
+    "csi_2000": "563300.SH",
+    "chi_next": "159915.SZ",
+    "star_50": "588000.SH",
+    "hang_seng": "159920.SZ",
+    "hang_seng_internet": "513330.SH",
+    "nasdaq_100": "513100.SH",
+    "sp_500": "513500.SH",
+    "nikkei_225": "513520.SH",
+    "dax": "513030.SH",
+    "cac_40": "513080.SH",
+    "india_equity": "164824.SZ",
+    "soybean_meal": "159985.SZ",
+    "nonferrous_metals": "159980.SZ",
+    "broad_commodity": "510170.SH",
 }
 
 ASSET_CLASS_ETF_SYMBOLS = tuple(ASSET_CLASS_ETF_UNIVERSE.values())
@@ -42,9 +42,9 @@ DEFAULT_TOP_N = 3
 # Do **not** apply on top of ``1d_adj`` — that series is already adjusted and a
 # second forward-adjust invents fake +100%–400% one-day returns.
 ASSET_CLASS_SPLIT_EVENTS = {
-    "SHSE.513100": (("2022-01-13", 5.0),),
-    "SHSE.513500": (("2022-03-29", 2.0),),
-    "SHSE.510170": (("2022-07-08", 4.0),),
+    "513100.SH": (("2022-01-13", 5.0),),
+    "513500.SH": (("2022-03-29", 2.0),),
+    "510170.SH": (("2022-07-08", 4.0),),
 }
 
 

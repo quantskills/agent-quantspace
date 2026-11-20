@@ -301,7 +301,7 @@ def test_bars_route_each_asset_frequency_and_adjustment(capsys, sdk, flags, meth
         "bars",
         *flags,
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -322,14 +322,14 @@ def test_bars_route_each_asset_frequency_and_adjustment(capsys, sdk, flags, meth
 
 def test_bars_accept_compact_dates_comma_symbols_and_symbols_file(capsys, sdk, tmp_path):
     listing = tmp_path / "symbols.txt"
-    listing.write_text("SHSE.600001\nSHSE.600002\n", encoding="utf-8")
+    listing.write_text("600001.SH\n600002.SH\n", encoding="utf-8")
     code, response = run(
         capsys,
         "bars",
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000,600003.SH",
+        "600000.SH,600003.SH",
         "--start",
         "20240102",
         "--end",
@@ -338,7 +338,7 @@ def test_bars_accept_compact_dates_comma_symbols_and_symbols_file(capsys, sdk, t
     assert code == 0, response
     assert sdk.sdk_calls()[0][1]["symbol"] == ["600000.SH", "600003.SH"]
     assert sdk.sdk_calls()[0][1]["start_date"] == "20240102"
-    assert response["data"]["requested_symbols"] == ["SHSE.600000", "SHSE.600003"]
+    assert response["data"]["requested_symbols"] == ["600000.SH", "600003.SH"]
     sdk.calls.clear()
     code, response = run(
         capsys,
@@ -358,7 +358,7 @@ def test_bars_accept_compact_dates_comma_symbols_and_symbols_file(capsys, sdk, t
 
 def test_bars_default_end_is_today(capsys, sdk):
     code, response = run(
-        capsys, "bars", "--asset", "stock", "--symbols", "SHSE.600000", "--start", "2024-01-02"
+        capsys, "bars", "--asset", "stock", "--symbols", "600000.SH", "--start", "2024-01-02"
     )
     assert code == 0, response
     assert sdk.sdk_calls()[0][1]["end_date"] == date.today().strftime("%Y%m%d")
@@ -371,7 +371,7 @@ def test_long_daily_ranges_are_split_below_the_provider_cap(capsys, sdk):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2015-01-01",
         "--end",
@@ -400,7 +400,7 @@ def test_minute_and_fund_requests_are_not_split_by_the_adapter(capsys, sdk):
         "--freq",
         "1m",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2015-01-01",
         "--end",
@@ -415,7 +415,7 @@ def test_minute_and_fund_requests_are_not_split_by_the_adapter(capsys, sdk):
         "--asset",
         "fund",
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--start",
         "2023-01-01",
         "--end",
@@ -428,7 +428,7 @@ def test_minute_and_fund_requests_are_not_split_by_the_adapter(capsys, sdk):
 # ingest.bars: rejected combinations
 # ---------------------------------------------------------------------------
 
-BASE = ["bars", "--symbols", "SHSE.510300", "--start", "2024-01-01"]
+BASE = ["bars", "--symbols", "510300.SH", "--start", "2024-01-01"]
 REJECTED = [
     [*BASE, "--asset", "fund", "--freq", "1m"],
     [*BASE, "--asset", "hk", "--freq", "5m"],
@@ -447,9 +447,9 @@ REJECTED = [
     [*BASE, "--asset", "stock", "--freq", "1d_adj"],
     [*BASE, "--asset", "bond"],
     ["bars", "--asset", "stock", "--start", "2024-01-01"],
-    ["bars", "--asset", "stock", "--symbols", "SHSE.600000", "--start", "2024/01/01"],
-    ["bars", "--asset", "stock", "--symbols", "SHSE.600000", "--start", "2024-13-01"],
-    ["bars", "--asset", "stock", "--symbols", "SHSE.600000"],
+    ["bars", "--asset", "stock", "--symbols", "600000.SH", "--start", "2024/01/01"],
+    ["bars", "--asset", "stock", "--symbols", "600000.SH", "--start", "2024-13-01"],
+    ["bars", "--asset", "stock", "--symbols", "600000.SH"],
     ["bars", "--asset", "stock", "--symbols", "a/b", "--start", "2024-01-01"],
 ]
 
@@ -487,7 +487,7 @@ def test_output_in_managed_namespace_is_rejected_before_any_sdk_call(capsys, sdk
 
 def test_bars_output_is_the_raw_client_table(capsys, sdk, tmp_path):
     expected, expected_calls = direct(
-        sdk, "fetch_market_data", "SHSE.600000", "20240102", "20240103", type="stock"
+        sdk, "fetch_market_data", "600000.SH", "20240102", "20240103", type="stock"
     )
     target = tmp_path / "out" / "bars.parquet"
     code, response = run(
@@ -496,7 +496,7 @@ def test_bars_output_is_the_raw_client_table(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -513,9 +513,9 @@ def test_bars_output_is_the_raw_client_table(capsys, sdk, tmp_path):
     assert response["data"]["columns"] == list(expected.columns)
     # stdout carries a preview, not the table.
     assert len(response["data"]["preview"]) == len(expected)
-    assert response["data"]["preview"][0]["symbol"] == "SHSE.600000"
+    assert response["data"]["preview"][0]["symbol"] == "600000.SH"
     assert response["data"]["symbols"][0] == {
-        "symbol": "SHSE.600000",
+        "symbol": "600000.SH",
         "rows": 2,
         "start": "2024-01-02 00:00:00",
         "end": "2024-01-03 00:00:00",
@@ -527,7 +527,7 @@ def test_bars_csv_output_and_preview_limit(capsys, sdk, tmp_path):
         ("510300.SH",), tuple(f"202401{d:02d}" for d in range(2, 12))
     )
     expected, _ = direct(
-        sdk, "get_fund_daily", "20240102", "20240111", symbol="SHSE.510300", fields=None
+        sdk, "get_fund_daily", "20240102", "20240111", symbol="510300.SH", fields=None
     )
     target = tmp_path / "fund.csv"
     code, response = run(
@@ -536,7 +536,7 @@ def test_bars_csv_output_and_preview_limit(capsys, sdk, tmp_path):
         "--asset",
         "fund",
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--start",
         "20240102",
         "--end",
@@ -556,7 +556,7 @@ def test_bars_csv_output_and_preview_limit(capsys, sdk, tmp_path):
         "--asset",
         "fund",
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--start",
         "20240102",
         "--end",
@@ -573,38 +573,38 @@ def test_bars_csv_output_and_preview_limit(capsys, sdk, tmp_path):
         (
             ["--asset", "stock", "--indicator", "000300", "--no-st"],
             "fetch_market_data",
-            ("SHSE.600000", "20240102", "20240103"),
+            ("600000.SH", "20240102", "20240103"),
             {"type": "stock", "indicator": "000300", "st": False},
         ),
         (
             ["--asset", "stock", "--freq", "15m", "--fields", "close"],
             "fetch_market_min_data",
-            ("SHSE.600000", "20240102", "20240103"),
+            ("600000.SH", "20240102", "20240103"),
             {"symbol_type": "stock", "frequency": "15m", "fields": ["close"]},
         ),
         (
             ["--asset", "hk"],
             "fetch_hk_daily",
-            ("SHSE.600000", "20240102", "20240103"),
+            ("600000.SH", "20240102", "20240103"),
             {},
         ),
         (
             ["--asset", "us"],
             "fetch_us_daily",
-            ("SHSE.600000", "20240102", "20240103"),
+            ("600000.SH", "20240102", "20240103"),
             {},
         ),
         (
             ["--asset", "fund", "--adjust", "pre", "--fields", "close,volume"],
             "get_fund_daily_pre",
             ("20240102", "20240103"),
-            {"symbol": "SHSE.600000", "fields": ["close", "volume"]},
+            {"symbol": "600000.SH", "fields": ["close", "volume"]},
         ),
         (
             ["--asset", "fund", "--adjust", "post"],
             "get_fund_daily_post",
             ("20240102", "20240103"),
-            {"symbol": "SHSE.600000"},
+            {"symbol": "600000.SH"},
         ),
     ],
 )
@@ -618,7 +618,7 @@ def test_bars_make_the_same_sdk_call_as_a_python_caller(
         "bars",
         *flags,
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -646,7 +646,7 @@ def test_save_frequency_without_write_is_a_dry_run(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "600000.SH,SHSE.600001",
+        "600000.SH,600001.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -661,8 +661,8 @@ def test_save_frequency_without_write_is_a_dry_run(capsys, sdk, tmp_path):
     assert data["dry_run"] is True and data["saved"] is False and data["rows"] == 0
     # Native input symbols are planned under their QuantSpace names, like the client returns.
     assert data["planned_paths"] == [
-        str((root / "market" / "1d_adj" / "SHSE.600000.parquet").resolve()),
-        str((root / "market" / "1d_adj" / "SHSE.600001.parquet").resolve()),
+        str((root / "market" / "1d_adj" / "600000.SH.parquet").resolve()),
+        str((root / "market" / "1d_adj" / "600001.SH.parquet").resolve()),
     ]
     assert data["target_frequency"] == "1d_adj" and data["written_paths"] == []
     assert sdk.calls == [] and not root.exists()
@@ -676,7 +676,7 @@ def test_dry_run_ignores_output_with_a_warning(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -704,7 +704,7 @@ def test_write_stores_ohlcv_per_symbol_with_a_naive_sorted_eob_index(capsys, sdk
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000,SHSE.600001",
+        "600000.SH,600001.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -719,11 +719,11 @@ def test_write_stores_ohlcv_per_symbol_with_a_naive_sorted_eob_index(capsys, sdk
     assert response["data"]["saved"] is True and response["data"]["dry_run"] is False
     written = sorted(response["data"]["written_paths"])
     assert written == sorted(
-        str((root / "market" / "1d" / f"SHSE.60000{n}.parquet").resolve()) for n in (0, 1)
+        str((root / "market" / "1d" / f"60000{n}.SH.parquet").resolve()) for n in (0, 1)
     )
     assert response["data"]["written_paths"] == response["data"]["planned_paths"]
     for number in (0, 1):
-        stored = pd.read_parquet(root / "market" / "1d" / f"SHSE.60000{number}.parquet")
+        stored = pd.read_parquet(root / "market" / "1d" / f"60000{number}.SH.parquet")
         assert stored.index.name == "eob"
         assert isinstance(stored.index, pd.DatetimeIndex) and stored.index.tz is None
         assert list(stored.index) == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]
@@ -732,23 +732,21 @@ def test_write_stores_ohlcv_per_symbol_with_a_naive_sorted_eob_index(capsys, sdk
         assert stored.loc["2024-01-03", "close"] == 1.5
         assert stored.loc["2024-01-02", "close"] == 2.5
     assert [item["symbol"] for item in response["data"]["symbols"]] == [
-        "SHSE.600000",
-        "SHSE.600001",
+        "600000.SH",
+        "600001.SH",
     ]
 
 
 def test_write_store_matches_the_direct_client_table(capsys, sdk, tmp_path):
     root = tmp_path / "data"
-    raw, _ = direct(
-        sdk, "get_fund_daily", "20240102", "20240103", symbol="SHSE.510300", fields=None
-    )
+    raw, _ = direct(sdk, "get_fund_daily", "20240102", "20240103", symbol="510300.SH", fields=None)
     code, response = run(
         capsys,
         "bars",
         "--asset",
         "fund",
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -760,7 +758,7 @@ def test_write_store_matches_the_direct_client_table(capsys, sdk, tmp_path):
         str(root),
     )
     assert code == 0, response
-    stored = pd.read_parquet(root / "market" / "1d" / "SHSE.510300.parquet")
+    stored = pd.read_parquet(root / "market" / "1d" / "510300.SH.parquet")
     expected = (
         raw.assign(eob=pd.to_datetime(raw["date"]))
         .set_index("eob")[["open", "high", "low", "close", "volume"]]
@@ -779,7 +777,7 @@ def test_write_minute_bars_combine_date_and_minute(capsys, sdk, tmp_path):
         "--freq",
         "5m",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2025-01-27",
         "--end",
@@ -791,7 +789,7 @@ def test_write_minute_bars_combine_date_and_minute(capsys, sdk, tmp_path):
         str(root),
     )
     assert code == 0, response
-    stored = pd.read_parquet(root / "market" / "5m" / "SHSE.600000.parquet")
+    stored = pd.read_parquet(root / "market" / "5m" / "600000.SH.parquet")
     assert list(stored.index) == [
         pd.Timestamp("2025-01-27 09:55:00"),
         pd.Timestamp("2025-01-27 10:59:00"),
@@ -814,7 +812,7 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
         "--freq",
         "1m",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2025-01-27",
         "--end",
@@ -826,7 +824,7 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
         str(root),
     )
     assert code == 0, response
-    stored = pd.read_parquet(root / "market" / "1m" / "SHSE.600000.parquet")
+    stored = pd.read_parquet(root / "market" / "1m" / "600000.SH.parquet")
     assert stored.index[0] == pd.Timestamp("2025-01-27 09:55:00")
     futures = minute_frame("RB_DOMINANT.SHF")
     futures["datetime"] = ["2025-01-27 21:03:00", "2025-01-27 21:02:00", "2025-01-27 21:01:00"]
@@ -840,7 +838,7 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
         "--freq",
         "1m",
         "--symbols",
-        "SHFE.RB99",
+        "RB_DOMINANT.SHF",
         "--start",
         "2025-01-27",
         "--end",
@@ -852,8 +850,8 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
         str(root),
     )
     assert code == 0, response
-    # The dominant contract round-trips: native RB_DOMINANT.SHF comes back as SHFE.RB99.
-    stored = pd.read_parquet(root / "market" / "1m" / "SHFE.RB99.parquet")
+    # The dominant contract round-trips: native RB_DOMINANT.SHF comes back as RB_DOMINANT.SHF.
+    stored = pd.read_parquet(root / "market" / "1m" / "RB_DOMINANT.SHF.parquet")
     assert stored.index[0] == pd.Timestamp("2025-01-27 21:01:00")
     assert response["data"]["no_data"] == []
 
@@ -865,7 +863,7 @@ def test_write_requires_overwrite_for_existing_files(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -878,7 +876,7 @@ def test_write_requires_overwrite_for_existing_files(capsys, sdk, tmp_path):
     ]
     code, _ = run(capsys, *argv)
     assert code == 0
-    path = root / "market" / "1d" / "SHSE.600000.parquet"
+    path = root / "market" / "1d" / "600000.SH.parquet"
     path.write_bytes(b"keep me")
     sdk.calls.clear()
     code, response = run(capsys, *argv)
@@ -891,7 +889,7 @@ def test_write_requires_overwrite_for_existing_files(capsys, sdk, tmp_path):
 
 def test_write_conflict_on_any_symbol_writes_nothing(capsys, sdk, tmp_path):
     root = tmp_path / "data"
-    existing = root / "market" / "1d" / "SHSE.600001.parquet"
+    existing = root / "market" / "1d" / "600001.SH.parquet"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"keep me")
     code, response = run(
@@ -900,7 +898,7 @@ def test_write_conflict_on_any_symbol_writes_nothing(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000,SHSE.600001",
+        "600000.SH,600001.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -912,15 +910,15 @@ def test_write_conflict_on_any_symbol_writes_nothing(capsys, sdk, tmp_path):
         str(root),
     )
     assert_error(code, response, "CONFLICT", 2)
-    assert response["error"]["details"] == ["SHSE.600001"]
-    assert not (root / "market" / "1d" / "SHSE.600000.parquet").exists()
+    assert response["error"]["details"] == ["600001.SH"]
+    assert not (root / "market" / "1d" / "600000.SH.parquet").exists()
 
 
 def test_write_refuses_to_write_through_a_symlink(capsys, sdk, tmp_path):
     root = tmp_path / "data"
     outside = tmp_path / "outside.parquet"
     outside.write_text("keep")
-    link = root / "market" / "1d" / "SHSE.600000.parquet"
+    link = root / "market" / "1d" / "600000.SH.parquet"
     link.parent.mkdir(parents=True)
     link.symlink_to(outside)
     code, response = run(
@@ -929,7 +927,7 @@ def test_write_refuses_to_write_through_a_symlink(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -954,7 +952,7 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -968,11 +966,11 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
         str(root),
     )
     assert code == 0, response
-    assert target.exists() and (root / "market" / "1d" / "SHSE.600000.parquet").exists()
+    assert target.exists() and (root / "market" / "1d" / "600000.SH.parquet").exists()
     assert [item["name"] for item in response["artifacts"]] == ["bars"]
     # The provider returns a symbol that was not requested: it is stored under its own name,
     # and an existing file for it is a conflict that leaves the raw output unwritten.
-    other = root / "market" / "1d" / "SHSE.688000.parquet"
+    other = root / "market" / "1d" / "688000.SH.parquet"
     other.write_bytes(b"keep me")
     sdk.responses["get_market_data"] = daily_frame(("600000.SH", "688000.SH"))
     second = tmp_path / "second.parquet"
@@ -982,7 +980,7 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -998,17 +996,17 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
     )
     assert code == 0, response
     assert other.read_bytes() != b"keep me"
-    (root / "market" / "1d" / "SHSE.600000.parquet").unlink()
+    (root / "market" / "1d" / "600000.SH.parquet").unlink()
     sdk.responses["get_market_data"] = daily_frame(("600000.SH", "688001.SH"))
     third = tmp_path / "third.parquet"
-    (root / "market" / "1d" / "SHSE.688001.parquet").write_bytes(b"keep me")
+    (root / "market" / "1d" / "688001.SH.parquet").write_bytes(b"keep me")
     code, response = run(
         capsys,
         "bars",
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -1022,7 +1020,7 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
         str(root),
     )
     assert_error(code, response, "CONFLICT", 2)
-    assert not third.exists() and not (root / "market" / "1d" / "SHSE.600000.parquet").exists()
+    assert not third.exists() and not (root / "market" / "1d" / "600000.SH.parquet").exists()
 
 
 def test_write_rejects_unstorable_returned_tables_without_writing(capsys, sdk, tmp_path):
@@ -1032,7 +1030,7 @@ def test_write_rejects_unstorable_returned_tables_without_writing(capsys, sdk, t
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -1069,7 +1067,7 @@ def test_write_drops_duplicate_timestamps_with_a_warning(capsys, sdk, tmp_path):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -1081,7 +1079,7 @@ def test_write_drops_duplicate_timestamps_with_a_warning(capsys, sdk, tmp_path):
         str(root),
     )
     assert code == 0, response
-    stored = pd.read_parquet(root / "market" / "1d" / "SHSE.600000.parquet")
+    stored = pd.read_parquet(root / "market" / "1d" / "600000.SH.parquet")
     assert len(stored) == 2 and stored.loc["2024-01-02", "close"] == 11.0
     assert any("duplicate" in warning for warning in response["warnings"])
 
@@ -1095,7 +1093,7 @@ def test_mismatched_save_frequency_warns_and_empty_results_write_nothing(capsys,
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-02",
         "--end",
@@ -1121,15 +1119,15 @@ def test_requested_symbols_without_rows_are_reported(capsys, sdk):
         "--asset",
         "stock",
         "--symbols",
-        "SHSE.600000,SHSE.600001",
+        "600000.SH,600001.SH",
         "--start",
         "2024-01-02",
         "--end",
         "2024-01-03",
     )
     assert code == 0, response
-    assert response["data"]["no_data"] == ["SHSE.600001"]
-    assert any("SHSE.600001" in warning for warning in response["warnings"])
+    assert response["data"]["no_data"] == ["600001.SH"]
+    assert any("600001.SH" in warning for warning in response["warnings"])
     assert response["artifacts"] == []
 
 
@@ -1153,7 +1151,7 @@ def test_adj_factor_without_destination_is_a_dry_run(capsys, sdk, tmp_path):
     assert code == 0, response
     data = response["data"]
     assert data["dry_run"] and data["scope"] == "explicit-symbols"
-    assert data["planned_paths"] == [str((root / "adj_factor" / "SHSE.600000.parquet").resolve())]
+    assert data["planned_paths"] == [str((root / "adj_factor" / "600000.SH.parquet").resolve())]
     assert data["start"] == "20240101" and data["end"] is None
     code, response = run(capsys, "adj-factor", "--data-root", str(root))
     assert code == 0 and response["data"]["scope"] == "all-market"
@@ -1164,14 +1162,14 @@ def test_adj_factor_without_destination_is_a_dry_run(capsys, sdk, tmp_path):
 
 def test_adj_factor_output_equals_the_direct_client_call(capsys, sdk, tmp_path):
     expected, expected_calls = direct(
-        sdk, "get_adj_factor", "SHSE.600000", "20240101", "20241231", fields=None
+        sdk, "get_adj_factor", "600000.SH", "20240101", "20241231", fields=None
     )
     target = tmp_path / "adj.parquet"
     code, response = run(
         capsys,
         "adj-factor",
         "--symbols",
-        "SHSE.600000",
+        "600000.SH",
         "--start",
         "2024-01-01",
         "--end",
@@ -1185,7 +1183,7 @@ def test_adj_factor_output_equals_the_direct_client_call(capsys, sdk, tmp_path):
     ]
     pd.testing.assert_frame_equal(pd.read_parquet(target), expected)
     assert response["data"]["rows"] == 3 and response["data"]["saved"] is False
-    assert response["data"]["symbols"] == ["SHSE.600000", "SZSE.000001"]
+    assert response["data"]["symbols"] == ["600000.SH", "000001.SZ"]
 
 
 def test_adj_factor_write_stores_one_event_table_per_returned_symbol(capsys, sdk, tmp_path):
@@ -1194,16 +1192,16 @@ def test_adj_factor_write_stores_one_event_table_per_returned_symbol(capsys, sdk
     assert code == 0, response
     assert sdk.sdk_calls()[0][1]["symbol"] == ""
     assert response["data"]["saved"] and response["data"]["scope"] == "all-market"
-    first = pd.read_parquet(root / "adj_factor" / "SHSE.600000.parquet")
+    first = pd.read_parquet(root / "adj_factor" / "600000.SH.parquet")
     assert first.index.name == "ex_date" and isinstance(first.index, pd.DatetimeIndex)
     assert list(first.index) == [pd.Timestamp("2023-06-01"), pd.Timestamp("2024-06-02")]
     assert list(first["ex_cum_factor"]) == [1.5, 2.0]
     assert "symbol" not in first.columns and "ex_factor" in first.columns
-    second = pd.read_parquet(root / "adj_factor" / "SZSE.000001.parquet")
+    second = pd.read_parquet(root / "adj_factor" / "000001.SZ.parquet")
     assert list(second.index) == [pd.Timestamp("2024-06-03")]
     assert sorted(response["data"]["written_paths"]) == sorted(
         str((root / "adj_factor" / f"{name}.parquet").resolve())
-        for name in ("SHSE.600000", "SZSE.000001")
+        for name in ("600000.SH", "000001.SZ")
     )
     # The stored table is what the forward-adjust consumer reads.
     from skills.compute.adjust import forward_adjust
@@ -1222,16 +1220,16 @@ def test_adj_factor_write_explicit_symbols_overwrite_and_missing_events(capsys, 
     argv = [
         "adj-factor",
         "--symbols",
-        "SHSE.600000,SHSE.600999",
+        "600000.SH,600999.SH",
         "--write",
         "--data-root",
         str(root),
     ]
     code, response = run(capsys, *argv)
     assert code == 0, response
-    assert response["data"]["no_data"] == ["SHSE.600999"]
-    assert not (root / "adj_factor" / "SHSE.600999.parquet").exists()
-    assert any("SHSE.600999" in warning for warning in response["warnings"])
+    assert response["data"]["no_data"] == ["600999.SH"]
+    assert not (root / "adj_factor" / "600999.SH.parquet").exists()
+    assert any("600999.SH" in warning for warning in response["warnings"])
     sdk.calls.clear()
     code, response = run(capsys, *argv)
     assert_error(code, response, "CONFLICT", 2)
@@ -1242,13 +1240,13 @@ def test_adj_factor_write_explicit_symbols_overwrite_and_missing_events(capsys, 
 
 def test_adj_factor_all_market_conflict_is_atomic_and_bad_data_is_rejected(capsys, sdk, tmp_path):
     root = tmp_path / "data"
-    existing = root / "adj_factor" / "SZSE.000001.parquet"
+    existing = root / "adj_factor" / "000001.SZ.parquet"
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"keep me")
     code, response = run(capsys, "adj-factor", "--write", "--data-root", str(root))
     assert_error(code, response, "CONFLICT", 2)
     assert existing.read_bytes() == b"keep me"
-    assert not (root / "adj_factor" / "SHSE.600000.parquet").exists()
+    assert not (root / "adj_factor" / "600000.SH.parquet").exists()
     existing.unlink()
     bad = sdk.default("get_adj_factor", {})
     bad.loc[1, "ex_date"] = "not-a-date"
@@ -1274,7 +1272,7 @@ def test_adj_factor_rejects_bad_dates_and_managed_outputs_before_any_sdk_call(
         ["adj-factor", "--start", "not-a-date", "--write"],
         ["adj-factor", "--start", "2024-02-01", "--end", "2024-01-01", "--write"],
         ["adj-factor", "--output", str(root / "adj_factor" / "x.parquet")],
-        ["adj-factor", "--symbols", "SHSE.600000", "--write", "--symbols-file", "x.txt"],
+        ["adj-factor", "--symbols", "600000.SH", "--write", "--symbols-file", "x.txt"],
     ):
         code, response = run(capsys, *argv, "--data-root", str(root))
         assert_error(code, response, "INVALID_INPUT", 2)
@@ -1291,14 +1289,14 @@ REF_CASES = [
             "ref",
             "stock-detail",
             "--symbols",
-            "SHSE.600000,SHSE.600001",
+            "600000.SH,600001.SH",
             "--fields",
             "name",
             "--status",
             "1",
         ],
         "get_stock_detail",
-        {"symbol": ["SHSE.600000", "SHSE.600001"], "fields": ["name"], "market": "cn", "status": 1},
+        {"symbol": ["600000.SH", "600001.SH"], "fields": ["name"], "market": "cn", "status": 1},
     ),
     (
         ["ref", "stock-detail"],
@@ -1322,21 +1320,21 @@ REF_CASES = [
         {"etf_lof_type": "ETF", "status": "L", "is_class_fund": 0, "fields": ["name", "exchange"]},
     ),
     (
-        ["ref", "fund-detail", "--symbols", "SHSE.510300", "--exchange", "SH,SZ", "--type", "A"],
+        ["ref", "fund-detail", "--symbols", "510300.SH", "--exchange", "SH,SZ", "--type", "A"],
         "get_fund_detail",
-        {"symbol": "SHSE.510300", "exchange": ["SH", "SZ"], "type": "A"},
+        {"symbol": "510300.SH", "exchange": ["SH", "SZ"], "type": "A"},
     ),
     (
-        ["ref", "index-detail", "--symbols", "SHSE.000300", "--status", "1"],
+        ["ref", "index-detail", "--symbols", "000300.SH", "--status", "1"],
         "get_index_detail",
-        {"symbol": "SHSE.000300", "status": 1},
+        {"symbol": "000300.SH", "status": 1},
     ),
     (
         [
             "ref",
             "index-indicator",
             "--symbols",
-            "SHSE.000300",
+            "000300.SH",
             "--start",
             "2024-01-01",
             "--end",
@@ -1346,7 +1344,7 @@ REF_CASES = [
         ],
         "get_index_indicator",
         {
-            "symbol": "SHSE.000300",
+            "symbol": "000300.SH",
             "start_date": "20240101",
             "end_date": "20240131",
             "fields": ["pe"],
@@ -1361,16 +1359,16 @@ REF_CASES = [
             "--end",
             "2024-01-31",
             "--index-symbol",
-            "SHSE.000300",
+            "000300.SH",
             "--stock-symbol",
-            "SHSE.600000",
+            "600000.SH",
         ],
         "get_index_weights",
         {
             "start_date": "20240101",
             "end_date": "20240131",
-            "index_symbol": "SHSE.000300",
-            "stock_symbol": "SHSE.600000",
+            "index_symbol": "000300.SH",
+            "stock_symbol": "600000.SH",
         },
     ),
     (
@@ -1385,17 +1383,17 @@ REF_CASES = [
             "--industry-code",
             "801010",
             "--stock-symbol",
-            "SHSE.600000",
+            "600000.SH",
             "--level",
             "1",
         ],
         "get_industry_constituents",
-        {"industry_code": "801010", "stock_symbol": "SHSE.600000", "level": "1"},
+        {"industry_code": "801010", "stock_symbol": "600000.SH", "level": "1"},
     ),
     (
-        ["ref", "stock-industry", "--stock-symbol", "SHSE.600000", "--level", "2"],
+        ["ref", "stock-industry", "--stock-symbol", "600000.SH", "--level", "2"],
         "get_stock_industry",
-        {"stock_symbol": "SHSE.600000", "level": "2"},
+        {"stock_symbol": "600000.SH", "level": "2"},
     ),
     (
         ["ref", "concept-list", "--concept", "AI", "--start", "2024-01-01"],
@@ -1409,7 +1407,7 @@ REF_CASES = [
             "--concept",
             "AI",
             "--concept-stock",
-            "SHSE.600000",
+            "600000.SH",
             "--end",
             "2024-02-01",
             "--fields",
@@ -1418,7 +1416,7 @@ REF_CASES = [
         "get_concept_constituents",
         {
             "concept": "AI",
-            "concept_stock": "SHSE.600000",
+            "concept_stock": "600000.SH",
             "end_date": "20240201",
             "fields": ["symbol"],
         },
@@ -1432,7 +1430,7 @@ REF_CASES = [
             "--end",
             "2024-01-31",
             "--symbols",
-            "SHSE.510300",
+            "510300.SH",
             "--exchange",
             "SH",
             "--fields",
@@ -1442,7 +1440,7 @@ REF_CASES = [
         {
             "start_date": "20240101",
             "end_date": "20240131",
-            "symbol": "SHSE.510300",
+            "symbol": "510300.SH",
             "exchange": "SH",
             "fields": ["nav"],
         },
@@ -1461,13 +1459,13 @@ REF_CASES = [
             "--end",
             "20240131",
             "--symbols",
-            "SHSE.510300,SZSE.159919",
+            "510300.SH,159919.SZ",
         ],
         "get_fund_etf_constituents",
         {
             "start_date": "20240101",
             "end_date": "20240131",
-            "symbol": ["SHSE.510300", "SZSE.159919"],
+            "symbol": ["510300.SH", "159919.SZ"],
         },
     ),
     (
@@ -1507,14 +1505,14 @@ def test_reference_command_converts_symbols_and_works_without_output(capsys, sdk
         "--end",
         "2024-01-31",
         "--index-symbol",
-        "SHSE.000300",
+        "000300.SH",
     )
     assert code == 0, response
     name, kwargs = sdk.sdk_calls()[0]
     assert name == "get_index_weights" and kwargs["index_symbol"] == "000300.SH"
     assert kwargs["stock_symbol"] == "" and kwargs["fields"] == []
     # Returned symbol columns are in QuantSpace format; no artifact without --output.
-    assert response["data"]["preview"][0]["symbol"] == "SHSE.600000"
+    assert response["data"]["preview"][0]["symbol"] == "600000.SH"
     assert response["data"]["output"] is None and response["artifacts"] == []
 
 
@@ -1579,17 +1577,15 @@ def test_raw_passes_params_through_unchanged_and_converts_returned_symbols(capsy
         "raw",
         "get_trade_cal",
         "--params",
-        '{"symbol": "SHSE.600000", "start_date": "20240101"}',
+        '{"symbol": "600000.SH", "start_date": "20240101"}',
         "--output",
         str(target),
     )
     assert code == 0, response
-    assert sdk.sdk_calls() == [
-        ("get_trade_cal", {"symbol": "SHSE.600000", "start_date": "20240101"})
-    ]
-    expected, _ = direct(sdk, "_call", "get_trade_cal", symbol="SHSE.600000", start_date="20240101")
+    assert sdk.sdk_calls() == [("get_trade_cal", {"symbol": "600000.SH", "start_date": "20240101"})]
+    expected, _ = direct(sdk, "_call", "get_trade_cal", symbol="600000.SH", start_date="20240101")
     pd.testing.assert_frame_equal(pd.read_parquet(target), expected)
-    assert pd.read_parquet(target)["symbol"].tolist() == ["SHSE.510300"]
+    assert pd.read_parquet(target)["symbol"].tolist() == ["510300.SH"]
     assert response["data"]["method"] == "get_trade_cal" and response["data"]["rows"] == 1
     assert response["data"]["preview"][0]["flag"] == 1
     sdk.calls.clear()
@@ -1630,7 +1626,7 @@ FUND_ARGV = [
     "--asset",
     "fund",
     "--symbols",
-    "SHSE.510300",
+    "510300.SH",
     "--start",
     "2024-01-01",
     "--end",
@@ -1696,7 +1692,7 @@ def test_sdk_failures_are_upstream_errors_and_keep_wrapped_causes(capsys, sdk):
     assert "provider is unavailable" in response["error"]["message"]
     sdk.responses["get_market_data"] = ConnectionError("connection reset")
     code, response = run(
-        capsys, "bars", "--asset", "stock", "--symbols", "SHSE.600000", "--start", "2024-01-01"
+        capsys, "bars", "--asset", "stock", "--symbols", "600000.SH", "--start", "2024-01-01"
     )
     assert_error(code, response, "UPSTREAM_ERROR", 4)
 

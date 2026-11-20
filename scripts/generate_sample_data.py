@@ -9,8 +9,8 @@ import pandas as pd
 
 from skills.store.data_manager import DataManager
 
-ETF_SYMBOLS = ["SHSE.510300", "SHSE.510500", "SZSE.159915", "SHSE.513100"]
-TS_SYMBOL = "SHSE.510300"
+ETF_SYMBOLS = ["510300.SH", "510500.SH", "159915.SZ", "513100.SH"]
+TS_SYMBOL = "510300.SH"
 
 
 def _make_ohlcv(symbol: str, dates: pd.DatetimeIndex, seed: int, drift: float) -> pd.DataFrame:

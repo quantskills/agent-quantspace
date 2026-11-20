@@ -32,12 +32,12 @@ uv run qs compute factor --panel out/panel.parquet --indicator roc -p period=10 
   --keep-na --output out/roc10_values.parquet
 uv run qs compute features --panel out/one_symbol.parquet --lookback 3 --lags 1 \
   --output out/features.parquet
-uv run qs compute labels forward-return --bars data/market/1d/SHSE.510300.parquet \
+uv run qs compute labels forward-return --bars data/market/1d/510300.SH.parquet \
   --horizon 5 --output out/labels.parquet
-uv run qs compute labels triple-barrier --bars data/market/1d/SHSE.510300.parquet \
+uv run qs compute labels triple-barrier --bars data/market/1d/510300.SH.parquet \
   --output out/barrier_labels.parquet
 uv run qs compute resample --input out/minute.parquet --output out/5m.parquet
-uv run qs compute adjust --symbols SHSE.600000 --frequency 1d --write
+uv run qs compute adjust --symbols 600000.SH --frequency 1d --write
 ```
 
 ## Files

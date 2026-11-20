@@ -240,7 +240,7 @@ def test_missing_artifact_is_still_reported_missing(tmp_path) -> None:
 
 def _series() -> pd.Series:
     index = pd.MultiIndex.from_product(
-        [["SHSE.510300", "SZSE.159915"], pd.date_range("2024-01-02", periods=3)],
+        [["510300.SH", "159915.SZ"], pd.date_range("2024-01-02", periods=3)],
         names=["symbol", "eob"],
     )
     return pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], index=index)
@@ -252,7 +252,7 @@ def test_factor_pivot_cache_key_is_escaped_and_round_trips(tmp_path) -> None:
     assert path.name == "factor_mining_cache__sha%3Aabc.parquet" and path.is_file()
     assert not FORBIDDEN & set(path.name)
     pivot = store.read_factor_pivot(namespace=NS, cache_key="sha:abc")
-    assert pivot is not None and list(pivot.columns) == ["SHSE.510300", "SZSE.159915"]
+    assert pivot is not None and list(pivot.columns) == ["159915.SZ", "510300.SH"]
     assert store.read_factor_pivot(namespace=NS, cache_key="sha:other") is None
 
 

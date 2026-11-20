@@ -29,7 +29,7 @@ import pandas as pd
 from skills.ingest import PandaDataClient
 from skills.store.data_manager import DataManager
 
-DEFAULT_SYMBOL = "SHSE.510300"
+DEFAULT_SYMBOL = "510300.SH"
 # Always fetch the full field set so cum_adj_factor is available for local adjust.
 RAW_FIELDS = ["open", "high", "low", "close", "volume", "amount", "cum_adj_factor"]
 OUT_COLS = ["open", "high", "low", "close", "volume"]
@@ -146,7 +146,7 @@ def main() -> None:
     parser.add_argument(
         "--symbols",
         default=DEFAULT_SYMBOL,
-        help="Comma-separated fund symbols (default: SHSE.510300). "
+        help="Comma-separated fund symbols (default: 510300.SH). "
              "Use 'all' to fetch the 18 large-asset ETF/LOF universe.",
     )
     parser.add_argument("--start-date", default="20180101")

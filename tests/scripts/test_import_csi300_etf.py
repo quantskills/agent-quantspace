@@ -85,12 +85,12 @@ def test_download_etf_fetches_unadjusted_yearly_chunks_and_adjusts_locally(
     assert [window for window, _ in calls] == expected_chunks
     assert len(expected_chunks) == 6
     assert all(
-        kwargs == {"symbol": "SHSE.510300", "fields": import_csi300_etf.RAW_FIELDS}
+        kwargs == {"symbol": "510300.SH", "fields": import_csi300_etf.RAW_FIELDS}
         for _, kwargs in calls
     )
 
     assert saved["data_root"] == str(tmp_path)
-    assert saved["symbol"] == "SHSE.510300"
+    assert saved["symbol"] == "510300.SH"
     assert saved["kwargs"] == {"frequency": frequency, "source": "panda_data_fund"}
     bars = saved["bars"]
     assert bars.index.tolist() == [pd.Timestamp("2020-01-02"), pd.Timestamp("2025-01-02")]
