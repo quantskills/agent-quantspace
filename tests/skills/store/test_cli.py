@@ -27,9 +27,9 @@ def bars(seed: int, periods: int = 60, start: str = "2024-01-01") -> pd.DataFram
 @pytest.fixture
 def root(tmp_path):
     root = tmp_path / "data"
-    for index, symbol in enumerate(("SHSE.510300", "SHSE.510500", "SZSE.159915")):
+    for index, symbol in enumerate(("510300.SH", "510500.SH", "159915.SZ")):
         write_symbol_parquet(root, symbol, bars(index))
-    write_symbol_parquet(root, "SHSE.510300", bars(9), frequency="1d_adj")
+    write_symbol_parquet(root, "510300.SH", bars(9), frequency="1d_adj")
     return root
 
 
@@ -39,7 +39,7 @@ def tree(path):
 
 def test_info_counts_the_inventory_without_creating_folders(root, capsys):
     (root / "adj_factor").mkdir()
-    pd.DataFrame({"ex_cum_factor": [1.0]}).to_parquet(root / "adj_factor" / "SHSE.600000.parquet")
+    pd.DataFrame({"ex_cum_factor": [1.0]}).to_parquet(root / "adj_factor" / "600000.SH.parquet")
     (root / "factors" / "demo").mkdir(parents=True)
     pd.DataFrame({"a": [1.0]}).to_parquet(root / "factors" / "demo" / "f.parquet")
     before = tree(root)
@@ -66,7 +66,7 @@ def test_list_pages_market_symbols(root, capsys):
     assert code == 0
     assert result["data"] == {
         "kind": "market",
-        "items": ["SHSE.510300", "SHSE.510500"],
+        "items": ["159915.SZ", "510300.SH"],
         "count": 3,
         "truncated": True,
         "next_offset": 2,
@@ -74,13 +74,13 @@ def test_list_pages_market_symbols(root, capsys):
     code, result = invoke(
         capsys, "store", "list", "--data-root", str(root), "--limit", "2", "--offset", "2"
     )
-    assert result["data"]["items"] == ["SZSE.159915"] and result["data"]["next_offset"] is None
-    code, result = invoke(capsys, "store", "list", "--data-root", str(root), "--prefix", "SHSE")
-    assert result["data"]["items"] == ["SHSE.510300", "SHSE.510500"]
+    assert result["data"]["items"] == ["510500.SH"] and result["data"]["next_offset"] is None
+    code, result = invoke(capsys, "store", "list", "--data-root", str(root), "--prefix", "510")
+    assert result["data"]["items"] == ["510300.SH", "510500.SH"]
     code, result = invoke(
         capsys, "store", "list", "--data-root", str(root), "--frequency", "1d_adj"
     )
-    assert result["data"]["items"] == ["SHSE.510300"]
+    assert result["data"]["items"] == ["510300.SH"]
 
 
 def test_list_models_needs_a_namespace_and_returns_newest_first(root, capsys):
@@ -107,7 +107,7 @@ def test_read_writes_the_same_panel_as_data_manager(root, tmp_path, capsys):
     output = tmp_path / "out" / "panel.parquet"
     code, result = invoke(
         capsys,
-        *["store", "read", "--data-root", str(root), "--symbols", "SHSE.510300,SZSE.159915"],
+        *["store", "read", "--data-root", str(root), "--symbols", "510300.SH,159915.SZ"],
         *[
             "--start",
             "2024-01-10",
@@ -122,7 +122,7 @@ def test_read_writes_the_same_panel_as_data_manager(root, tmp_path, capsys):
     )
     assert code == 0, result
     expected = DataManager(data_root=str(root)).read_symbols(
-        ["SHSE.510300", "SZSE.159915"], frequency="1d"
+        ["510300.SH", "159915.SZ"], frequency="1d"
     )
     dates = expected.index.get_level_values("eob")
     expected = expected.loc[(dates >= "2024-01-10") & (dates <= "2024-02-05"), ["close", "volume"]]
@@ -135,11 +135,11 @@ def test_read_writes_the_same_panel_as_data_manager(root, tmp_path, capsys):
 
 def test_read_reports_missing_symbols_and_guards_outputs(root, tmp_path, capsys):
     code, result = invoke(
-        capsys, "store", "read", "--data-root", str(root), "--symbols", "SHSE.510300,SHSE.999999"
+        capsys, "store", "read", "--data-root", str(root), "--symbols", "510300.SH,999999.SH"
     )
     assert code == 3
     assert result["error"]["code"] == "NOT_FOUND"
-    assert result["error"]["details"] == ["SHSE.999999"]
+    assert result["error"]["details"] == ["999999.SH"]
     managed = root / "market" / "1d" / "copy.parquet"
     code, result = invoke(
         capsys,
@@ -148,7 +148,7 @@ def test_read_reports_missing_symbols_and_guards_outputs(root, tmp_path, capsys)
         "--data-root",
         str(root),
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--output",
         str(managed),
     )
@@ -163,7 +163,7 @@ def test_read_reports_missing_symbols_and_guards_outputs(root, tmp_path, capsys)
         "--data-root",
         str(root),
         "--symbols",
-        "SHSE.510300",
+        "510300.SH",
         "--output",
         str(existing),
     )
@@ -186,14 +186,14 @@ def test_import_is_a_dry_run_without_write(tmp_path, capsys):
         "--file",
         str(csv),
         "--symbol",
-        "SHSE.510300",
+        "510300.SH",
         "--data-root",
         str(store),
     )
     assert code == 0
     assert result["data"]["dry_run"] is True and result["data"]["saved"] is False
     assert result["data"]["planned_paths"] == [
-        str((store / "market" / "1d" / "SHSE.510300.parquet").resolve())
+        str((store / "market" / "1d" / "510300.SH.parquet").resolve())
     ]
     assert not store.exists()
 
@@ -210,14 +210,14 @@ def test_import_single_matches_data_manager(tmp_path, capsys):
         "--file",
         str(csv),
         "--symbol",
-        "SHSE.510300",
+        "510300.SH",
         "--data-root",
         str(store),
         "--write",
     )
     assert code == 0 and result["data"]["saved"] is True
-    DataManager(data_root=str(reference)).import_symbol_csv(str(csv), "SHSE.510300")
-    path = ("market", "1d", "SHSE.510300.parquet")
+    DataManager(data_root=str(reference)).import_symbol_csv(str(csv), "510300.SH")
+    path = ("market", "1d", "510300.SH.parquet")
     pd.testing.assert_frame_equal(
         pd.read_parquet(store.joinpath(*path)), pd.read_parquet(reference.joinpath(*path))
     )
@@ -228,19 +228,19 @@ def test_import_single_matches_data_manager(tmp_path, capsys):
         "--file",
         str(csv),
         "--symbol",
-        "SHSE.510300",
+        "510300.SH",
         "--data-root",
         str(store),
         "--write",
     )
     assert code == 2 and result["error"]["code"] == "CONFLICT"
-    assert result["error"]["details"] == ["SHSE.510300"]
+    assert result["error"]["details"] == ["510300.SH"]
 
 
 def test_import_combined_matches_data_manager(tmp_path, capsys):
     from skills.store.data_manager import DataManager
 
-    frames = [bars(i).reset_index().assign(symbol=s) for i, s in enumerate(("SHSE.A1", "SZSE.B2"))]
+    frames = [bars(i).reset_index().assign(symbol=s) for i, s in enumerate(("A1.SH", "B2.SZ"))]
     csv = tmp_path / "combined.csv"
     pd.concat(frames).to_csv(csv, index=False)
     store, reference = tmp_path / "store", tmp_path / "reference"
@@ -256,9 +256,9 @@ def test_import_combined_matches_data_manager(tmp_path, capsys):
         str(store),
         "--write",
     )
-    assert code == 0 and result["data"]["symbols"] == ["SHSE.A1", "SZSE.B2"]
+    assert code == 0 and result["data"]["symbols"] == ["A1.SH", "B2.SZ"]
     DataManager(data_root=str(reference)).import_combined_csv(str(csv))
-    for symbol in ("SHSE.A1", "SZSE.B2"):
+    for symbol in ("A1.SH", "B2.SZ"):
         path = ("market", "1d", f"{symbol}.parquet")
         pd.testing.assert_frame_equal(
             pd.read_parquet(store.joinpath(*path)), pd.read_parquet(reference.joinpath(*path))
@@ -302,12 +302,12 @@ def test_validate_file_and_symbols(root, tmp_path, capsys):
         "store",
         "validate",
         "--symbols",
-        "SHSE.510300,SHSE.510500",
+        "510300.SH,510500.SH",
         "--data-root",
         str(root),
     )
     dm = DataManager(data_root=str(root))
-    reports = {s: validate_ohlcv(dm.read_symbol(s, "1d")) for s in ("SHSE.510300", "SHSE.510500")}
+    reports = {s: validate_ohlcv(dm.read_symbol(s, "1d")) for s in ("510300.SH", "510500.SH")}
     assert code == 0
     assert result["data"]["n_rows"] == sum(report.n_rows for report in reports.values())
     assert result["data"]["details"]["by_symbol"] == {s: asdict(r) for s, r in reports.items()}
@@ -321,7 +321,7 @@ def test_check_adjusted_matches_the_store_scan(root, tmp_path, capsys):
     jumpy = bars(5)
     jumpy.iloc[20, jumpy.columns.get_loc("volume")] = 0.0
     jumpy.iloc[20:, jumpy.columns.get_loc("close")] *= 1.6
-    write_symbol_parquet(root, "SHSE.510500", jumpy, frequency="1d_adj")
+    write_symbol_parquet(root, "510500.SH", jumpy, frequency="1d_adj")
     output = tmp_path / "issues.parquet"
     code, result = invoke(
         capsys,
@@ -330,22 +330,20 @@ def test_check_adjusted_matches_the_store_scan(root, tmp_path, capsys):
         "--data-root",
         str(root),
         "--symbols",
-        "SHSE.510300,SHSE.510500,SHSE.000000",
+        "510300.SH,510500.SH,000000.SH",
         "--output",
         str(output),
     )
-    expected = scan_adjusted_market_data(
-        ["SHSE.510300", "SHSE.510500", "SHSE.000000"], data_root=root
-    )
+    expected = scan_adjusted_market_data(["510300.SH", "510500.SH", "000000.SH"], data_root=root)
     assert code == 1 and result["error"]["code"] == "CHECK_FAILED"
     assert result["data"]["issues"] == len(expected) > 0
-    assert result["data"]["missing"] == ["SHSE.000000"]
+    assert result["data"]["missing"] == ["000000.SH"]
     pd.testing.assert_frame_equal(pd.read_parquet(output), expected)
 
 
 def test_check_adjusted_clean_data_passes(root, capsys):
     code, result = invoke(
-        capsys, "store", "check-adjusted", "--data-root", str(root), "--symbols", "SHSE.510300"
+        capsys, "store", "check-adjusted", "--data-root", str(root), "--symbols", "510300.SH"
     )
     assert code == 0 and result["data"]["issues"] == 0 and result["data"]["missing"] == []
 

@@ -13,7 +13,7 @@ import pytest
 from tests.fixtures.console import UTF8_TEXT, qs_script, utf8_env
 from tests.fixtures.market_data import make_ohlcv, write_symbol_parquet
 
-SYMBOLS = ["SHSE.510300", "SHSE.510500", "SHSE.512100", "SZSE.159915"]
+SYMBOLS = ["510300.SH", "510500.SH", "512100.SH", "159915.SZ"]
 
 
 def qs(cwd: Path, *args: str) -> dict:

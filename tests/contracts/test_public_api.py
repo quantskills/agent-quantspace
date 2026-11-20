@@ -8,7 +8,7 @@ import pytest
 PUBLIC_MODULES = [
     "skills.ingest",
     "skills.ingest.panda_data",
-    "skills.ingest.symbol_map",
+    "skills.store.legacy_symbols",
     "skills.store.data_manager",
     "skills.compute.label_maker",
     "skills.compute.indicators",
@@ -53,11 +53,11 @@ def test_public_modules_import() -> None:
 
 
 def test_ingest_public_api() -> None:
-    from skills.ingest import PandaDataClient, to_panda_data_symbol, to_quantspace_symbol
+    import skills.ingest
+    from skills.ingest import PandaDataClient
 
     assert PandaDataClient is not None
-    assert to_panda_data_symbol("SHSE.510300") == "510300.SH"
-    assert to_quantspace_symbol("510300.SH") == "SHSE.510300"
+    assert skills.ingest.__all__ == ["PandaDataClient"]
 
 
 def test_removed_compute_modules_are_not_importable() -> None:

@@ -71,7 +71,7 @@ class SignalWeightsInput(OutputOptions):
     column: str = Field(
         default="signal", description="Signal column; values are clipped to [-1, 1]."
     )
-    symbol: str = Field(description="QuantSpace symbol that receives the weights.")
+    symbol: str = Field(description="Symbol that receives the weights, such as 510300.SH.")
     exposure: float = Field(default=1.0, description="Weight multiplier.")
 
 

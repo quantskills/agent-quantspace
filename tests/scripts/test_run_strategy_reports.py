@@ -69,7 +69,7 @@ def test_strategy_report_set_includes_rule_and_ml_examples(
     assert slugs == _SLUGS
     assert all(path.name == "index.html" for path in report_paths)
     combined = "\n".join(path.read_text(encoding="utf-8") for path in report_paths)
-    assert "CFFEX.IF99" in combined
+    assert "IF_DOMINANT.CFE" in combined
     assert "MA10" in combined
     assert "probability spread" in combined
     assert "trade_days" in combined

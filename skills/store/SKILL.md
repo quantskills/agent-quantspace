@@ -17,22 +17,25 @@ Use the `uv run qs store` commands below; research tasks do not require reading
 - Import CSV or Parquet bars into the store.
 - Check OHLCV quality, or check adjusted bars against raw bars.
 - Run a read-only SQL query over the store.
+- Rename a store written by older versions (`SHSE.510300.parquet`) to PandaData codes.
 
 ## Workflow
 
 ```bash
 uv run qs store info
 uv run qs store list --frequency 1d_adj --limit 200
-uv run qs store read --symbols SHSE.510300,SHSE.518880 --frequency 1d_adj \
+uv run qs store read --symbols 510300.SH,518880.SH --frequency 1d_adj \
   --start 2019-01-01 --output out/panel.parquet
-uv run qs store validate --symbols SHSE.510300,SHSE.518880
-uv run qs store check-adjusted --symbols SHSE.510300 --frequency 1d_adj \
+uv run qs store validate --symbols 510300.SH,518880.SH
+uv run qs store check-adjusted --symbols 510300.SH --frequency 1d_adj \
   --output out/adjusted_issues.parquet
-uv run qs store import --file bars.csv --layout single --symbol SHSE.510301            # dry run
-uv run qs store import --file bars.csv --layout single --symbol SHSE.510301 --write
+uv run qs store import --file bars.csv --layout single --symbol 510301.SH            # dry run
+uv run qs store import --file bars.csv --layout single --symbol 510301.SH --write
 uv run qs store query \
-  --sql "SELECT count(*) AS n FROM read_parquet('{data}/market/1d/SHSE.510300.parquet') WHERE volume > \$1" \
+  --sql "SELECT count(*) AS n FROM read_parquet('{data}/market/1d/510300.SH.parquet') WHERE volume > \$1" \
   --params '[0]' --output out/query.parquet
+uv run qs store migrate-symbols            # dry run: legacy name -> PandaData code
+uv run qs store migrate-symbols --write
 ```
 
 ## Files
@@ -61,6 +64,10 @@ suffix for adjusted prices.
 
 `read` writes a `(symbol, eob)` panel; `eob` is the timezone-naive end of bar.
 
+File names are the symbol. PandaData data uses PandaData codes: `510300.SH`,
+`600000.SH`, `000300.SH`, `RB2601.SHF`, dominant continuous `RB_DOMINANT.SHF`.
+Data from other sources keeps whatever symbol the caller imports it under.
+
 ## Rules
 
 - Pass the full directory key to `--frequency` (for example `1d_adj`). Never
@@ -73,6 +80,13 @@ suffix for adjusted prices.
   into the managed store.
 - Strategy universes are explicit symbol lists owned by the caller; the store
   keeps no universe registry and no experiment catalog.
+- Stores written before the switch to PandaData codes name files
+  `SHSE.510300`, `SHFE.RB99`, and so on. Reads that miss a file say so and point
+  to `migrate-symbols`. It renames files under `market/*/` and `adj_factor/`
+  (contents are unchanged), skips names that are already PandaData codes, never
+  overwrites, and reports a conflict when both names exist. Running it again
+  changes nothing. Symbols written inside your own scripts or exported CSV files
+  are not touched: the dry run lists each `old -> new` pair to replace them.
 
 ## References
 
@@ -95,5 +109,6 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | `uv run qs store validate` | Validate OHLCV quality; exit 1 when a check fails. | read-only |
 | `uv run qs store check-adjusted` | Scan adjusted bars for zero-volume price jumps; exit 1 when found. | writes-output |
 | `uv run qs store query` | Run DuckDB SQL over stored Parquet files (needs --extra query). | writes-output |
+| `uv run qs store migrate-symbols` | Rename legacy 510300.SH-style store files to PandaData codes such as 510300.SH. | writes-store |
 
 <!-- END GENERATED: qs commands -->

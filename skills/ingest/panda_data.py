@@ -11,27 +11,21 @@ Prerequisites
   set in ``.env`` (account = 86 + phone number, password = panda_data site
   password).
 
-Symbol Handling
----------------
-By default (``auto_convert_symbols=True``) input symbols may be in either
-QuantSpace format (``SHSE.510300``) or panda_data native format
-(``510300.SH``); unknown prefixes pass through unchanged. For DataFrames
-returned from panda_data, any ``symbol`` column is converted back to
-QuantSpace format so downstream code (``DataManager``, factor pipelines)
-sees a consistent namespace.
+Symbols
+-------
+Symbols are PandaData platform codes (``510300.SH``, ``RB2601.SHF``,
+``RB_DOMINANT.SHF``) in both directions: inputs go to the SDK unchanged and
+returned ``symbol`` columns are kept as PandaData returns them.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
-from skills.ingest.symbol_map import try_to_panda_data_symbol, try_to_quantspace_symbol
 
 _SymbolLike = str | list[str] | None
 _StringLike = str | list[str] | None
@@ -65,22 +59,16 @@ class PandaDataClient:
         ``PANDA_DATA_USERNAME`` env var.
     password : str, optional
         Site password. Falls back to ``PANDA_DATA_PASSWORD`` env var.
-    auto_convert_symbols : bool, default True
-        If True, input symbols are best-effort converted to panda_data
-        native format before the API call, and any ``symbol`` column in
-        the returned DataFrame is converted back to QuantSpace format.
     """
 
     def __init__(
         self,
         username: str | None = None,
         password: str | None = None,
-        auto_convert_symbols: bool = True,
     ):
         _load_dotenv_if_present()
         self._username = username or os.environ.get("PANDA_DATA_USERNAME", "")
         self._password = password or os.environ.get("PANDA_DATA_PASSWORD", "")
-        self.auto_convert_symbols = auto_convert_symbols
         self._token_ready = False
 
     # ------------------------------------------------------------------
@@ -112,33 +100,10 @@ class PandaDataClient:
         self._sdk().init_token(username=self._username, password=self._password)
         self._token_ready = True
 
-    def _to_pd(self, symbol: _SymbolLike) -> _SymbolLike:
-        """Convert input symbol(s) to panda_data native format if enabled."""
-        if not self.auto_convert_symbols or symbol is None:
-            return symbol
-        if isinstance(symbol, str):
-            return try_to_panda_data_symbol(symbol)
-        if isinstance(symbol, Iterable):
-            return [try_to_panda_data_symbol(s) for s in symbol]
-        return symbol
-
-    def _from_pd_frame(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert the ``symbol`` column of a returned frame to QS format."""
-        if not self.auto_convert_symbols or df is None or len(df) == 0:
-            return df
-        if isinstance(df, pd.DataFrame) and "symbol" in df.columns:
-            df = df.copy()
-            df["symbol"] = df["symbol"].map(try_to_quantspace_symbol)
-        return df
-
     def _call(self, method_name: str, **kwargs: Any) -> pd.DataFrame:
-        """Common call path: ensure auth, invoke SDK, post-process symbols."""
+        """Common call path: ensure auth, then invoke the SDK."""
         self._ensure_token()
-        fn = getattr(self._sdk(), method_name)
-        result = fn(**kwargs)
-        if isinstance(result, pd.DataFrame):
-            return self._from_pd_frame(result)
-        return result
+        return getattr(self._sdk(), method_name)(**kwargs)
 
     # ------------------------------------------------------------------
     # Market bars
@@ -160,8 +125,8 @@ class PandaDataClient:
         Parameters
         ----------
         symbol : str or list of str, optional
-            Stock / index / future code(s). Accepts QuantSpace or panda_data
-            native format when ``auto_convert_symbols`` is True.
+            Stock / index / future code(s) in PandaData format, such as
+            ``510300.SH`` or ``RB_DOMINANT.SHF``.
         start_date, end_date : str
             ``YYYYMMDD``; span capped at 5 years by panda_data.
         type : {"stock", "index", "future"}, default "stock"
@@ -176,12 +141,11 @@ class PandaDataClient:
         Returns
         -------
         pandas.DataFrame
-            Native panda_data schema; ``symbol`` column converted back to
-            QuantSpace format when auto-convert is on.
+            Native panda_data schema, including PandaData ``symbol`` codes.
         """
         return self._call(
             "get_market_data",
-            symbol=self._to_pd(symbol),
+            symbol=symbol,
             start_date=start_date,
             end_date=end_date,
             type=type,
@@ -207,7 +171,7 @@ class PandaDataClient:
         one of ``{"1m", "5m", "15m", "60m"}`` (index supports only 1m).
         """
         kwargs: dict[str, Any] = {
-            "symbol": self._to_pd(symbol),
+            "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
             "symbol_type": symbol_type,
@@ -229,7 +193,7 @@ class PandaDataClient:
         """Fetch HK daily bars via ``panda_data.get_hk_daily``."""
         return self._call(
             "get_hk_daily",
-            symbol=self._to_pd(symbol) if symbol else [],
+            symbol=symbol or [],
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
@@ -246,7 +210,7 @@ class PandaDataClient:
         """Fetch US (NASDAQ basic) daily bars via ``panda_data.get_us_daily``."""
         return self._call(
             "get_us_daily",
-            symbol=self._to_pd(symbol) if symbol else [],
+            symbol=symbol or [],
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
@@ -273,12 +237,12 @@ class PandaDataClient:
         """Fund metadata via ``panda_data.get_fund_detail``.
 
         Use ``etf_lof_type="ETF"`` to discover listed ETFs. Both listed-fund
-        symbols (for example ``SHSE.510300``) and off-exchange ``*.OF`` symbols
+        symbols (for example ``510300.SH``) and off-exchange ``*.OF`` symbols
         are accepted.
         """
         return self._call(
             "get_fund_detail",
-            symbol=self._to_pd(symbol),
+            symbol=symbol,
             exchange=exchange,
             type=type,
             operation_mode=operation_mode,
@@ -438,7 +402,7 @@ class PandaDataClient:
             method_name,
             start_date=start_date,
             end_date=end_date,
-            symbol=self._to_pd(symbol),
+            symbol=symbol,
             exchange=exchange,
             fields=fields,
         )
@@ -517,7 +481,7 @@ class PandaDataClient:
         """Stock basic info via ``panda_data.get_stock_detail``."""
         return self._call(
             "get_stock_detail",
-            symbol=self._to_pd(symbol) if symbol else "",
+            symbol=symbol or "",
             fields=fields or [""],
             market=market,
             status=status,
@@ -533,7 +497,7 @@ class PandaDataClient:
         """Index basic info via ``panda_data.get_index_detail``."""
         return self._call(
             "get_index_detail",
-            symbol=self._to_pd(symbol) if symbol else "",
+            symbol=symbol or "",
             status=status,
             fields=fields or [],
         )
@@ -549,7 +513,7 @@ class PandaDataClient:
         """Index valuation indicators via ``panda_data.get_index_indicator``."""
         return self._call(
             "get_index_indicator",
-            symbol=self._to_pd(symbol) if symbol else "",
+            symbol=symbol or "",
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
@@ -570,8 +534,8 @@ class PandaDataClient:
         """
         return self._call(
             "get_index_weights",
-            index_symbol=self._to_pd(index_symbol) if index_symbol else "",
-            stock_symbol=self._to_pd(stock_symbol) if stock_symbol else "",
+            index_symbol=index_symbol or "",
+            stock_symbol=stock_symbol or "",
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
@@ -602,7 +566,7 @@ class PandaDataClient:
         return self._call(
             "get_industry_constituents",
             industry_code=industry_code,
-            stock_symbol=self._to_pd(stock_symbol) if stock_symbol else None,
+            stock_symbol=stock_symbol or None,
             level=level,
             fields=fields or [],
         )
@@ -616,9 +580,7 @@ class PandaDataClient:
         """Industry classification for one stock via ``panda_data.get_stock_industry``."""
         return self._call(
             "get_stock_industry",
-            stock_symbol=self._to_pd(stock_symbol)
-            if isinstance(stock_symbol, str)
-            else stock_symbol,
+            stock_symbol=stock_symbol,
             level=level,
         )
 
@@ -650,7 +612,7 @@ class PandaDataClient:
         return self._call(
             "get_concept_constituents",
             concept=concept,
-            concept_stock=self._to_pd(concept_stock) if concept_stock else None,
+            concept_stock=concept_stock or None,
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],
@@ -669,7 +631,7 @@ class PandaDataClient:
         Parameters
         ----------
         symbol : str or list of str, optional
-            Stock code(s). Accepts QuantSpace or panda_data native format.
+            Stock code(s) in PandaData format, such as ``600000.SH``.
             Empty string queries all stocks in the range.
         start_date, end_date : str, optional
             ``YYYYMMDD``.
@@ -685,7 +647,7 @@ class PandaDataClient:
         """
         return self._call(
             "get_adj_factor",
-            symbol=self._to_pd(symbol) if symbol else "",
+            symbol=symbol or "",
             start_date=start_date,
             end_date=end_date,
             fields=fields or [],

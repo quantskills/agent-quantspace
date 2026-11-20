@@ -34,23 +34,23 @@ PUBLIC_NAMESPACE = "strategy_examples"
 REPRODUCE_COMMAND = "uv run python -m scripts.run_strategy_reports"
 FREQUENCY = "1d"
 RULE_FUTURE_SYMBOLS = [
-    "CFFEX.IF99",
-    "CFFEX.IC99",
-    "CFFEX.IM99",
-    "SHFE.CU99",
-    "SHFE.RB99",
-    "SHFE.AL99",
-    "DCE.I99",
-    "DCE.M99",
-    "DCE.Y99",
-    "CZCE.TA99",
-    "CZCE.MA99",
-    "CZCE.CF99",
-    "INE.SC99",
+    "IF_DOMINANT.CFE",
+    "IC_DOMINANT.CFE",
+    "IM_DOMINANT.CFE",
+    "CU_DOMINANT.SHF",
+    "RB_DOMINANT.SHF",
+    "AL_DOMINANT.SHF",
+    "I_DOMINANT.DCE",
+    "M_DOMINANT.DCE",
+    "Y_DOMINANT.DCE",
+    "TA_DOMINANT.CZC",
+    "MA_DOMINANT.CZC",
+    "CF_DOMINANT.CZC",
+    "SC_DOMINANT.INE",
 ]
-ML_FUTURE_SYMBOLS = ["CFFEX.IF99", "SHFE.AG99", "SHFE.AU99", "SHFE.CU99", "DCE.Y99", "CZCE.MA99"]
-CSI300_FUTURE_SYMBOL = "CFFEX.IF99"
-GOLD_FUTURE_SYMBOL = "SHFE.AU99"
+ML_FUTURE_SYMBOLS = ["IF_DOMINANT.CFE", "AG_DOMINANT.SHF", "AU_DOMINANT.SHF", "CU_DOMINANT.SHF", "Y_DOMINANT.DCE", "MA_DOMINANT.CZC"]
+CSI300_FUTURE_SYMBOL = "IF_DOMINANT.CFE"
+GOLD_FUTURE_SYMBOL = "AU_DOMINANT.SHF"
 
 
 def _run_vector_backtest(panel, weights, *, start_date: str):
@@ -226,7 +226,7 @@ def _csi300_if_ma10_atr_reversion(dm: DataManager) -> ResearchReport:
         metrics=_common_metrics(execution.result_df, execution.metrics),
         result_df=execution.result_df,
         notes=[
-            "Uses PandaData CFFEX.IF99 dominant CSI 300 index futures daily bars stored under data/market/1d/.",
+            "Uses PandaData IF_DOMINANT.CFE dominant CSI 300 index futures daily bars stored under data/market/1d/.",
             "Report window starts on 2024-01-01, matching the local IF parameter sweep window.",
             "Entry rule: hold IF when close is below MA10.",
             "Exit rule: leave the position when close falls below the highest price since entry minus 2.0 times ATR(14).",

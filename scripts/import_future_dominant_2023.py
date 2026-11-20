@@ -1,11 +1,11 @@
 """Download 2023 daily (post-adjusted) and minute bars for four dominant
 continuous futures contracts: IF, RB, I, MA.
 
-Symbols (QuantSpace dominant convention):
-    CFFEX.IF99  -> IF   (CSI 300 index futures)
-    SHFE.RB99   -> RB   (rebar)
-    DCE.I99     -> I    (iron ore)
-    CZCE.MA99   -> MA   (methanol)
+Symbols (PandaData dominant convention):
+    IF_DOMINANT.CFE   IF   (CSI 300 index futures)
+    RB_DOMINANT.SHF   RB   (rebar)
+    I_DOMINANT.DCE    I    (iron ore)
+    MA_DOMINANT.CZC   MA   (methanol)
 
 Daily bars use PandaData's ``get_future_market_post`` (backward/后复权 across
 contract rolls). Minute bars use ``get_market_min_data`` with the dominant
@@ -29,17 +29,8 @@ import pandas as pd
 from skills.ingest import PandaDataClient
 from skills.store.data_manager import DataManager
 
-# QuantSpace dominant-continuous symbols requested.
-SYMBOLS = ["CFFEX.IF99", "SHFE.RB99", "DCE.I99", "CZCE.MA99"]
-
-# panda_data native dominant symbols (used by get_future_market_post which
-# does NOT auto-convert; must be passed in native <PRODUCT>_DOMINANT.<EX> form).
-NATIVE_SYMBOLS = {
-    "CFFEX.IF99": "IF_DOMINANT.CFE",
-    "SHFE.RB99": "RB_DOMINANT.SHF",
-    "DCE.I99": "I_DOMINANT.DCE",
-    "CZCE.MA99": "MA_DOMINANT.CZC",
-}
+# PandaData dominant-continuous symbols, requested and stored under the same name.
+SYMBOLS = ["IF_DOMINANT.CFE", "RB_DOMINANT.SHF", "I_DOMINANT.DCE", "MA_DOMINANT.CZC"]
 
 START_DATE = "20230101"
 END_DATE = "20231231"
@@ -111,12 +102,11 @@ def _normalize_minute(raw: pd.DataFrame) -> pd.DataFrame:
 
 def download_daily(client: PandaDataClient, dm: DataManager, symbols: list[str]) -> None:
     for symbol in symbols:
-        native = NATIVE_SYMBOLS[symbol]
         parts: list[pd.DataFrame] = []
         for chunk_start, chunk_end in _year_chunks(START_DATE, END_DATE):
             raw = client._call(
                 "get_future_market_post",
-                symbol=[native],
+                symbol=[symbol],
                 start_date=chunk_start,
                 end_date=chunk_end,
                 fields=[],

@@ -20,18 +20,18 @@ def test_probability_spread_weights_require_both_classes() -> None:
         probabilities,
         classes=np.array([0, 1, 2]),
         index=index,
-        symbol="CFFEX.IF99",
+        symbol="IF_DOMINANT.CFE",
         threshold=0.15,
     )
 
-    assert weights["CFFEX.IF99"].tolist() == [-1.0, 1.0]
+    assert weights["IF_DOMINANT.CFE"].tolist() == [-1.0, 1.0]
 
     with pytest.raises(ValueError, match="required encoded label"):
         probability_spread_weights(
             probabilities[:, :2],
             classes=np.array([1, 2]),
             index=index,
-            symbol="CFFEX.IF99",
+            symbol="IF_DOMINANT.CFE",
         )
 
 
@@ -85,7 +85,7 @@ def test_xgboost_triple_barrier_weights_purges_label_window_before_split(monkeyp
 
     xgboost_triple_barrier_weights(
         bars,
-        symbol="CFFEX.IF99",
+        symbol="IF_DOMINANT.CFE",
         split_date="2024-01-09",
         label_t_limit=3,
     )

@@ -118,7 +118,7 @@ def test_store_query_runs_sql_over_the_copy(work):
     module, reason = OPTIONAL_DEPENDENCY["store.query"]
     pytest.importorskip(module, reason=reason)
     sql = (
-        "SELECT count(*) AS n FROM read_parquet('{data}/market/1d/SHSE.510300.parquet') "
+        "SELECT count(*) AS n FROM read_parquet('{data}/market/1d/510300.SH.parquet') "
         "WHERE close > $1"
     )
     result = qs(
@@ -132,17 +132,32 @@ def test_store_query_runs_sql_over_the_copy(work):
 
 def test_store_import_round_trips_a_csv_exported_from_the_copy(work):
     exported = qs(
-        work, "store", "read", "--symbols", "SHSE.510300", "--output", "export.csv", "--preview", "0"
+        work, "store", "read", "--symbols", "510300.SH", "--output", "export.csv", "--preview", "0"
     )  # fmt: skip
     csv = assert_file(artifact_paths(exported)["panel"])
-    target = work.data_root / "market" / "1d" / "SHSE.510301.parquet"
-    args = ["--file", str(csv), "--layout", "single", "--symbol", "SHSE.510301"]
+    target = work.data_root / "market" / "1d" / "510301.SH.parquet"
+    args = ["--file", str(csv), "--layout", "single", "--symbol", "510301.SH"]
     dry = qs(work, "store", "import", *args)
     assert dry["data"]["dry_run"] is True and not target.exists()
     written = qs(work, "store", "import", *args, "--write")
     assert written["data"]["dry_run"] is False
     imported = pd.read_parquet(assert_file(target))
     assert len(imported) == KEEP_ROWS and np.isfinite(imported["close"]).all()
+
+
+def test_store_migrate_symbols_renames_a_legacy_file_in_the_copy(work):
+    market = work.data_root / "market" / "1d"
+    legacy = market / "SHSE.510302.parquet"
+    legacy.write_bytes((market / "510300.SH.parquet").read_bytes())
+    dry = qs(work, "store", "migrate-symbols")
+    assert dry["data"]["dry_run"] is True and legacy.exists()
+    assert {"directory": "market/1d", "old": "SHSE.510302", "new": "510302.SH"} in dry["data"][
+        "renamed"
+    ]
+    written = qs(work, "store", "migrate-symbols", "--write")
+    assert written["data"]["dry_run"] is False and not legacy.exists()
+    assert_file(market / "510302.SH.parquet")
+    assert qs(work, "store", "migrate-symbols")["data"]["renamed"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +198,7 @@ def test_compute_factor_long_layout_and_keep_na(work, panel):
 
 def test_compute_features_for_one_symbol(work, panel):
     one = qs(
-        work, "store", "read", "--symbols", "SHSE.510300", "--output", "one_symbol.parquet",
+        work, "store", "read", "--symbols", "510300.SH", "--output", "one_symbol.parquet",
         "--preview", "0",
     )  # fmt: skip
     envelope = qs(
@@ -223,7 +238,7 @@ def test_strategy_top_n_weights(targets):
 
 def test_strategy_signal_weights(work, panel):
     one = qs(
-        work, "store", "read", "--symbols", "SHSE.510300", "--output", "signal_panel.parquet",
+        work, "store", "read", "--symbols", "510300.SH", "--output", "signal_panel.parquet",
         "--preview", "0",
     )  # fmt: skip
     signal = qs(
@@ -232,11 +247,11 @@ def test_strategy_signal_weights(work, panel):
     )  # fmt: skip
     envelope = qs(
         work, "strategy", "signal-weights", "--signal", str(artifact_paths(signal)["factor"]),
-        "--column", "value", "--symbol", "SHSE.510300", "--output", "signal_weights.parquet",
+        "--column", "value", "--symbol", "510300.SH", "--output", "signal_weights.parquet",
         "--preview", "0",
     )  # fmt: skip
     weights = read(artifact_paths(envelope)["weights"])
-    assert list(weights.columns) == ["SHSE.510300"] and weights.abs().max().max() <= 1.0
+    assert list(weights.columns) == ["510300.SH"] and weights.abs().max().max() <= 1.0
 
 
 def test_strategy_hold_calendar_spreads_signal_day_weights(work, panel, targets):
@@ -534,7 +549,7 @@ def test_ml_lasso_track_against_a_real_index(work, panel):
 def model_tables(work, panel):
     """Real single-symbol features joined to real forward-return labels, split in time."""
     one = qs(
-        work, "store", "read", "--symbols", "SHSE.510300", "--output", "ml_panel.parquet",
+        work, "store", "read", "--symbols", "510300.SH", "--output", "ml_panel.parquet",
         "--preview", "0",
     )  # fmt: skip
     features = qs(
@@ -543,7 +558,7 @@ def model_tables(work, panel):
     )  # fmt: skip
     labels = qs(
         work, "compute", "labels", "forward-return", "--bars",
-        str(work.data_root / "market" / "1d" / "SHSE.510300.parquet"), "--horizon", "5",
+        str(work.data_root / "market" / "1d" / "510300.SH.parquet"), "--horizon", "5",
         "--output", "ml_labels.parquet",
     )  # fmt: skip
     frame = pd.read_parquet(artifact_paths(features)["features"]).droplevel("symbol")

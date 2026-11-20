@@ -17,12 +17,10 @@ PandaData SDK.
 
 ```python
 from skills.ingest import PandaDataClient
-from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
 ```
 
-`PandaDataClient` accepts QuantSpace symbols such as `SHSE.510300` and
-panda_data native symbols such as `510300.SH`. Returned `symbol` columns are
-converted back to QuantSpace format by default.
+`PandaDataClient` takes and returns PandaData codes such as `510300.SH`,
+`RB2601.SHF`, and `RB_DOMINANT.SHF`; symbols pass through unchanged.
 
 ## Wrapped Endpoints
 
@@ -102,7 +100,7 @@ specific file needed for the endpoint you are using.
 from skills.ingest import PandaDataClient
 
 client = PandaDataClient()
-df = client.fetch_market_data("SHSE.600000", "20230101", "20231231", type="stock")
+df = client.fetch_market_data("600000.SH", "20230101", "20231231", type="stock")
 ```
 
 **Daily ETF bars**
@@ -114,7 +112,7 @@ client = PandaDataClient()
 df = client.get_fund_daily(
     "20250610",
     "20250613",
-    symbol="SHSE.510300",
+    symbol="510300.SH",
     fields=["open", "high", "low", "close", "volume", "amount"],
 )
 ```
@@ -138,13 +136,13 @@ from skills.ingest import PandaDataClient
 from skills.store.data_manager import DataManager
 
 client = PandaDataClient()
-raw = client.fetch_market_data("SHSE.600000", "20230101", "20231231", type="stock")
+raw = client.fetch_market_data("600000.SH", "20230101", "20231231", type="stock")
 
 bars = raw.copy()
 bars["eob"] = pd.to_datetime(bars["date"])
 bars = bars.set_index("eob")[["open", "high", "low", "close", "volume"]].sort_index()
 
-DataManager().save_symbol("SHSE.600000", bars, frequency="1d", source="panda_data")
+DataManager().save_symbol("600000.SH", bars, frequency="1d", source="panda_data")
 ```
 
 When saving adjusted bars, pass the storage directory key, for example
@@ -154,11 +152,3 @@ The same store boundary applies to listed funds: normalize the returned
 `date` column to the timezone-naive `eob` index, keep OHLCV columns, and call
 `DataManager.save_symbol`. `PandaDataClient` never writes local files.
 
-**Symbol conversion**
-
-```python
-from skills.ingest import to_panda_data_symbol, to_quantspace_symbol
-
-assert to_panda_data_symbol("SHSE.510300") == "510300.SH"
-assert to_quantspace_symbol("RB_DOMINANT.SHF") == "SHFE.RB99"
-```

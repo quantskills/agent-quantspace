@@ -505,10 +505,10 @@ def test_load_panel_reads_the_store_without_creating_it(tmp_path):
     from tests.fixtures.market_data import make_ohlcv, write_symbol_parquet
 
     root = tmp_path / "data"
-    write_symbol_parquet(root, "SHSE.510300", make_ohlcv())
-    panel = load_panel(PanelSource(symbols=["SHSE.510300"], data_root=root))
-    assert sorted(path.name for path in root.rglob("*")) == ["1d", "SHSE.510300.parquet", "market"]
-    expected = DataManager(data_root=str(root)).read_symbols(["SHSE.510300"], frequency="1d")
+    write_symbol_parquet(root, "510300.SH", make_ohlcv())
+    panel = load_panel(PanelSource(symbols=["510300.SH"], data_root=root))
+    assert sorted(path.name for path in root.rglob("*")) == ["1d", "510300.SH.parquet", "market"]
+    expected = DataManager(data_root=str(root)).read_symbols(["510300.SH"], frequency="1d")
     pd.testing.assert_frame_equal(panel, expected)
 
 

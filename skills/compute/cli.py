@@ -295,7 +295,7 @@ def resample(args: ResampleInput) -> CommandResult:
 
 
 class AdjustInput(CLIModel):
-    symbols: list[str] = Field(description="QuantSpace symbols with raw bars and adj_factor files.")
+    symbols: list[str] = Field(description="Stored symbols with raw bars and adj_factor files.")
     frequency: str = Field(default="1d", description="Raw market store directory, e.g. 1d or 1m.")
     output: Path | None = Field(
         default=None, description="Output file for exactly one symbol, outside managed storage."

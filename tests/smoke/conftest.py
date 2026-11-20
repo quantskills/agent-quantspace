@@ -223,7 +223,7 @@ def index_close(work):
 @pytest.fixture(scope="session")
 def single_bars(work):
     """One real symbol's bars (eob index) as the label commands expect."""
-    return work.data_root / "market" / "1d" / "SHSE.510300.parquet"
+    return work.data_root / "market" / "1d" / "510300.SH.parquet"
 
 
 @pytest.fixture(scope="session")

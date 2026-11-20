@@ -89,7 +89,7 @@ def make_brief(**overrides: object) -> ResearchBrief:
         "brief_id": "brief-1",
         "market": "CN",
         "asset_class": "etf",
-        "universe": ("SHSE.510300", "SHSE.510500"),
+        "universe": ("510300.SH", "510500.SH"),
         "frequency": "1d",
         "allowed_fields": ("open", "high", "low", "close", "volume"),
         "symbol_level": "symbol",

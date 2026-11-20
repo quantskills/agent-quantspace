@@ -58,7 +58,7 @@ SLIPPAGE_BP = 3.0
 def _load_panel() -> pd.DataFrame:
     # Use pre-adjusted bars only. ``apply_asset_class_split_adjustments`` is for
     # raw ``1d`` prices that still jump on share-split dates; applying it again on
-    # ``1d_adj`` double-adjusts (e.g. SHSE.513100 on 2022-01-14) and creates fake
+    # ``1d_adj`` double-adjusts (e.g. 513100.SH on 2022-01-14) and creates fake
     # ~100%+ portfolio spikes in the equity curve.
     return DataManager().read_symbols(list(ASSET_CLASS_ETF_SYMBOLS), frequency="1d_adj")
 

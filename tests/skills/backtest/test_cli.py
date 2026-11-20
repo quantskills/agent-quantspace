@@ -10,7 +10,7 @@ import pytest
 
 from tests.fixtures.market_data import make_ohlcv
 
-SYMBOLS = ("SHSE.510300", "SHSE.510500", "SHSE.512100", "SZSE.159915")
+SYMBOLS = ("510300.SH", "510500.SH", "512100.SH", "159915.SZ")
 
 
 def invoke(capsys, *args):

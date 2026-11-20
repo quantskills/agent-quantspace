@@ -84,7 +84,7 @@ def test_get_fund_detail_passes_filters_and_converts_symbol(monkeypatch) -> None
     client, calls = _fake_fund_client(monkeypatch)
 
     result = client.get_fund_detail(
-        "SHSE.510300",
+        "510300.SH",
         exchange="SH",
         type="E",
         operation_mode="O",
@@ -115,7 +115,7 @@ def test_get_fund_detail_passes_filters_and_converts_symbol(monkeypatch) -> None
             "fields": ["name", "management_short_name"],
         },
     )
-    assert result["symbol"].tolist() == ["SHSE.510300"]
+    assert result["symbol"].tolist() == ["510300.SH"]
 
 
 @pytest.mark.parametrize(
@@ -136,7 +136,7 @@ def test_fund_date_range_endpoints_use_fund_sdk_methods(monkeypatch, method_name
     result = getattr(client, method_name)(
         "20250610",
         "20250613",
-        symbol=["SHSE.510300", "SZSE.159915"],
+        symbol=["510300.SH", "159915.SZ"],
         exchange=["SH", "SZ"],
         fields=["close", "volume"],
     )
@@ -151,7 +151,7 @@ def test_fund_date_range_endpoints_use_fund_sdk_methods(monkeypatch, method_name
             "fields": ["close", "volume"],
         },
     )
-    assert result["symbol"].tolist() == ["SHSE.510300"]
+    assert result["symbol"].tolist() == ["510300.SH"]
 
 
 @pytest.mark.parametrize(
@@ -183,7 +183,7 @@ def test_fund_daily_methods_split_long_ranges_and_concatenate_in_order(
     result = getattr(client, method_name)(
         "20240101",
         "20250101",
-        symbol="SHSE.510300",
+        symbol="510300.SH",
         exchange="SH",
         fields=["close"],
     )
@@ -212,7 +212,7 @@ def test_fund_daily_methods_split_long_ranges_and_concatenate_in_order(
         ),
     ]
     assert result.to_dict("list") == {
-        "symbol": ["SHSE.510300", "SHSE.510300"],
+        "symbol": ["510300.SH", "510300.SH"],
         "date": ["20240101", "20241231"],
         "chunk_end": ["20241230", "20250101"],
     }
@@ -232,7 +232,7 @@ def test_fund_daily_long_range_preserves_empty_response_schema(monkeypatch) -> N
     client = PandaDataClient(username="test-user", password="test-password")
     monkeypatch.setattr(client, "_sdk", lambda: sdk)
 
-    result = client.get_fund_daily("20240101", "20250101", symbol="SHSE.510300")
+    result = client.get_fund_daily("20240101", "20250101", symbol="510300.SH")
 
     assert result.empty
     assert result.columns.tolist() == ["symbol", "date", "close"]
@@ -253,7 +253,7 @@ def test_fund_daily_rejects_invalid_date_ranges(
     client = PandaDataClient(username="test-user", password="test-password")
 
     with pytest.raises(ValueError, match=message):
-        client.get_fund_daily(start_date, end_date, symbol="SHSE.510300")
+        client.get_fund_daily(start_date, end_date, symbol="510300.SH")
 
 
 def test_fund_daily_stops_on_failed_chunk_with_range_context(monkeypatch) -> None:
@@ -276,7 +276,7 @@ def test_fund_daily_stops_on_failed_chunk_with_range_context(monkeypatch) -> Non
         RuntimeError,
         match="get_fund_daily failed for date range 20241231 to 20251230",
     ) as error:
-        client.get_fund_daily("20240101", "20261231", symbol="SHSE.510300")
+        client.get_fund_daily("20240101", "20261231", symbol="510300.SH")
 
     assert isinstance(error.value.__cause__, ConnectionError)
     assert [call[0] for call in calls] == ["init_token", "get_fund_daily", "get_fund_daily"]

@@ -83,7 +83,7 @@ def test_make_logdiff_features_maps_non_positive_prices_to_nan() -> None:
 
 def test_make_logdiff_panel_features_returns_clean_symbol_panel() -> None:
     frames = []
-    for symbol, base in (("SHSE.510300", 100.0), ("SZSE.159915", 50.0)):
+    for symbol, base in (("510300.SH", 100.0), ("159915.SZ", 50.0)):
         bars = make_ohlcv(np.linspace(base, base * 1.3, 90))
         bars.loc[bars.index[80], ["open", "high", "low"]] = 0.0
         bars["symbol"] = symbol
@@ -96,7 +96,7 @@ def test_make_logdiff_panel_features_returns_clean_symbol_panel() -> None:
     assert features.notna().all().all()
     assert np.isfinite(features.to_numpy()).all()
     assert features.index.is_monotonic_increasing
-    assert set(features.index.get_level_values("symbol")) == {"SHSE.510300", "SZSE.159915"}
+    assert set(features.index.get_level_values("symbol")) == {"510300.SH", "159915.SZ"}
     dropped = panel.index.difference(features.index)
     assert len(dropped) > 0
 

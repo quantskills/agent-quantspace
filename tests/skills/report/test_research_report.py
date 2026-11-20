@@ -43,7 +43,7 @@ def _make_report(**overrides: object) -> ResearchReport:
         "slug": "if_ma10_atr",
         "title": "IF MA10 + ATR 研究报告",
         "question": "MA10 与 ATR 规则能否在 IF 上取得正期望？",
-        "universe": ["CFFEX.IF"],
+        "universe": ["IF.CFE"],
         "frequency": "1d",
         "sample_start": "2024-01-01",
         "sample_end": "2026-07-01",

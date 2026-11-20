@@ -10,7 +10,7 @@ import pytest
 
 from tests.fixtures.market_data import make_ohlcv
 
-SYMBOLS = ("SHSE.510300", "SHSE.510500", "SHSE.512100", "SHSE.512880", "SZSE.159915")
+SYMBOLS = ("510300.SH", "510500.SH", "512100.SH", "512880.SH", "159915.SZ")
 EXITS = "skills.strategy.cross_sectional.exits:drawdown_from_high_filter"
 
 
@@ -95,7 +95,7 @@ def test_signal_weights_match_single_asset_helper(tmp_path, capsys):
         "--column",
         "position",
         "--symbol",
-        "CFFEX.IF99",
+        "IF_DOMINANT.CFE",
         "--exposure",
         "0.5",
         "--output",
@@ -103,7 +103,7 @@ def test_signal_weights_match_single_asset_helper(tmp_path, capsys):
     )
     assert code == 0, result
     expected = signal_to_single_asset_weights(
-        signal.set_index("eob")["position"], symbol="CFFEX.IF99", exposure=0.5
+        signal.set_index("eob")["position"], symbol="IF_DOMINANT.CFE", exposure=0.5
     )
     pd.testing.assert_frame_equal(
         pd.read_parquet(output), expected, check_freq=False, check_names=False
@@ -127,7 +127,7 @@ def test_hold_calendar_matches_helper(panel, panel_path, tmp_path, capsys):
 
     dates = panel.index.get_level_values("eob").unique().sort_values()
     signal_days = pd.DataFrame(
-        {"SHSE.510300": [1.0, 0.0], "SZSE.159915": [0.0, 1.0]},
+        {"510300.SH": [1.0, 0.0], "159915.SZ": [0.0, 1.0]},
         index=pd.DatetimeIndex([dates[10], dates[50]], name="eob"),
     )
     source, output = tmp_path / "signal_days.parquet", tmp_path / "held.parquet"

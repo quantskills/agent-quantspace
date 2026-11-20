@@ -28,7 +28,7 @@ uv run qs strategy top-n --scores out/mom.parquet --top-n 3 --output out/targets
 uv run qs strategy hold-calendar --panel out/panel.parquet --weights out/targets.parquet \
   --output out/held.parquet
 uv run qs strategy signal-weights --signal out/signal.parquet --column value \
-  --symbol SHSE.510300 --output out/signal_weights.parquet
+  --symbol 510300.SH --output out/signal_weights.parquet
 uv run qs strategy combine --factors mom=out/mom.parquet --factors rsi=out/rsi.parquet \
   --directions '{"mom": 1, "rsi": -1}' --method equal_rank --top-n 3 --out-dir out/combined
 uv run qs strategy cs-run --panel out/panel.parquet \
