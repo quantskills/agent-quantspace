@@ -81,6 +81,7 @@ quantspace/
     ml/                   ML helpers and optional model engines
     report/               HTML report rendering and charts
     factor_mining/        AI factor-mining contracts, ports, and cross-platform role protocol
+    live_trade/           live/paper trading: IM signal push; futures via the PandaAI client CLI
   strategies/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
@@ -108,6 +109,7 @@ writing new research code.
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, three ports with their adapters, and cross-platform role task protocol; the governed workflow lives in `strategies/factor_mining/` |
+| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Turn the latest target weights into rebalance signals: size units and push to WeCom/Feishu/Slack/Discord and other IM webhooks; futures go through the PandaAI live-trading client's bundled CLI |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and
@@ -145,6 +147,7 @@ uv sync --extra analyze     # plotting, time-series diagnostics, parallel analys
 uv sync --extra ml          # optional PyCaret-based ML helpers
 uv sync --extra query       # optional DuckDB querying
 uv sync --extra report      # Jinja2 and report charts
+uv sync --extra live        # Apprise, requests, and APScheduler for IM push and scheduled runs
 ```
 
 ## PandaData Setup

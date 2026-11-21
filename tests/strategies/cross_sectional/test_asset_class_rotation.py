@@ -117,3 +117,44 @@ def test_public_split_events_remove_raw_price_scale_breaks(symbol: str) -> None:
 
     assert adjusted["close"].tolist() == pytest.approx([1.0, 1.0, 1.01])
     assert adjusted["close"].pct_change().abs().max() < 0.02
+
+
+def _random_walk_frame(rows: int = 200) -> pd.DataFrame:
+    rng = np.random.default_rng(7)
+    index = pd.bdate_range("2024-01-01", periods=rows, name="eob")
+    returns = rng.normal(0.0, 0.01, size=(rows, 5))
+    return pd.DataFrame(
+        100.0 * np.exp(np.cumsum(returns, axis=0)), index=index, columns=list("ABCDE")
+    )
+
+
+def test_live_prefix_weights_match_full_history_with_a_fixed_anchor() -> None:
+    """A live run sees only bars up to its day; its last row must equal the full run's row."""
+    close = _random_walk_frame()
+    options = {
+        "symbols": list("ABCDE"),
+        "lookbacks": (5, 10, 20),
+        "top_n": 2,
+        "rebalance_days": 7,
+        "rebalance_start": close.index[0],
+    }
+    full = asset_class_top3_weights(close, **options)
+
+    for end in range(25, len(close)):
+        prefix = asset_class_top3_weights(close.iloc[: end + 1], **options)
+        pd.testing.assert_series_equal(prefix.iloc[-1], full.iloc[end], check_names=False)
+
+
+def test_rebalance_dates_follow_the_anchor_not_the_first_loaded_row() -> None:
+    close = _random_walk_frame()
+    options = {
+        "symbols": list("ABCDE"),
+        "lookbacks": (5, 10, 20),
+        "top_n": 2,
+        "rebalance_days": 7,
+        "rebalance_start": close.index[30],
+    }
+    full = asset_class_top3_weights(close, **options)
+    later_start = asset_class_top3_weights(close.iloc[3:], **options)
+
+    pd.testing.assert_frame_equal(later_start.loc[close.index[60] :], full.loc[close.index[60] :])

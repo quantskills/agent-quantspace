@@ -64,3 +64,12 @@ weights = asset_class_top3_weights(close[ASSET_CLASS_ETF_SYMBOLS])
 
 Its default rule averages 20-, 60-, and 120-trading-day returns, rebalances
 every 20 trading days, and equally weights the strongest three eligible proxies.
+`rebalance_start` fixes the date the 20-day count starts from; without it the
+count starts at the first loaded row, so loading a different history moves the
+rebalance dates.
+
+`strategies.cross_sectional.workflows.live_asset_class_rotation` runs the same
+`target_weights` function live: it downloads backward-adjusted closes from
+`HISTORY_START` up to the trade date, anchors rebalances at that date, sizes
+with unadjusted closes, and hands the result to `skills.live_trade.run_live`.
+A backtest that should match the live signals uses the same start date.

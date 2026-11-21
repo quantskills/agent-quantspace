@@ -66,7 +66,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Path | Purpose |
 |------|---------|
-| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, report, factor_mining |
+| `skills/` | Reusable capabilities and strategy-neutral target-weight types: ingest, store, compute, strategy, analyze, backtest, ml, report, factor_mining, live_trade |
 | `strategies/` | Concrete public factors, features, rules, ML behavior, and runnable workflows |
 | `scripts/` | Global data import, report, and maintenance entrypoints; strategy demos live in `strategies/*/workflows/` |
 | `data/` | Local data root; market files and research artifacts stay local |
@@ -87,6 +87,7 @@ AI agents can turn research ideas into tested strategy code inside the project.
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | AI factor-mining contracts, unrestricted local Python factor generation/resolution, adapters, and cross-platform role protocol; the governed run is the `strategies/factor_mining` workflow |
+| live_trade | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Latest target weights to rebalance signals: sizing, delivery ledger, IM webhook push (WeCom, Feishu, DingTalk direct; Slack, Discord via Apprise), scheduled runs (`run_live`, APScheduler `serve`); futures through the PandaAI client's bundled CLI |
 
 Coding-agent compatibility is declared here and in README/README.en.md
 (ChatGPT Codex, Claude Code, Cursor, CodeBuddy, Qoder, TRAE, OpenCode, OpenClaw, Kimi Code).
@@ -155,11 +156,10 @@ unchanged. After changing a command model, run `uv run qs docs render`.
 - Run tests: `uv run python -m pytest tests/`.
 - Run lint: `uv run ruff check .`.
 - Optional PandaData SDK: `uv sync --extra panda_data`.
-- Optional capability profiles: `analyze`, `ml`, `query`, `report`, `ts`, and `panda_data`.
+- Optional capability profiles: `analyze`, `ml`, `query`, `report`, `ts`, `panda_data`, and `live`.
 
 ## Open Source Boundary
 
 This repository does not include private strategy research, non-public generated reports,
-private data, or vendor-specific execution adapters outside PandaData. The
-sanitized HTML and PNG files under `reports/strategy_examples/` are the
+or private data. The sanitized HTML and PNG files under `reports/strategy_examples/` are the
 only generated report artifacts intended for source control.

@@ -19,6 +19,7 @@ SKILLS = (
     "ml",
     "factor-mining",
     "report",
+    "live-trade",
 )
 
 

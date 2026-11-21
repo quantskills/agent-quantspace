@@ -31,6 +31,7 @@ EXTRAS = {
     "query": "duckdb",
     "ts": "tsfresh",
     "panda_data": "panda_data",
+    "live": "apprise",
 }
 
 
@@ -235,7 +236,7 @@ def _failure(name, exc):
     elif isinstance(exc, ImportError):
         code, status, details = "MISSING_DEPENDENCY", 3, []
         hint = (
-            "Install the command extra with uv sync --extra analyze|ml|report|query|ts|panda_data."
+            "Install the command extra with uv sync --extra analyze|ml|report|query|ts|panda_data|live."
         )
     elif isinstance(exc, TimeoutError):
         code, status, details = "TIMEOUT", 124, []
