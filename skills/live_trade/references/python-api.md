@@ -117,6 +117,11 @@ raise SystemExit(outcome.exit_code)
   without calling it when `RunLog` already finished the date (`write` only).
   Weights whose last row is before the date are `stale`; after it, an `error`.
   The signal is the row of the date itself.
+- `run_live(..., test=True)` is for checking the IM path outside trading
+  hours: no trading-day or freshness check, the row at or before the date, the
+  whole target in a message marked 测试 (`format_signal(..., test=True)`), and
+  no ledger, run log, or alerts. `deliver_signal(..., test=True)` is the same
+  delivery step.
 - `deliver_signal(snapshot, ledger, write=..., urls=None, capital=None,
   multipliers=None, lot_size=100)` is the diff, sizing, push, and ledger step
   shared with `qs live-trade notify`; it raises `NoChannelsError` when `write`

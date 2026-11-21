@@ -69,6 +69,15 @@ One strategy run by hand (preview; add `--write` to push and log it):
 uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation --date 2026-11-20
 ```
 
+Test the IM path at any hour, weekends and nights included. `--test` sends the
+latest full target as a message marked 测试 and leaves the ledger and run log
+untouched, so the next real run is unaffected:
+
+```bash
+uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation --test
+uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation --test --write --capital 100000
+```
+
 ## Scheduled runs
 
 `serve` reads a schedule such as
@@ -91,6 +100,7 @@ A workflow loads its data and computes the full target table, then calls
 | `stale` | Weights do not reach the date yet; the next time retries. | 3 |
 | `partial` / `failed` | Some channels failed; the next time retries only those. | 4 |
 | `error` | Loading or computing raised. | 1 |
+| `test_sent` / `test_partial` / `test_failed` | `--test --write`: the marked test message reached all, some, or no channels. | 0 / 4 / 4 |
 
 ## Files
 

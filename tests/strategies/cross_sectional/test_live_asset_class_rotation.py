@@ -109,3 +109,18 @@ def test_main_previews_without_writing(tmp_path, monkeypatch, capsys):
 
     assert code == 0 and '"status": "preview"' in capsys.readouterr().out
     assert not (tmp_path / "live").exists()
+
+
+def test_main_test_mode_skips_the_calendar(tmp_path, monkeypatch, capsys):
+    client = FakeClient()
+
+    def closed(*args, **kwargs):
+        raise AssertionError("test mode must not ask the calendar")
+
+    client.get_trade_cal = closed
+    monkeypatch.setattr("skills.ingest.PandaDataClient", lambda: client)
+
+    code = workflow.main(["--date", "2026-11-21", "--test", "--data-root", str(tmp_path)])
+
+    assert code == 0 and '"status": "preview"' in capsys.readouterr().out
+    assert not (tmp_path / "live").exists()

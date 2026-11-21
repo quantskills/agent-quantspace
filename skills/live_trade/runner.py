@@ -26,7 +26,14 @@ from .sizing import SizedTarget, size_targets
 # Run statuses that finish a trade date; the others are retried by the next scheduled run.
 DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day"})
 RETRY_STATUSES = frozenset({"stale", "partial", "failed"})
-EXIT_CODES = {"stale": 3, "partial": 4, "failed": 4, "error": 1}
+EXIT_CODES = {
+    "stale": 3,
+    "partial": 4,
+    "failed": 4,
+    "error": 1,
+    "test_partial": 4,
+    "test_failed": 4,
+}
 # Trade dates kept in the run log; older ones are dropped oldest first.
 MAX_RUN_DAYS = 90
 
@@ -58,15 +65,19 @@ def deliver_signal(
     capital: float | None = None,
     multipliers: Mapping[str, float] | None = None,
     lot_size: int = 100,
+    test: bool = False,
 ) -> Delivery:
     """Diff ``snapshot`` against the ledger base and, with ``write``, push it to every channel.
 
     Status is ``preview`` (no ``write``), ``unchanged``, ``sent``, ``already_sent``, ``partial``,
     or ``failed``. Channels that already received the same signal id are skipped, so a rerun
     after a partial delivery only retries the failed channels.
+
+    A ``test`` delivery sends the whole target as a marked test message to every channel and
+    never reads or writes the ledger, so it can run at any time without touching live state.
     """
     urls = load_notify_urls() if urls is None else list(urls)
-    signal = build_signal(snapshot, ledger.base_weights())
+    signal = build_signal(snapshot, {} if test else ledger.base_weights())
     sized = None
     if capital is not None:
         targets = {change.symbol: change.target for change in signal.changes}
@@ -80,7 +91,7 @@ def deliver_signal(
                 lot_size=lot_size,
             )
         }
-    title, body = format_signal(signal, sized)
+    title, body = format_signal(signal, sized, test=test)
     channels = [channel_name(url) for url in urls]
     delivery = {
         "signal": signal,
@@ -95,6 +106,11 @@ def deliver_signal(
         return Delivery(**delivery, status="preview")
     if not urls:
         raise NoChannelsError("No IM webhook is configured")
+    if test:
+        results = send_notifications(title, body, urls)
+        oks = [item.ok for item in results]
+        status = "sent" if all(oks) else ("partial" if any(oks) else "failed")
+        return Delivery(**delivery, status=status, results=results)
     done = ledger.delivered_channels(signal.signal_id)
     pending = [url for url in urls if channel_name(url) not in done]
     results = send_notifications(title, body, pending) if pending else []
@@ -231,6 +247,7 @@ def run_live(
     lot_size: int = 100,
     data_root: str | Path | None = None,
     urls: Sequence[str] | None = None,
+    test: bool = False,
 ) -> RunOutcome:
     """Run one strategy for ``trade_date`` and report what happened.
 
@@ -238,7 +255,15 @@ def run_live(
     weights do not reach ``trade_date`` yet; ``error`` when loading or sizing raised; otherwise
     the delivery status. With ``write`` the run is logged and alerts go out for errors and, on
     the ``final`` attempt of the day, for stale data or incomplete delivery, once per kind.
+
+    ``test`` checks the IM path at any hour: it skips the trading-day and freshness checks,
+    uses the last weights row at or before ``trade_date``, and with ``write`` sends the whole
+    target as a marked test message. It never touches the ledger or the run log and never
+    alerts; its statuses are ``preview``, ``test_sent``, ``test_partial``, ``test_failed``,
+    or ``error``.
     """
+    if test:
+        return _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls)
     runs = RunLog(strategy_id, data_root)
     alerts: list[DeliveryResult] = []
 
@@ -284,6 +309,29 @@ def run_live(
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
         return finish("error", f"{type(exc).__name__}: {exc}")
     return finish(delivery.status, delivery=delivery)
+
+
+def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls):
+    label = trade_date.isoformat()
+    try:
+        inputs = load()
+        snapshot = TargetSnapshot.from_frames(
+            inputs.weights, strategy_id, as_of=trade_date, prices=inputs.prices
+        )
+        delivery = deliver_signal(
+            snapshot,
+            SignalLedger(strategy_id, data_root),
+            write=write,
+            urls=urls,
+            capital=capital,
+            multipliers=inputs.multipliers,
+            lot_size=lot_size,
+            test=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported, never alerted
+        return RunOutcome(strategy_id, label, "error", f"{type(exc).__name__}: {exc}")
+    status = delivery.status if delivery.status == "preview" else f"test_{delivery.status}"
+    return RunOutcome(strategy_id, label, status, delivery=delivery)
 
 
 __all__ = [

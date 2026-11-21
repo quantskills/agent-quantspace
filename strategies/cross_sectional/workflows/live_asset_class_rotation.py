@@ -96,13 +96,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = workflow_arguments(argv)
     client = PandaDataClient()
     root = resolve_workspace_paths(data_root=args.data_root).data_root
-    market_dir = root / "live" / STRATEGY_ID / "market" if args.write else None
-    try:
-        trading = is_trading_day(client, args.date)
-    except Exception as exc:  # noqa: BLE001 - reported as a run error below
-        trading, calendar_error = True, exc
-    else:
-        calendar_error = None
+    market_dir = root / "live" / STRATEGY_ID / "market" if args.write and not args.test else None
+    trading, calendar_error = True, None
+    if not args.test:
+        try:
+            trading = is_trading_day(client, args.date)
+        except Exception as exc:  # noqa: BLE001 - reported as a run error below
+            calendar_error = exc
 
     def load() -> LiveInputs:
         if calendar_error is not None:
@@ -119,6 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         capital=args.capital,
         lot_size=args.lot_size,
         data_root=args.data_root,
+        test=args.test,
     )
     delivery = outcome.delivery
     report = {
