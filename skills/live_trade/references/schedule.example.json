@@ -1,0 +1,12 @@
+{
+  "timezone": "Asia/Shanghai",
+  "jobs": [
+    {
+      "strategy_id": "asset_class_rotation",
+      "module": "strategies.cross_sectional.workflows.live_asset_class_rotation",
+      "days": "mon-fri",
+      "times": ["17:30", "19:30", "21:30"],
+      "args": ["--capital", "100000"]
+    }
+  ]
+}

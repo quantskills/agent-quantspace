@@ -1,0 +1,219 @@
+"""qs live-trade commands: preview by default, deliver once per channel, never guess sizes."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from tests.skills.live_trade.conftest import FEISHU, SLACK, WECOM
+
+
+def invoke(capsys, *args):
+    from skills.cli import main
+
+    code = main(list(args))
+    return code, json.loads(capsys.readouterr().out)
+
+
+@pytest.fixture
+def files(tmp_path, weights, prices):
+    paths = {"weights": tmp_path / "weights.parquet", "prices": tmp_path / "prices.parquet"}
+    weights.to_parquet(paths["weights"])
+    prices.to_parquet(paths["prices"])
+    paths["multipliers"] = tmp_path / "multipliers.json"
+    paths["multipliers"].write_text(json.dumps({"M2605.DCE": 10}), encoding="utf-8")
+    return paths
+
+
+def notify(capsys, files, tmp_path, *extra):
+    return invoke(
+        capsys,
+        "live-trade",
+        "notify",
+        "--weights",
+        str(files["weights"]),
+        "--strategy-id",
+        "demo",
+        "--data-root",
+        str(tmp_path / "data"),
+        *extra,
+    )
+
+
+def test_preview_formats_signal_without_network_or_ledger(capsys, files, tmp_path, monkeypatch):
+    monkeypatch.setenv("QS_NOTIFY_WECOM", WECOM)
+    monkeypatch.setenv("QS_NOTIFY_SLACK", SLACK)
+    code, result = notify(capsys, files, tmp_path)
+    assert code == 0, result
+    data = result["data"]
+    assert data["status"] == "preview"
+    assert [item["symbol"] for item in data["changes"]] == ["510300.SH", "M2605.DCE"]
+    assert [name.split("-")[0] for name in data["channels"]] == ["wecom", "slack"]
+    assert data["deliveries"] == []
+    assert not (tmp_path / "data" / "live").exists()
+
+
+def test_send_delivers_once_then_reports_unchanged(capsys, files, tmp_path, monkeypatch, http):
+    monkeypatch.setenv("QS_NOTIFY_WECOM", WECOM)
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 0, result
+    assert result["data"]["status"] == "sent"
+    assert len(http.sent) == 2
+
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 0
+    assert result["data"]["status"] == "unchanged"
+    assert len(http.sent) == 2
+
+
+def test_failed_channel_is_retried_alone(capsys, files, tmp_path, monkeypatch, http):
+    monkeypatch.setenv("QS_NOTIFY_WECOM", WECOM)
+    monkeypatch.setenv("QS_NOTIFY_SLACK", SLACK)
+    http.failing.add("hooks.slack.com")
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 4
+    assert result["data"]["status"] == "partial"
+    assert result["error"]["code"] == "UPSTREAM_ERROR"
+    first_id = result["data"]["signal_id"]
+
+    http.failing.clear()
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 0, result
+    assert result["data"]["status"] == "sent"
+    assert result["data"]["signal_id"] == first_id
+    assert [item["host"] for item in http.sent] == [
+        "qyapi.weixin.qq.com",
+        "hooks.slack.com",
+        "hooks.slack.com",
+    ]
+    skipped = [item for item in result["data"]["deliveries"] if item["skipped"]]
+    assert [item["channel"].split("-")[0] for item in skipped] == ["wecom"]
+
+
+def test_rejected_message_is_not_recorded_as_delivered(capsys, files, tmp_path, monkeypatch, http):
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    http.rejecting.add("open.feishu.cn")
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 4
+    assert result["data"]["status"] == "failed"
+    assert "error code 19001" in result["data"]["deliveries"][0]["detail"]
+
+    http.rejecting.clear()
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 0, result
+    assert result["data"]["status"] == "sent"
+    assert len(http.sent) == 2
+
+
+def test_send_without_channels_fails_before_any_write(capsys, files, tmp_path):
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 2
+    assert result["error"]["code"] == "CONFIG_MISSING"
+    assert not (tmp_path / "data" / "live").exists()
+
+
+def test_capital_sizes_units_and_needs_prices(capsys, files, tmp_path):
+    code, result = notify(capsys, files, tmp_path, "--capital", "1000000")
+    assert code == 2
+    assert "--prices" in result["error"]["message"]
+
+    code, result = notify(
+        capsys,
+        files,
+        tmp_path,
+        "--capital",
+        "1000000",
+        "--prices",
+        str(files["prices"]),
+        "--multipliers",
+        str(files["multipliers"]),
+    )
+    assert code == 0, result
+    units = {item["symbol"]: item["units"] for item in result["data"]["changes"]}
+    assert units == {"M2605.DCE": -14, "510300.SH": 84800}
+
+
+def test_futures_without_multiplier_are_refused(capsys, files, tmp_path):
+    code, result = notify(
+        capsys, files, tmp_path, "--capital", "1000000", "--prices", str(files["prices"])
+    )
+    assert code == 2
+    assert "M2605.DCE" in result["error"]["message"]
+
+
+def test_output_file_holds_the_signal(capsys, files, tmp_path):
+    out = tmp_path / "signal.json"
+    code, result = notify(capsys, files, tmp_path, "--output", str(out))
+    assert code == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["signal_id"] == result["data"]["signal_id"]
+
+
+def test_doctor_reports_channels_and_panda_cli(capsys, tmp_path, monkeypatch, http):
+    from tests.skills.live_trade.test_panda_cli import ACCOUNTS, CAPABILITIES, fake_cli
+
+    cli = fake_cli(
+        tmp_path,
+        {
+            "accounts": {"ok": True, "data": ACCOUNTS},
+            "capabilities": {"ok": True, "data": CAPABILITIES},
+        },
+    )
+    monkeypatch.setenv("PANDA_LIVE_CLI", cli[0])
+    monkeypatch.setenv("QS_NOTIFY_WECOM", WECOM)
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+
+    code, result = invoke(capsys, "live-trade", "doctor", "--send-test")
+    assert code == 0, result
+    data = result["data"]
+    assert data["notify_ready"] is True
+    assert [(item["platform"], item["variable"]) for item in data["channels"]] == [
+        ("wecom", "QS_NOTIFY_WECOM"),
+        ("feishu", "QS_NOTIFY_FEISHU"),
+    ]
+    assert all(item["ok"] for item in data["test_deliveries"])
+    panda = data["panda_cli"]
+    assert (panda["found"], panda["command"], panda["version"]) == (True, cli, "0.1.11")
+    assert (panda["error"], panda["problems"]) == (None, [])
+    assert [
+        (item["account_id"], item["simnow"], item["cli_eligible"]) for item in panda["accounts"]
+    ] == [
+        (1, True, True),
+        (2, False, False),
+    ]
+
+
+def test_doctor_warns_when_no_account_is_cli_eligible(capsys, tmp_path, monkeypatch):
+    from tests.skills.live_trade.test_panda_cli import ACCOUNTS, fake_cli
+
+    cli = fake_cli(
+        tmp_path,
+        {
+            "accounts": {"ok": True, "data": ACCOUNTS[1:]},
+            "capabilities": {"ok": True, "data": {"contract": {"supported": True}}},
+        },
+    )
+    monkeypatch.setenv("PANDA_LIVE_CLI", cli[0])
+    monkeypatch.setenv("QS_NOTIFY_SLACK", SLACK)
+    code, result = invoke(capsys, "live-trade", "doctor")
+    assert code == 0, result
+    assert result["data"]["panda_cli"]["problems"] == ["batch plans do not freeze GFD limit orders"]
+    assert any("No PandaAI account" in warning for warning in result["warnings"])
+
+
+def test_doctor_without_channels_is_not_ready(capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("PANDA_LIVE_CLI", str(tmp_path / "missing"))
+    code, result = invoke(capsys, "live-trade", "doctor")
+    assert code == 1
+    assert result["data"]["notify_ready"] is False
+    assert result["data"]["panda_cli"]["found"] is False
+
+
+def test_misplaced_webhook_fails_before_sending(capsys, files, tmp_path, monkeypatch, http):
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", SLACK)
+    code, result = notify(capsys, files, tmp_path, "--write")
+    assert code == 2
+    assert "QS_NOTIFY_FEISHU holds a slack URL" in result["error"]["message"]
+    assert SLACK not in json.dumps(result)
+    assert http.sent == []

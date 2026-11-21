@@ -653,6 +653,23 @@ class PandaDataClient:
             fields=fields or [],
         )
 
+    def get_trade_cal(
+        self, start_date: str, end_date: str, *, exchange: str = "SH"
+    ) -> pd.DataFrame:
+        """Trading calendar via ``panda_data.get_trade_cal`` (``YYYYMMDD`` bounds).
+
+        One row per natural date: ``nature_date``, ``is_trade`` (1 = trading day),
+        ``pretrade_date``, ``next_trade_date``. ``exchange`` is ``SH``, ``HK``, or ``US``.
+        """
+        return self._call(
+            "get_trade_cal",
+            start_date=start_date,
+            end_date=end_date,
+            exchange=exchange,
+            is_trading_day=None,
+            fields=[],
+        )
+
     def __repr__(self) -> str:
         flag = "authed" if self._token_ready else "unauthed"
         return f"PandaDataClient(user={self._username or '<env>'!s}, {flag})"

@@ -12,6 +12,7 @@ def test_public_skill_directories_are_exact() -> None:
         "compute",
         "factor_mining",
         "ingest",
+        "live_trade",
         "ml",
         "report",
         "store",

@@ -114,8 +114,14 @@ def asset_class_top3_weights(
     lookbacks: Sequence[int] = DEFAULT_MOMENTUM_LOOKBACKS,
     top_n: int = DEFAULT_TOP_N,
     rebalance_days: int = DEFAULT_REBALANCE_DAYS,
+    rebalance_start: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Select the strongest three assets and hold them at equal target weights."""
+    """Select the strongest three assets and hold them at equal target weights.
+
+    Rebalance dates are counted every ``rebalance_days`` rows from ``rebalance_start``
+    (default: the first row). Live runs pass a fixed date so the dates do not move as
+    history grows, and match a backtest that used the same anchor.
+    """
     requested = list(symbols)
     if top_n <= 0 or top_n > len(requested):
         raise ValueError("top_n must be between 1 and the number of symbols")
@@ -125,7 +131,7 @@ def asset_class_top3_weights(
     score = asset_class_momentum_score(close, symbols=requested, lookbacks=lookbacks)
     weights = top_n_weights(score, top_n=top_n)
     if rebalance_days > 1:
-        weights = apply_rebalance_schedule(weights, every=rebalance_days)
+        weights = apply_rebalance_schedule(weights, every=rebalance_days, start=rebalance_start)
     return weights.reindex(columns=requested).fillna(0.0)
 
 
