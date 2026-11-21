@@ -30,7 +30,7 @@ sized = {
         {change.symbol: change.target for change in signal.changes},
         1_000_000,
         signal.prices,
-        multipliers={"RB2601.SHF": 10},
+        multipliers={"RB2701.SHF": 10},
     )
 }
 title, body = format_signal(signal, sized)
@@ -87,9 +87,9 @@ ledger.record(signal, results, [result.channel for result in results])
 - `capability_problems(capabilities)` lists missing features this Skill needs
   (contract specs, GFD limit orders in batch plans); `version_problem(version)`
   checks the CLI is at least `0.1.11`.
-- Symbols are PandaData codes everywhere (`510300.SH`, `RB2601.SHF`), the same
+- Symbols are PandaData codes everywhere (`510300.SH`, `RB2701.SHF`), the same
   strings the client CLI takes, so nothing is converted.
-  `require_actual_contract("RB2601.SHF")` returns the code unchanged and refuses
+  `require_actual_contract("RB2701.SHF")` returns the code unchanged and refuses
   non-futures and dominant-continuous codes such as `RB_DOMINANT.SHF`, because
   orders and positions match actual contracts.
 

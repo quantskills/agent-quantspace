@@ -20,14 +20,23 @@ from skills.ingest import PandaDataClient
 ```
 
 `PandaDataClient` takes and returns PandaData codes such as `510300.SH`,
-`RB2601.SHF`, and `RB_DOMINANT.SHF`; symbols pass through unchanged.
+`RB2701.SHF`, and `RB_DOMINANT.SHF`; symbols pass through unchanged.
 
 ## Wrapped Endpoints
 
 **Bars**
 
-- `fetch_market_data(symbol, start_date, end_date, type="stock")`
-- `fetch_market_min_data(symbol, start_date, end_date, symbol_type="stock", frequency="1m")`
+- `fetch_market_data(symbol, start_date, end_date, type="stock", adjust="none")`: routes
+  `stock` to `get_stock_daily` (`adjust="pre"`/`"post"` to `get_stock_daily_pre`/`_post`),
+  `index` to `get_index_daily`, `future` to `get_future_daily` (includes `settlement`).
+  `indicator` and `st` apply to stocks only.
+- `fetch_market_min_data(symbol, start_date, end_date, symbol_type="stock", frequency="1m", adjust="none")`:
+  routes `stock` to `get_stock_min` (`_pre`/`_post` with `adjust`), `index` to `get_index_min`
+  (1m only), `future` to `get_future_min`, `fund` to `get_fund_min`.
+- `get_future_daily_post(start_date, end_date, underlying_symbol="RB", method="close_pcs")`:
+  backward-adjusted dominant-continuous daily bars (`RB_DOMINANT.SHF`, actual contract in `dominant_id`).
+- `get_future_detail(symbol, fields=..., exchange=..., date=...)`: contract multiplier,
+  `trading_hours`, `market_tplus`, margin rate.
 - `fetch_hk_daily(symbol, start_date, end_date)`
 - `fetch_us_daily(symbol, start_date, end_date)`
 - `get_fund_daily(start_date, end_date, symbol=...)`
@@ -78,19 +87,21 @@ specific file needed for the endpoint you are using.
 
 | Reference | Open when you need | Main methods |
 |-----------|--------------------|--------------|
-| `pandaai-01-overview-setup.md` | setup and auth | `init_token` |
-| `pandaai-02-market-daily.md` | A-share/index/futures daily bars | `get_market_data` |
-| `pandaai-03-market-minute.md` | A-share/index/futures intraday bars | `get_market_min_data` |
-| `pandaai-04-market-hk-us.md` | HK/US daily bars | `get_hk_daily`, `get_us_daily` |
-| `pandaai-05-reference-securities.md` | stock/index metadata | `get_stock_detail`, `get_index_detail` |
-| `pandaai-06-reference-classification-index.md` | classifications and index weights | `get_index_weights` |
-| `pandaai-07-equity-market-events.md` | market events | `get_lhb_list`, `get_margin` |
-| `pandaai-08-equity-corporate-info.md` | holders and corporate info | `get_top_holders` |
-| `pandaai-09-financial-reports.md` | financial reports | `get_fina_reports` |
-| `pandaai-10-factors-adjustment.md` | factors and adjustment events | `get_factor`, `get_adj_factor` |
-| `pandaai-11-trading-tools.md` | calendars and trade lists | `get_trade_cal`, `get_trade_list` |
-| `pandaai-12-futures.md` | futures metadata and dominant contracts | `get_future_detail` |
-| `pandaai-13-funds-etf.md` | fund metadata, listed-fund bars, ETF creation/redemption | `get_fund_detail`, `get_fund_daily*`, `get_fund_etf_*` |
+| `pandaai-01-overview-setup.md` | coverage, install, auth, endpoint map | `init_token` |
+| `pandaai-02-trading-tools.md` | calendars and trade lists | `get_trade_cal`, `get_trade_list` |
+| `pandaai-03-a-share-market.md` | A-share and index bars | `get_stock_daily*`, `get_stock_min*`, `get_index_daily`, `get_index_min` |
+| `pandaai-04-a-share-reference.md` | stock/index metadata, industries, concepts | `get_stock_detail`, `get_index_weights` |
+| `pandaai-05-a-share-trading-ipo-bonds.md` | flows, IPOs, convertible bonds | `get_lhb_list`, `get_margin` |
+| `pandaai-06-a-share-corporate.md` | corporate actions and holders | `get_top_holders`, `get_stock_dividend` |
+| `pandaai-07-a-share-financials.md` | financial reports | `get_fina_reports` |
+| `pandaai-08-futures.md` | futures bars, contracts, dominant contracts | `get_future_daily`, `get_future_min`, `get_future_detail`, `get_future_dominant` |
+| `pandaai-09-futures-deepview.md` | futures positioning and fundamentals | `get_future_basis`, `get_future_inventory` |
+| `pandaai-10-options.md` | options | `get_option_daily` |
+| `pandaai-11-factors-adjustment.md` | factors and adjustment events | `get_factor`, `get_adj_factor` |
+| `pandaai-12-hk-us.md` | HK/US data | `get_hk_daily`, `get_us_daily` |
+| `pandaai-13-funds-etf.md` | fund metadata, bars, ETF creation/redemption | `get_fund_detail`, `get_fund_daily*`, `get_fund_min`, `get_fund_etf_*` |
+| `pandaai-14-macro.md` | macro data | `get_macro_*` |
+| `pandaai-15-preferred-stock.md` | preferred stock | `get_stock_preferred_*` |
 
 ## Recipes
 

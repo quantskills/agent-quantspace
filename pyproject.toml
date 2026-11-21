@@ -33,7 +33,7 @@ report = [
     "matplotlib",
 ]
 ts = ["tsfresh", "joblib"]
-panda_data = ["panda_data>=0.0.12", "requests>=2.32.0"]
+panda_data = ["panda_data>=1.0.7", "requests>=2.32.0"]
 live = ["apprise>=2.2", "requests>=2.32.0", "apscheduler>=3.11,<4"]
 
 [build-system]

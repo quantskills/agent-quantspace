@@ -311,13 +311,14 @@ class BarsInput(OutputOptions):
     )
     freq: Literal["1d", "1m", "5m", "15m", "60m"] = Field(
         "1d",
-        description="Real bar interval sent to PandaData (never 1d_adj). Only stock, index "
-        "(1m only) and future have minute bars; the provider caps rows per minute request, "
-        "so split long minute ranges across runs.",
+        description="Real bar interval sent to PandaData (never 1d_adj). Stock, fund (listed "
+        "ETF), index (1m only) and future have minute bars; hk and us are daily only. The "
+        "provider caps rows per minute request, so split long minute ranges across runs.",
     )
     adjust: Literal["none", "pre", "post"] = Field(
         "none",
-        description="Fund price adjustment: none, pre (forward) or post (backward). Fund only.",
+        description="Price adjustment: none, pre (forward) or post (backward). Stock daily "
+        "and minute bars, and fund daily bars only.",
     )
     fields: list[str] = Field(
         default_factory=list, description="SDK fields subset; empty returns all columns."
@@ -368,15 +369,17 @@ def _validate_bars(args: BarsInput) -> list[str]:
     symbols = resolve_symbols(args.symbols, args.symbols_file)
     if not symbols:
         raise CLIError("INVALID_INPUT", "symbols or symbols-file is required")
-    if args.asset in {"fund", "hk", "us"} and args.freq != "1d":
+    if args.asset in {"hk", "us"} and args.freq != "1d":
         raise CLIError(
             "INVALID_INPUT",
             f"{args.asset} bars are daily only; freq {args.freq} is unavailable",
         )
     if args.asset == "index" and args.freq not in {"1d", "1m"}:
         raise CLIError("INVALID_INPUT", "Index minute bars support only 1m")
-    if args.adjust != "none" and args.asset != "fund":
-        raise CLIError("INVALID_INPUT", "adjust applies only to fund bars")
+    if args.adjust != "none" and not (
+        args.asset == "stock" or (args.asset == "fund" and args.freq == "1d")
+    ):
+        raise CLIError("INVALID_INPUT", "adjust applies only to stock bars and daily fund bars")
     if (args.indicator or not args.st) and (args.asset != "stock" or args.freq != "1d"):
         raise CLIError("INVALID_INPUT", "indicator and no-st apply only to daily stock bars")
     if args.write and not args.save_frequency:
@@ -403,9 +406,6 @@ def _fetch_bars(client, args: BarsInput, symbols: list[str], start: str, end: st
 
     target = _one_or_many(symbols)
     fields = _items(args.fields) or None
-    if args.asset == "fund":
-        method = getattr(client, FUND_DAILY_METHODS[args.adjust])
-        return _call(method, start, end, symbol=target, fields=fields)
     if args.freq != "1d":
         return _call(
             client.fetch_market_min_data,
@@ -415,7 +415,11 @@ def _fetch_bars(client, args: BarsInput, symbols: list[str], start: str, end: st
             symbol_type=args.asset,
             fields=fields,
             frequency=args.freq,
+            adjust=args.adjust,
         )
+    if args.asset == "fund":
+        method = getattr(client, FUND_DAILY_METHODS[args.adjust])
+        return _call(method, start, end, symbol=target, fields=fields)
     frames = []
     for chunk_start, chunk_end in _daily_chunks(start, end):
         if args.asset == "hk":
@@ -437,6 +441,7 @@ def _fetch_bars(client, args: BarsInput, symbols: list[str], start: str, end: st
                     fields=fields,
                     indicator=args.indicator,
                     st=args.st,
+                    adjust=args.adjust,
                 )
             )
     frames = [_table(frame, "bars") for frame in frames]

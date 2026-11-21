@@ -515,11 +515,10 @@ def fetch_daily_activity(
         for range_start, range_end in date_ranges:
             for attempt in range(1, retries + 1):
                 try:
-                    df = panda_data.get_market_data(
+                    df = panda_data.get_future_daily(
                         symbol=chunk,
                         start_date=range_start,
                         end_date=range_end,
-                        type="future",
                         fields=["date"],
                     )
                     if not df.empty:

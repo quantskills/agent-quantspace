@@ -7,9 +7,9 @@ Symbols (PandaData dominant convention):
     I_DOMINANT.DCE    I    (iron ore)
     MA_DOMINANT.CZC   MA   (methanol)
 
-Daily bars use PandaData's ``get_future_market_post`` (backward/后复权 across
-contract rolls). Minute bars use ``get_market_min_data`` with the dominant
-symbol. Both are saved under data/market with QuantSpace ``eob``-indexed schema.
+Daily bars use PandaData's ``get_future_daily_post`` (backward/后复权 across
+contract rolls, queried by product code). Minute bars use ``get_future_min`` with
+the dominant symbol. Both are saved under data/market with QuantSpace ``eob``-indexed schema.
 
 Output frequencies:
     data/market/1d_adj/<SYMBOL>.parquet   (daily, post-adjusted)
@@ -104,12 +104,10 @@ def download_daily(client: PandaDataClient, dm: DataManager, symbols: list[str])
     for symbol in symbols:
         parts: list[pd.DataFrame] = []
         for chunk_start, chunk_end in _year_chunks(START_DATE, END_DATE):
-            raw = client._call(
-                "get_future_market_post",
-                symbol=[symbol],
-                start_date=chunk_start,
-                end_date=chunk_end,
-                fields=[],
+            raw = client.get_future_daily_post(
+                chunk_start,
+                chunk_end,
+                underlying_symbol=symbol.split("_DOMINANT", 1)[0],
             )
             parts.append(_normalize_daily(raw))
             print(f"  [daily] {symbol} {chunk_start}~{chunk_end}: {len(raw)} rows")

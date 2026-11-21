@@ -107,7 +107,7 @@ A workflow loads its data and computes the full target table, then calls
 - `--weights` and `--prices` are date by symbol tables (`eob` index or column,
   one column per symbol), the same layout `qs backtest run` reads. The row at
   or before `--as-of` (default: the last row) is the signal.
-- `--multipliers` is a JSON object such as `{"RB2601.SHF": 10}`.
+- `--multipliers` is a JSON object such as `{"RB2701.SHF": 10}`.
 - The ledger `data/live/<strategy-id>/ledger.json` keeps the last target that
   every channel received and the per-channel results of recent signals.
 - `data/live/<strategy-id>/runs.json` keeps each trade date's run status,

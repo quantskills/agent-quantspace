@@ -178,7 +178,7 @@ def capability_problems(capabilities: Mapping[str, Any]) -> list[str]:
 def require_actual_contract(symbol: str) -> str:
     """Return a futures symbol unchanged if the client can trade it, else raise ``ValueError``.
 
-    The client CLI takes PandaData codes such as ``RB2601.SHF`` as they are. It matches
+    The client CLI takes PandaData codes such as ``RB2701.SHF`` as they are. It matches
     orders and positions by actual contract, so a dominant-continuous ``RB_DOMINANT.SHF``
     has to be resolved to a delivery month first.
     """

@@ -17,7 +17,7 @@ WEIGHT_TOLERANCE = 1e-6
 
 
 def is_futures_symbol(symbol: str) -> bool:
-    """Whether a PandaData symbol such as ``RB2601.SHF`` names a futures contract."""
+    """Whether a PandaData symbol such as ``RB2701.SHF`` names a futures contract."""
     return symbol.rpartition(".")[2] in FUTURES_SUFFIXES
 
 

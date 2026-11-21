@@ -22,9 +22,24 @@ from skills.ingest import PandaDataClient
 from skills.ingest import cli as ingest_cli
 from skills.ingest import panda_future_tick as tick
 
+DAILY_BAR_ENDPOINTS = [
+    "get_stock_daily",
+    "get_stock_daily_pre",
+    "get_stock_daily_post",
+    "get_index_daily",
+    "get_future_daily",
+]
+MINUTE_BAR_ENDPOINTS = [
+    "get_stock_min",
+    "get_stock_min_pre",
+    "get_stock_min_post",
+    "get_index_min",
+    "get_future_min",
+    "get_fund_min",
+]
 PUBLIC_ENDPOINTS = [
-    "get_market_data",
-    "get_market_min_data",
+    *DAILY_BAR_ENDPOINTS,
+    *MINUTE_BAR_ENDPOINTS,
     "get_hk_daily",
     "get_us_daily",
     "get_fund_detail",
@@ -46,6 +61,7 @@ PUBLIC_ENDPOINTS = [
     "get_concept_constituents",
     "get_adj_factor",
     "get_trade_cal",
+    "get_future_detail",
 ]
 
 
@@ -128,10 +144,10 @@ class FakeSDK(types.ModuleType):
 
     @staticmethod
     def default(name, kwargs):
-        if name == "get_market_min_data":
+        if name in MINUTE_BAR_ENDPOINTS:
             return minute_frame(symbols_of(kwargs)[0])
         if name in {
-            "get_market_data",
+            *DAILY_BAR_ENDPOINTS,
             "get_hk_daily",
             "get_us_daily",
             "get_fund_daily",
@@ -260,31 +276,39 @@ def test_print_template_and_help_work(capsys, argv):
 BAR_ROUTES = [
     (
         ["--asset", "stock"],
-        "get_market_data",
-        {"type": "stock", "fields": [], "indicator": "", "st": True},
+        "get_stock_daily",
+        {"fields": [], "indicator": "", "st": True},
     ),
     (
         ["--asset", "stock", "--indicator", "000300", "--no-st", "--fields", "close,volume"],
-        "get_market_data",
-        {"type": "stock", "fields": ["close", "volume"], "indicator": "000300", "st": False},
+        "get_stock_daily",
+        {"fields": ["close", "volume"], "indicator": "000300", "st": False},
     ),
-    (["--asset", "index"], "get_market_data", {"type": "index"}),
-    (["--asset", "future"], "get_market_data", {"type": "future"}),
+    (["--asset", "stock", "--adjust", "pre"], "get_stock_daily_pre", {"fields": []}),
+    (["--asset", "stock", "--adjust", "post"], "get_stock_daily_post", {"fields": []}),
+    (["--asset", "index"], "get_index_daily", {"fields": []}),
+    (["--asset", "future"], "get_future_daily", {"fields": []}),
     (
         ["--asset", "stock", "--freq", "5m"],
-        "get_market_min_data",
-        {"symbol_type": "stock", "frequency": "5m", "fields": []},
+        "get_stock_min",
+        {"frequency": "5m", "fields": []},
+    ),
+    (
+        ["--asset", "stock", "--freq", "5m", "--adjust", "post"],
+        "get_stock_min_post",
+        {"frequency": "5m"},
     ),
     (
         ["--asset", "index", "--freq", "1m"],
-        "get_market_min_data",
-        {"symbol_type": "index", "frequency": "1m"},
+        "get_index_min",
+        {"frequency": "1m"},
     ),
     (
         ["--asset", "future", "--freq", "60m"],
-        "get_market_min_data",
-        {"symbol_type": "future", "frequency": "60m"},
+        "get_future_min",
+        {"frequency": "60m"},
     ),
+    (["--asset", "fund", "--freq", "5m"], "get_fund_min", {"frequency": "5m"}),
     (["--asset", "hk"], "get_hk_daily", {"fields": []}),
     (["--asset", "us"], "get_us_daily", {"fields": []}),
     (["--asset", "fund"], "get_fund_daily", {}),
@@ -430,13 +454,14 @@ def test_minute_and_fund_requests_are_not_split_by_the_adapter(capsys, sdk):
 
 BASE = ["bars", "--symbols", "510300.SH", "--start", "2024-01-01"]
 REJECTED = [
-    [*BASE, "--asset", "fund", "--freq", "1m"],
+    [*BASE, "--asset", "fund", "--freq", "1m", "--adjust", "post"],
     [*BASE, "--asset", "hk", "--freq", "5m"],
     [*BASE, "--asset", "us", "--freq", "60m"],
     [*BASE, "--asset", "index", "--freq", "5m"],
     [*BASE, "--asset", "index", "--freq", "15m"],
-    [*BASE, "--asset", "stock", "--adjust", "pre"],
+    [*BASE, "--asset", "index", "--adjust", "pre"],
     [*BASE, "--asset", "future", "--adjust", "post"],
+    [*BASE, "--asset", "hk", "--adjust", "post"],
     [*BASE, "--asset", "index", "--indicator", "000300"],
     [*BASE, "--asset", "stock", "--freq", "5m", "--no-st"],
     [*BASE, "--asset", "stock", "--freq", "5m", "--indicator", "000300"],
@@ -695,7 +720,7 @@ def test_dry_run_ignores_output_with_a_warning(capsys, sdk, tmp_path):
 
 def test_write_stores_ohlcv_per_symbol_with_a_naive_sorted_eob_index(capsys, sdk, tmp_path):
     root = tmp_path / "data"
-    sdk.responses["get_market_data"] = daily_frame(
+    sdk.responses["get_stock_daily"] = daily_frame(
         ("600000.SH", "600001.SH"), ("20240103", "20240102")
     )
     code, response = run(
@@ -803,7 +828,7 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
     root = tmp_path / "data"
     numeric = minute_frame()
     numeric["minute"] = [110000, 105900, 95500]
-    sdk.responses["get_market_min_data"] = numeric
+    sdk.responses["get_stock_min"] = numeric
     code, response = run(
         capsys,
         "bars",
@@ -829,7 +854,7 @@ def test_write_minute_bars_accept_numeric_minutes_and_future_datetime(capsys, sd
     futures = minute_frame("RB_DOMINANT.SHF")
     futures["datetime"] = ["2025-01-27 21:03:00", "2025-01-27 21:02:00", "2025-01-27 21:01:00"]
     futures["minute"] = ["210300", "210200", "210100"]
-    sdk.responses["get_market_min_data"] = futures
+    sdk.responses["get_future_min"] = futures
     code, response = run(
         capsys,
         "bars",
@@ -972,7 +997,7 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
     # and an existing file for it is a conflict that leaves the raw output unwritten.
     other = root / "market" / "1d" / "688000.SH.parquet"
     other.write_bytes(b"keep me")
-    sdk.responses["get_market_data"] = daily_frame(("600000.SH", "688000.SH"))
+    sdk.responses["get_stock_daily"] = daily_frame(("600000.SH", "688000.SH"))
     second = tmp_path / "second.parquet"
     code, response = run(
         capsys,
@@ -997,7 +1022,7 @@ def test_write_and_output_together_and_returned_symbol_conflicts(capsys, sdk, tm
     assert code == 0, response
     assert other.read_bytes() != b"keep me"
     (root / "market" / "1d" / "600000.SH.parquet").unlink()
-    sdk.responses["get_market_data"] = daily_frame(("600000.SH", "688001.SH"))
+    sdk.responses["get_stock_daily"] = daily_frame(("600000.SH", "688001.SH"))
     third = tmp_path / "third.parquet"
     (root / "market" / "1d" / "688001.SH.parquet").write_bytes(b"keep me")
     code, response = run(
@@ -1043,14 +1068,14 @@ def test_write_rejects_unstorable_returned_tables_without_writing(capsys, sdk, t
         "--data-root",
         str(root),
     ]
-    sdk.responses["get_market_data"] = daily_frame()[["symbol", "date", "name"]]
+    sdk.responses["get_stock_daily"] = daily_frame()[["symbol", "date", "name"]]
     code, response = run(capsys, *argv)
     assert_error(code, response, "INVALID_INPUT", 2)
-    sdk.responses["get_market_data"] = daily_frame().drop(columns=["date"])
+    sdk.responses["get_stock_daily"] = daily_frame().drop(columns=["date"])
     code, response = run(capsys, *argv)
     assert_error(code, response, "INVALID_INPUT", 2)
     unsafe = daily_frame(("../escape",))
-    sdk.responses["get_market_data"] = unsafe
+    sdk.responses["get_stock_daily"] = unsafe
     code, response = run(capsys, *argv)
     assert_error(code, response, "UPSTREAM_ERROR", 4)
     assert not root.exists() and not (tmp_path / "raw.parquet").exists()
@@ -1060,7 +1085,7 @@ def test_write_drops_duplicate_timestamps_with_a_warning(capsys, sdk, tmp_path):
     root = tmp_path / "data"
     frame = daily_frame(dates=("20240102", "20240102", "20240103"))
     frame["close"] = [10.0, 11.0, 12.0]
-    sdk.responses["get_market_data"] = frame
+    sdk.responses["get_stock_daily"] = frame
     code, response = run(
         capsys,
         "bars",
@@ -1086,7 +1111,7 @@ def test_write_drops_duplicate_timestamps_with_a_warning(capsys, sdk, tmp_path):
 
 def test_mismatched_save_frequency_warns_and_empty_results_write_nothing(capsys, sdk, tmp_path):
     root = tmp_path / "data"
-    sdk.responses["get_market_data"] = pd.DataFrame()
+    sdk.responses["get_stock_daily"] = pd.DataFrame()
     code, response = run(
         capsys,
         "bars",
@@ -1112,7 +1137,7 @@ def test_mismatched_save_frequency_warns_and_empty_results_write_nothing(capsys,
 
 
 def test_requested_symbols_without_rows_are_reported(capsys, sdk):
-    sdk.responses["get_market_data"] = daily_frame(("600000.SH",))
+    sdk.responses["get_stock_daily"] = daily_frame(("600000.SH",))
     code, response = run(
         capsys,
         "bars",
@@ -1690,7 +1715,7 @@ def test_sdk_failures_are_upstream_errors_and_keep_wrapped_causes(capsys, sdk):
     # The client wraps fund chunk failures; the original cause stays visible.
     assert "get_fund_daily failed" in response["error"]["message"]
     assert "provider is unavailable" in response["error"]["message"]
-    sdk.responses["get_market_data"] = ConnectionError("connection reset")
+    sdk.responses["get_stock_daily"] = ConnectionError("connection reset")
     code, response = run(
         capsys, "bars", "--asset", "stock", "--symbols", "600000.SH", "--start", "2024-01-01"
     )
@@ -1985,3 +2010,66 @@ def test_future_ticks_downloader_failures_are_classified(capsys, ticks, monkeypa
     )
     code, response = run(capsys, "future-ticks", "--output-dir", str(tmp_path / "t"))
     assert_error(code, response, "TIMEOUT", 124)
+
+
+# ---------------------------------------------------------------------------
+# PandaDataClient: dedicated endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "method"),
+    [
+        ({"type": "stock"}, "get_stock_daily"),
+        ({"type": "stock", "adjust": "post"}, "get_stock_daily_post"),
+        ({"type": "index"}, "get_index_daily"),
+        ({"type": "future"}, "get_future_daily"),
+    ],
+)
+def test_client_daily_bars_use_the_dedicated_endpoint(sdk, kwargs, method):
+    _, calls = direct(sdk, "fetch_market_data", "RB_DOMINANT.SHF", "20261116", "20261120", **kwargs)
+    assert [name for name, _ in calls if name != "init_token"] == [method]
+    sent = calls[-1][1]
+    assert "type" not in sent
+    assert ("indicator" in sent) == (kwargs["type"] == "stock")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"type": "future", "adjust": "post"}, "adjust"),
+        ({"type": "index", "indicator": "000300"}, "stock daily bars"),
+        ({"type": "fund"}, "no daily bars"),
+    ],
+)
+def test_client_daily_bars_reject_unsupported_options(sdk, kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        PandaDataClient().fetch_market_data("600000.SH", "20261116", "20261120", **kwargs)
+    assert [name for name, _ in sdk.calls if name != "init_token"] == []
+
+
+def test_client_minute_bars_route_fund_and_reject_index_beyond_1m(sdk):
+    _, calls = direct(
+        sdk,
+        "fetch_market_min_data",
+        "510300.SH",
+        "20261120",
+        "20261120",
+        symbol_type="fund",
+        frequency="5m",
+    )
+    assert calls[-1][0] == "get_fund_min" and calls[-1][1]["frequency"] == "5m"
+    with pytest.raises(ValueError, match="only 1m"):
+        PandaDataClient().fetch_market_min_data(
+            "000300.SH", "20261120", "20261120", symbol_type="index", frequency="5m"
+        )
+    with pytest.raises(ValueError, match="frequency"):
+        PandaDataClient().fetch_market_min_data("600000.SH", "20261120", "20261120", frequency="1d")
+
+
+def test_client_future_detail_passes_filters(sdk):
+    _, calls = direct(sdk, "get_future_detail", "RB2701.SHF", fields=["contract_multiplier"])
+    assert calls[-1] == (
+        "get_future_detail",
+        {"symbol": "RB2701.SHF", "fields": ["contract_multiplier"]},
+    )

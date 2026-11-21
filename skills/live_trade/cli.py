@@ -57,7 +57,7 @@ class NotifyInput(CLIModel):
 
 class ChangeItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    symbol: str = Field(description="PandaData symbol, such as 510300.SH or RB2601.SHF.")
+    symbol: str = Field(description="PandaData symbol, such as 510300.SH or RB2701.SHF.")
     previous: float = Field(description="Weight in the last delivered target.")
     target: float = Field(description="New target weight.")
     delta: float = Field(description="target - previous.")

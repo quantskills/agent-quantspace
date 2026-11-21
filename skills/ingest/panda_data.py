@@ -13,7 +13,7 @@ Prerequisites
 
 Symbols
 -------
-Symbols are PandaData platform codes (``510300.SH``, ``RB2601.SHF``,
+Symbols are PandaData platform codes (``510300.SH``, ``RB2701.SHF``,
 ``RB_DOMINANT.SHF``) in both directions: inputs go to the SDK unchanged and
 returned ``symbol`` columns are kept as PandaData returns them.
 """
@@ -30,6 +30,40 @@ import pandas as pd
 _SymbolLike = str | list[str] | None
 _StringLike = str | list[str] | None
 _IntLike = int | list[int] | None
+
+# Dedicated PandaData endpoints by asset class and price adjustment, as listed at
+# https://www.pandaaiquant.com/docs/api. The older ``get_market_data`` and
+# ``get_market_min_data`` are not documented there and futures requests through them
+# fail with error 200103 even on accounts that hold the futures data permission.
+DAILY_ENDPOINTS: dict[str, dict[str, str]] = {
+    "stock": {
+        "none": "get_stock_daily",
+        "pre": "get_stock_daily_pre",
+        "post": "get_stock_daily_post",
+    },
+    "index": {"none": "get_index_daily"},
+    "future": {"none": "get_future_daily"},
+}
+MINUTE_ENDPOINTS: dict[str, dict[str, str]] = {
+    "stock": {
+        "none": "get_stock_min",
+        "pre": "get_stock_min_pre",
+        "post": "get_stock_min_post",
+    },
+    "index": {"none": "get_index_min"},
+    "future": {"none": "get_future_min"},
+    "fund": {"none": "get_fund_min"},
+}
+MINUTE_FREQUENCIES = ("1m", "5m", "15m", "60m")
+
+
+def _endpoint(table: dict[str, dict[str, str]], asset: str, adjust: str, kind: str) -> str:
+    if asset not in table:
+        raise ValueError(f"PandaData has no {kind} bars for asset {asset!r}")
+    methods = table[asset]
+    if adjust not in methods:
+        raise ValueError(f"{kind} {asset} bars support adjust in {sorted(methods)}, not {adjust!r}")
+    return methods[adjust]
 
 
 def _load_dotenv_if_present(path: Path | None = None) -> None:
@@ -119,40 +153,51 @@ class PandaDataClient:
         fields: list[str] | None = None,
         indicator: str | None = None,
         st: bool = True,
+        adjust: str = "none",
     ) -> pd.DataFrame:
-        """Fetch daily bars via ``panda_data.get_market_data``.
+        """Fetch daily bars from the dedicated endpoint for ``type``.
+
+        ``stock`` calls ``get_stock_daily`` (``adjust="pre"`` / ``"post"`` call
+        ``get_stock_daily_pre`` / ``get_stock_daily_post``); ``index`` calls
+        ``get_index_daily``; ``future`` calls ``get_future_daily``, which also
+        returns ``settlement`` and ``pre_settlement``. Funds use
+        :meth:`get_fund_daily`; HK and US stocks use :meth:`fetch_hk_daily` and
+        :meth:`fetch_us_daily`.
 
         Parameters
         ----------
         symbol : str or list of str, optional
-            Stock / index / future code(s) in PandaData format, such as
-            ``510300.SH`` or ``RB_DOMINANT.SHF``.
+            PandaData code(s) such as ``600000.SH``, ``000300.SH`` or
+            ``RB_DOMINANT.SHF``.
         start_date, end_date : str
-            ``YYYYMMDD``; span capped at 5 years by panda_data.
+            ``YYYYMMDD``; span capped at 5 years by PandaData.
         type : {"stock", "index", "future"}, default "stock"
         fields : list of str, optional
             Subset of response columns to keep. ``None`` returns all.
         indicator : str, optional
-            Stock pool index code (see panda_data docs); only relevant for
-            ``type="stock"``.
+            Stock pool index code such as ``000300``; stock only.
         st : bool, default True
-            Whether to include ST stocks (stock type only).
+            Whether to include ST stocks; stock only.
+        adjust : {"none", "pre", "post"}, default "none"
+            Price adjustment; stock only.
 
         Returns
         -------
         pandas.DataFrame
-            Native panda_data schema, including PandaData ``symbol`` codes.
+            Native PandaData schema, including PandaData ``symbol`` codes.
         """
-        return self._call(
-            "get_market_data",
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            type=type,
-            fields=fields or [],
-            indicator=indicator or "",
-            st=st,
-        )
+        method = _endpoint(DAILY_ENDPOINTS, type, adjust, "daily")
+        kwargs: dict[str, Any] = {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "fields": fields or [],
+        }
+        if type == "stock":
+            kwargs.update(indicator=indicator or "", st=st)
+        elif indicator or not st:
+            raise ValueError("indicator and st apply only to stock daily bars")
+        return self._call(method, **kwargs)
 
     def fetch_market_min_data(
         self,
@@ -164,23 +209,80 @@ class PandaDataClient:
         fields: list[str] | None = None,
         time_zone: tuple[str, str] | None = None,
         frequency: str = "1m",
+        adjust: str = "none",
     ) -> pd.DataFrame:
-        """Fetch minute bars via ``panda_data.get_market_min_data``.
+        """Fetch minute bars from the dedicated endpoint for ``symbol_type``.
 
-        See panda_data docs for per-frequency span limits. ``frequency`` is
-        one of ``{"1m", "5m", "15m", "60m"}`` (index supports only 1m).
+        ``stock`` calls ``get_stock_min`` (``adjust="pre"`` / ``"post"`` call
+        ``get_stock_min_pre`` / ``get_stock_min_post``); ``index`` calls
+        ``get_index_min`` (1m only); ``future`` calls ``get_future_min``;
+        ``fund`` (listed ETFs) calls ``get_fund_min``. ``frequency`` is one of
+        ``1m``, ``5m``, ``15m``, ``60m``. PandaData caps the rows of one minute
+        request and publishes minute bars once a day after the close, so they
+        are not an intraday feed.
         """
+        method = _endpoint(MINUTE_ENDPOINTS, symbol_type, adjust, "minute")
+        if frequency not in MINUTE_FREQUENCIES:
+            raise ValueError(f"frequency must be one of {MINUTE_FREQUENCIES}, not {frequency!r}")
+        if symbol_type == "index" and frequency != "1m":
+            raise ValueError("index minute bars support only 1m")
         kwargs: dict[str, Any] = {
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
-            "symbol_type": symbol_type,
             "fields": fields or [],
             "frequency": frequency,
         }
         if time_zone is not None:
             kwargs["time_zone"] = time_zone
-        return self._call("get_market_min_data", **kwargs)
+        return self._call(method, **kwargs)
+
+    def get_future_detail(
+        self,
+        symbol: _SymbolLike = None,
+        *,
+        fields: list[str] | None = None,
+        exchange: str | None = None,
+        date: str | None = None,
+    ) -> pd.DataFrame:
+        """Futures contract details via ``panda_data.get_future_detail``.
+
+        Includes ``contract_multiplier``, ``trading_hours`` (bar-end times such
+        as ``21:01-23:00,09:01-10:15,10:31-11:30,13:31-15:00``), ``market_tplus``
+        and ``margin_rate``.
+        """
+        kwargs: dict[str, Any] = {"symbol": symbol or "", "fields": fields or []}
+        if exchange:
+            kwargs["exchange"] = exchange
+        if date:
+            kwargs["date"] = date
+        return self._call("get_future_detail", **kwargs)
+
+    def get_future_daily_post(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        underlying_symbol: _StringLike = None,
+        method: str = "close_pcs",
+        fields: list[str] | None = None,
+    ) -> pd.DataFrame:
+        """Backward-adjusted dominant-continuous futures daily bars.
+
+        Calls ``panda_data.get_future_daily_post``. ``underlying_symbol`` is a
+        product code such as ``"RB"`` or ``["RB", "IF"]``; rows come back as the
+        dominant-continuous ``symbol`` (``RB_DOMINANT.SHF``) with the actual
+        contract in ``dominant_id``. ``method`` is one of ``close_pcs``,
+        ``close_os``, ``close_pcr``, ``close_or``.
+        """
+        return self._call(
+            "get_future_daily_post",
+            underlying_symbol=underlying_symbol or "",
+            start_date=start_date,
+            end_date=end_date,
+            method=method,
+            fields=fields or [],
+        )
 
     def fetch_hk_daily(
         self,

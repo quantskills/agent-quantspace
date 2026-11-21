@@ -61,11 +61,22 @@ uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-3
   `1d_adj` is only the store directory for adjusted daily bars and is never
   sent to the provider.
 - Symbols are PandaData codes in both directions and are never converted:
-  `510300.SH`, `600000.SH`, `RB2601.SHF`, `CF509.CZC` (Zhengzhou contracts use a
+  `510300.SH`, `600000.SH`, `RB2701.SHF`, `CF509.CZC` (Zhengzhou contracts use a
   three-digit year-month), dominant continuous `RB_DOMINANT.SHF`. Stored files
   and returned `symbol` columns use the same codes.
-- Only stocks, indexes (1m only), and futures have minute bars, and the
-  provider caps the rows of one minute request: split long ranges across runs.
+- Each asset class uses its dedicated PandaData endpoint, as listed at
+  https://www.pandaaiquant.com/docs/api: `get_stock_daily*`, `get_index_daily`,
+  `get_future_daily`, `get_fund_daily*` for daily bars and `get_stock_min*`,
+  `get_index_min`, `get_future_min`, `get_fund_min` for minute bars. Never call
+  the old `get_market_data` or `get_market_min_data`: futures requests through
+  them fail with error 200103 even when the account holds the futures permission.
+- Stocks, funds (listed ETFs), indexes (1m only) and futures have minute bars;
+  HK and US are daily only. `--adjust pre|post` applies to stock bars and daily
+  fund bars. The provider caps the rows of one minute request: split long
+  ranges across runs.
+- PandaData publishes daily and minute bars once a day after the close (each
+  endpoint page lists its update window, for example stock minute bars
+  15:57-16:17 and futures minute bars 16:41-17:01); they are not an intraday feed.
 - Commands that reach the network are marked `network` in the command list
   below; they fail with a hint when credentials are missing.
 
@@ -76,19 +87,21 @@ Open only the file needed for the task.
 | Reference | Open when you need |
 |-----------|--------------------|
 | [references/python-api.md](references/python-api.md) | `PandaDataClient` methods and Python recipes, when changing this Skill or writing code |
-| `references/pandaai-01-overview-setup.md` | SDK setup and authentication |
-| `references/pandaai-02-market-daily.md` | A-share, index, and futures daily bars (`get_market_data`) |
-| `references/pandaai-03-market-minute.md` | Intraday bars (`get_market_min_data`) |
-| `references/pandaai-04-market-hk-us.md` | HK and US daily bars |
-| `references/pandaai-05-reference-securities.md` | Stock and index metadata |
-| `references/pandaai-06-reference-classification-index.md` | Classifications and index weights |
-| `references/pandaai-07-equity-market-events.md` | Market events (`get_lhb_list`, `get_margin`) |
-| `references/pandaai-08-equity-corporate-info.md` | Holders and corporate information |
-| `references/pandaai-09-financial-reports.md` | Financial reports |
-| `references/pandaai-10-factors-adjustment.md` | Factors and adjustment events |
-| `references/pandaai-11-trading-tools.md` | Calendars and trade lists |
-| `references/pandaai-12-futures.md` | Futures metadata and dominant contracts |
-| `references/pandaai-13-funds-etf.md` | Fund metadata, listed-fund bars, ETF creation and redemption |
+| `references/pandaai-01-overview-setup.md` | Coverage, SDK install and upgrade, authentication, which endpoint serves which bars |
+| `references/pandaai-02-trading-tools.md` | Trading calendar, previous trading dates, ST and suspension lists, listed stocks |
+| `references/pandaai-03-a-share-market.md` | A-share daily, weekly, monthly and minute bars (with adjustment), tick stream; index daily and minute bars |
+| `references/pandaai-04-a-share-reference.md` | Stock and index details, industries, concepts, index weights and valuation |
+| `references/pandaai-05-a-share-trading-ipo-bonds.md` | Dragon-tiger lists, margin, Stock Connect, money flow, IPOs, convertible bonds |
+| `references/pandaai-06-a-share-corporate.md` | Corporate actions, dividends, splits, holders, pledges |
+| `references/pandaai-07-a-share-financials.md` | Earnings forecasts, flash reports, financial statements, audit opinions |
+| `references/pandaai-08-futures.md` | Futures daily, minute and post-adjusted bars, tick stream, contract details, dominant contracts |
+| `references/pandaai-09-futures-deepview.md` | Futures broker positions, basis, warehouse receipts, inventory, term structure |
+| `references/pandaai-10-options.md` | Option details, daily bars, volatility, trading statistics |
+| `references/pandaai-11-factors-adjustment.md` | Backtest factors, adjustment factors, Barra style factors, risk-free rate |
+| `references/pandaai-12-hk-us.md` | HK and US bars, details, events, holders, financials, ETFs, indexes, warrants |
+| `references/pandaai-13-funds-etf.md` | Fund details, daily and minute bars, ETF creation and redemption, holdings, performance |
+| `references/pandaai-14-macro.md` | China and global macro indicators, industry macro data, economic calendar |
+| `references/pandaai-15-preferred-stock.md` | Preferred stock |
 
 ## CLI command reference
 
