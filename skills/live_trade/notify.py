@@ -117,14 +117,22 @@ def _unit_label(symbol: str) -> str:
 
 
 def format_signal(
-    signal: Signal, sized: Mapping[str, SizedTarget] | None = None
+    signal: Signal,
+    sized: Mapping[str, SizedTarget] | None = None,
+    *,
+    test: bool = False,
 ) -> tuple[str, str]:
     """Plain-text title and body that read the same in every IM.
 
-    The title always contains ``QuantSpace`` so Feishu bots can use keyword security.
+    The title always contains ``QuantSpace`` so Feishu bots can use keyword security. A
+    ``test`` message says so in its title and first line, so nobody trades on it.
     """
-    title = f"QuantSpace 调仓信号 | {signal.strategy_id}"
+    title = f"QuantSpace 调仓信号{'（测试）' if test else ''} | {signal.strategy_id}"
     lines = [f"信号时间：{signal.as_of}"]
+    if test:
+        lines.insert(
+            0, f"测试消息：按 {signal.as_of} 的数据生成的完整目标，不是实盘调仓，无需执行。"
+        )
     for change in signal.changes:
         line = (
             f"- {change.symbol}：{change.previous:.2%} → {change.target:.2%}（{change.delta:+.2%}）"

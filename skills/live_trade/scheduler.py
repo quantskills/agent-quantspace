@@ -282,6 +282,12 @@ def workflow_arguments(argv: Sequence[str] | None = None):
     parser.add_argument("--date", help="Trade date YYYY-MM-DD; default: today in Asia/Shanghai.")
     parser.add_argument("--write", action="store_true", help="Push and log; otherwise preview.")
     parser.add_argument("--final", action="store_true", help="Last attempt of the day.")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Send the latest full target as a marked test message at any hour; "
+        "no trading-day check, ledger, run log, or alerts.",
+    )
     parser.add_argument("--data-root", default=None, help="Data root for live state and data.")
     parser.add_argument("--capital", type=float, default=None, help="Capital for target units.")
     parser.add_argument("--lot-size", type=int, default=100, help="Board lot for non-futures.")

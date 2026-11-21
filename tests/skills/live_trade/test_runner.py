@@ -155,3 +155,43 @@ def test_done_statuses(tmp_path, status):
     log = RunLog("demo", tmp_path)
     log.record(FRIDAY, status)
     assert log.is_done(FRIDAY)
+
+
+def _text(item) -> str:
+    return json.loads(item["body"])["content"]["text"]
+
+
+def test_test_mode_sends_a_marked_full_target_on_a_closed_day(tmp_path, http):
+    frame = _weights(("2026-11-19", {"510300.SH": 1.0}), ("2026-11-20", {"518880.SH": 1.0}))
+    saturday = date(2026, 11, 21)
+
+    first = _run(tmp_path, _loader(frame), day=saturday, trading=False, write=True, test=True)
+    second = _run(tmp_path, _loader(frame), day=saturday, trading=False, write=True, test=True)
+
+    assert first.status == second.status == "test_sent" and first.exit_code == 0
+    assert len(http.sent) == 2
+    text = _text(http.sent[0])
+    assert text.startswith("QuantSpace 调仓信号（测试） | demo")
+    assert "测试消息：按 2026-11-20 的数据生成的完整目标" in text
+    assert "518880.SH：0.00% → 100.00%" in text
+    # Live state is untouched: the next real run still diffs against an empty ledger.
+    assert not (tmp_path / "live").exists()
+
+
+def test_test_mode_uses_the_row_at_or_before_the_date(tmp_path, http):
+    frame = _weights(("2026-11-19", {"510300.SH": 1.0}), ("2026-11-20", {"518880.SH": 1.0}))
+
+    outcome = _run(tmp_path, _loader(frame), day=date(2026, 11, 19), write=True, test=True)
+
+    assert outcome.delivery.signal.target == {"510300.SH": 1.0}
+
+
+def test_test_mode_previews_without_write_and_reports_failures(tmp_path, http):
+    frame = _weights(("2026-11-20", {"510300.SH": 1.0}))
+
+    preview = _run(tmp_path, _loader(frame), test=True)
+    assert (preview.status, http.sent) == ("preview", [])
+
+    http.rejecting.add("open.feishu.cn")
+    failed = _run(tmp_path, _loader(frame), write=True, test=True)
+    assert (failed.status, failed.exit_code, failed.alerts) == ("test_failed", 4, [])
