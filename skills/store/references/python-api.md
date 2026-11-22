@@ -109,6 +109,8 @@ panel = DataManager().read_symbols(
 ## Legacy symbol migration
 
 ```python
+from datetime import date
+
 from skills.store.legacy_symbols import (
     apply_symbol_migration,
     legacy_to_panda_data,
@@ -118,12 +120,20 @@ from skills.store.legacy_symbols import (
 assert legacy_to_panda_data("SHSE.510300") == "510300.SH"
 assert legacy_to_panda_data("SHFE.RB99") == "RB_DOMINANT.SHF"
 assert legacy_to_panda_data("510300.SH") is None  # already a PandaData code
+# Zhengzhou: PandaData uses a four-digit year-month; as_of picks the decade.
+assert legacy_to_panda_data("CZCE.CF509", as_of=date(2025, 9, 12)) == "CF2509.CZC"
+assert legacy_to_panda_data("CZCE.CF009", as_of=date(2020, 9, 14)) == "CF2009.CZC"
 
 plan = plan_symbol_migration(dm.root)    # list[Rename(source, target, conflict)]
 renamed = apply_symbol_migration(plan)   # renames entries without a conflict
 ```
 
 This module is the only code that knows the legacy `<EXCHANGE>.<CODE>` format.
+A three-digit Zhengzhou code gets the year ending in its digit within five years
+before and four years after `as_of` (default: today in Asia/Shanghai).
+`plan_symbol_migration` passes each such file's last bar date, so old contracts
+keep their decade. It marks an entry as a conflict when its target exists or an
+earlier entry already renames another legacy file to it.
 `DataManager.read_symbol`, `read_symbols`, and `read_adj_factor` append a
 migration hint to `FileNotFoundError` when the directory still holds legacy
 names.

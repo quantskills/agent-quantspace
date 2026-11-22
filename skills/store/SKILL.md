@@ -89,6 +89,13 @@ Data from other sources keeps whatever symbol the caller imports it under.
   overwrites, and reports a conflict when both names exist. Running it again
   changes nothing. Symbols written inside your own scripts or exported CSV files
   are not touched: the dry run lists each `old -> new` pair to replace them.
+- PandaData writes every futures contract with a four-digit year-month,
+  Zhengzhou included (`CF2509.CZC`), and refuses `CF509.CZC`. A legacy
+  three-digit Zhengzhou name such as `CZCE.CF509` becomes `CF2509.CZC`: the
+  year is the one ending in that digit within five years before and four years
+  after the file's last bar (today's date for a file without bars). Check those
+  pairs in the dry run. When `CZCE.CF2509` and `CZCE.CF509` both exist, the
+  second is reported as a conflict and kept.
 
 ## References
 

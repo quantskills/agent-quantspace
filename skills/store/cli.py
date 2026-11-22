@@ -490,7 +490,10 @@ class MigrateSymbolsOutput(BaseModel):
         description="Files renamed, or with --write absent, files that would be renamed."
     )
     conflicts: list[SymbolRename] = Field(
-        description="Legacy files left in place because the PandaData-named file already exists."
+        description=(
+            "Legacy files left in place because the PandaData-named file already exists "
+            "or another legacy file is renamed to it."
+        )
     )
 
 
@@ -514,7 +517,8 @@ def migrate_symbols(args: MigrateSymbolsInput) -> CommandResult:
     warnings = []
     if conflicts:
         warnings.append(
-            f"{len(conflicts)} legacy files kept: their PandaData-named files already exist. "
+            f"{len(conflicts)} legacy files kept: their PandaData-named files already exist "
+            "or another legacy file is renamed to them. "
             "Compare and delete the copy you do not need."
         )
     return CommandResult(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 import pytest
 
@@ -24,7 +26,7 @@ from skills.store.legacy_symbols import (
         ("INE.SC99", "SC_DOMINANT.INE"),
         ("GFEX.SI99", "SI_DOMINANT.GFE"),
         ("SHFE.RB2601", "RB2601.SHF"),
-        ("CZCE.CF509", "CF509.CZC"),
+        ("CZCE.CF2509", "CF2509.CZC"),
         ("HKEX.00700", "00700.HK"),
         ("NASDAQ.AAPL", "AAPL.NB"),
     ],
@@ -40,8 +42,23 @@ def test_non_legacy_names_are_left_alone(symbol) -> None:
     assert legacy_to_panda_data(symbol) is None
 
 
-def _bars(value: float) -> pd.DataFrame:
-    index = pd.date_range("2024-01-01", periods=2, name="eob")
+@pytest.mark.parametrize(
+    ("legacy", "as_of", "native"),
+    [
+        ("CZCE.CF509", date(2025, 9, 12), "CF2509.CZC"),  # last bar in the delivery month
+        ("CZCE.CF509", date(2024, 9, 13), "CF2509.CZC"),  # listed a year before delivery
+        ("CZCE.CF009", date(2020, 9, 14), "CF2009.CZC"),  # more than five years back
+        ("CZCE.CF001", date(2019, 12, 31), "CF2001.CZC"),  # delivery in the next decade
+        ("CZCE.SR101", date(2029, 6, 1), "SR3101.CZC"),
+        ("CZCE.CF2509", date(2031, 1, 1), "CF2509.CZC"),  # four digits never change
+    ],
+)
+def test_zhengzhou_three_digit_contracts_get_a_four_digit_year_month(legacy, as_of, native) -> None:
+    assert legacy_to_panda_data(legacy, as_of=as_of) == native
+
+
+def _bars(value: float, start: str = "2024-01-01") -> pd.DataFrame:
+    index = pd.date_range(start, periods=2, name="eob")
     return pd.DataFrame(
         {c: [value, value] for c in ["open", "high", "low", "close", "volume"]}, index=index
     )
@@ -70,6 +87,39 @@ def test_migration_renames_market_and_adj_files_and_is_idempotent(tmp_path) -> N
     assert dm.list_symbols("1m") == ["RB_DOMINANT.SHF"]
     assert dm.list_adj_factors() == ["600000.SH"]
     assert plan_symbol_migration(tmp_path) == []
+
+
+def test_migration_dates_zhengzhou_contracts_by_their_last_bar(tmp_path) -> None:
+    dm = DataManager(data_root=str(tmp_path))
+    dm.save_symbol("CZCE.CF509", _bars(1.0, "2015-09-14"), frequency="1d")
+    dm.save_symbol("CZCE.CF509", _bars(2.0, "2025-09-12"), frequency="1m")
+    dm.save_symbol("CZCE.SR101", _bars(3.0).iloc[:0], frequency="5m")
+
+    plan = plan_symbol_migration(tmp_path)
+    assert sorted((p.source.parent.name, p.target.stem) for p in plan) == [
+        ("1d", "CF1509.CZC"),
+        ("1m", "CF2509.CZC"),
+        # No bars to date it: today's decade, as for a bare symbol.
+        ("5m", legacy_to_panda_data("CZCE.SR101")),
+    ]
+    assert len(apply_symbol_migration(plan)) == 3
+    assert dm.read_symbol("CF1509.CZC", "1d")["close"].iloc[0] == 1.0
+    assert plan_symbol_migration(tmp_path) == []
+
+
+def test_migration_keeps_the_second_file_mapping_to_the_same_code(tmp_path) -> None:
+    dm = DataManager(data_root=str(tmp_path))
+    dm.save_symbol("CZCE.CF2509", _bars(1.0, "2025-09-12"), frequency="1d")
+    dm.save_symbol("CZCE.CF509", _bars(2.0, "2025-09-12"), frequency="1d")
+
+    plan = plan_symbol_migration(tmp_path)
+    assert [(p.source.stem, p.target.stem, p.conflict) for p in plan] == [
+        ("CZCE.CF2509", "CF2509.CZC", False),
+        ("CZCE.CF509", "CF2509.CZC", True),
+    ]
+    assert [p.source.stem for p in apply_symbol_migration(plan)] == ["CZCE.CF2509"]
+    assert dm.list_symbols("1d") == ["CF2509.CZC", "CZCE.CF509"]
+    assert dm.read_symbol("CF2509.CZC")["close"].iloc[0] == 1.0
 
 
 def test_migration_never_overwrites_an_existing_target(tmp_path) -> None:
