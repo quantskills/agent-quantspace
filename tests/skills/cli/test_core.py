@@ -249,7 +249,9 @@ def test_version_catalog_and_schema(capsys):
     code, result = invoke(capsys, "version")
     assert code == 0
     assert result["data"]["factor_mining_schema_version"]
-    assert set(result["data"]["extras"]) == {"analyze", "ml", "report", "query", "ts", "panda_data", "live"}
+    assert set(result["data"]["extras"]) == {
+        "analyze", "ml", "report", "query", "ts", "panda_data", "akshare", "live"
+    }
     code, result = invoke(capsys, "catalog")
     assert code == 0
     listed = {entry["command"] for entry in result["data"]["commands"]}

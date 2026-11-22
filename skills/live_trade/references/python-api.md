@@ -48,7 +48,11 @@ ledger.record(signal, results, [result.channel for result in results])
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
 | `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `deliver_signal`, `send_alert`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) |
-| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `catch_up`, `build_scheduler`, `next_runs`, `serve`, `workflow_arguments`: APScheduler 3.x cron triggers that start workflow processes |
+| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `serve`, `workflow_arguments`: APScheduler 3.x cron triggers that start workflow processes |
+| `skills.live_trade.spec` | `LiveSpec`, `Instrument`: what a minute-level strategy trades, its bar interval, warm-up, price adjustment, and bar timing |
+| `skills.live_trade.clock` | `TradingCalendar`, `Session`, `parse_trading_hours`, `bar_ends`, `bars_per_day`, `has_night_session`, `due_bars`, `EQUITY_SESSIONS`: trading sessions and bar end times |
+| `skills.live_trade.feeds` | `MinuteFeed`, `FeedState`, `read_feed_state`, `upcoming_trading_date`, `FeedNotReady`: PandaData history plus today's AKShare (Sina) bars in the live store |
+| `skills.live_trade.minute` | `run_bar`, `refresh_day`, `reconcile_signals`, `RefreshOutcome`, `SignalMismatch`: one bar per run, the pre-open refresh, and reconciliation |
 | `skills.live_trade.panda_cli` | The PandaAI client's bundled `panda-live-trading` CLI: `discover_cli`, `cli_version`, `run_cli`, `list_accounts` (`PandaAccount`), `capability_problems`, `version_problem`, `require_actual_contract`, `PandaCliError` |
 
 ## Contracts
@@ -123,18 +127,105 @@ raise SystemExit(outcome.exit_code)
   no ledger, run log, or alerts. `deliver_signal(..., test=True)` is the same
   delivery step.
 - `deliver_signal(snapshot, ledger, write=..., urls=None, capital=None,
-  multipliers=None, lot_size=100)` is the diff, sizing, push, and ledger step
-  shared with `qs live-trade notify`; it raises `NoChannelsError` when `write`
-  has no channels.
+  multipliers=None, lot_size=100, notes=())` is the diff, sizing, push, and
+  ledger step shared with `qs live-trade notify`; it raises `NoChannelsError`
+  when `write` has no channels. `notes` are lines appended to the message and
+  never change the signal id.
 - `RunLog(strategy_id, data_root)` stores `data/live/<id>/runs.json`:
-  `record(date, status, detail, signal_id)`, `is_done(date)`, and
-  `claim_alert(date, kind)`, which returns `False` when that alert already went
-  out. `DONE_STATUSES` are `sent`, `unchanged`, `already_sent`, and
-  `not_trading_day`.
+  `record(when, status, detail, signal_id, target=None, trade_date=None)`,
+  `get(when)`, `is_done(when)`, `bars(trade_date)`, and
+  `claim_alert(trade_date, kind)`, which returns `False` when that alert already
+  went out. `when` is a date for a daily run and a bar end `datetime` for a
+  minute run (keyed `2026-11-23T09:05:00`); the last 90 calendar days are kept.
+  `DONE_STATUSES` are `sent`, `unchanged`, `already_sent`, `not_trading_day`,
+  and `missed`.
 - `run_job(job, date, final=...)` runs `python -m <module> --date ... --write`
   from the repository root, skips finished dates, and alerts once when the
   process exits with a code other than 0, 1, 3, or 4. `catch_up(config, now)`
   runs each job whose first time today has passed. `build_scheduler` adds one
   coalesced cron job per run time with a six-hour misfire grace, so a run missed
   during sleep still happens once.
+
+## Minute-level runs
+
+A minute-level workflow declares a spec and a weight function shared with the
+backtest, then hands both to `refresh_day` or `run_bar`:
+
+```python
+from skills.ingest import PandaDataClient
+from skills.live_trade.feeds import MinuteFeed
+from skills.live_trade.minute import refresh_day, run_bar
+from skills.live_trade.scheduler import workflow_arguments
+from skills.live_trade.spec import Instrument, LiveSpec
+
+SPEC = LiveSpec(
+    strategy_id="rb_ma_cross_5m",
+    frequency="5m",
+    instruments=(Instrument(symbol="RB_DOMINANT.SHF", asset="future"),),
+    warmup_bars=48,
+    adjust="none",
+)
+
+def target_weights(panel):           # (symbol, eob) panel -> eob x symbol weights
+    ...
+
+args = workflow_arguments()          # adds --bar, --refresh, --now
+feed = MinuteFeed(SPEC, PandaDataClient(), data_root=args.data_root)
+if args.refresh:
+    outcome = refresh_day(SPEC, feed, target_weights, now=args.now, write=args.write)
+else:
+    outcome = run_bar(SPEC, feed, target_weights, bar=args.bar, now=args.now,
+                      write=args.write, capital=args.capital)
+raise SystemExit(outcome.exit_code)
+```
+
+See `strategies/time_series/workflows/live_rb_ma_cross_5m.py` for a complete
+workflow with `--test`.
+
+- `LiveSpec(strategy_id, frequency, instruments, warmup_bars, adjust="post",
+  bar_delay_seconds=20, deadline_seconds=None, spare_days=2)`. `Instrument`
+  checks that the code matches its asset (`stock`, `fund`, `future`);
+  `continuous` is true for codes such as `RB_DOMINANT.SHF`. One spec trades
+  either futures or stocks and funds. `deadline` defaults to one bar and must
+  exceed the delay.
+- `MinuteFeed(spec, client, data_root=None, akshare=None, pause=0.3)`:
+  `refresh(trading_date, now=None)` reloads `ceil(warmup_bars / bars per day) +
+  spare_days + 1` trading days from PandaData into
+  `data/live/<id>/market/<frequency>/`, first comparing the AKShare bars stored
+  for those days (`RefreshReport.comparisons`, `BarComparison`), and writes
+  `feed.json` (`FeedState`). `update(now)` appends today's finished Sina bars of
+  the scheduled bar ends and reports `latest`, `added`, and per-symbol `errors`
+  (`UpdateReport`). `panel()` is the `(symbol, eob)` panel the weight function
+  gets; `closes()` the signal closes; `raw_closes()` the unadjusted closes used
+  for sizing. `state()` raises `FeedNotReady` before the first refresh.
+- The store keeps `open`, `high`, `low`, `close` (adjusted as the spec says),
+  `volume`, `open_interest`, `factor` (the multiplier applied; raw price is
+  `close / factor`), `contract` (the actual contract), `trading_date`, and
+  `source`. Futures night bars carry the next trading day's `trading_date`.
+- Stock and fund factors are the daily post-adjusted close over the raw close of
+  each day (`fetch_market_data` with `adjust="post"`, `get_fund_daily_post`).
+  Today's factor is the last known one, or for a stock whose ex-date is today
+  (`get_stock_dividend`) the published `ex_cum_factor` of `get_adj_factor`; if
+  that is missing the stock is in `FeedState.halted`.
+- `run_bar(spec, feed, compute, bar=, now=, write=False, capital=None,
+  lot_size=100, data_root=None, urls=None)` returns a `RunOutcome` whose status
+  is a delivery status or `not_ready`, `stale`, `source_error`, `missed`,
+  `done`, or `error`. The weights' last row must be the bar itself. With
+  `write` it logs the bar and the target it computed in `RunLog`.
+- `refresh_day(spec, feed, compute, now=, write=False, ...)` refreshes the
+  trading day after `now` (`upcoming_trading_date`: today before 15:30, else
+  the next trading day), recomputes the days it replaced, and returns
+  `RefreshOutcome.mismatches`: per day, the bars whose logged target differs
+  from `reconcile_signals(spec, weights, runs, day)`. With `write` it alerts
+  `refresh_error`, `halted`, and `reconcile` once per trade date.
+- `bar_ends(trading_date, frequency, sessions, calendar)` counts bars from each
+  session's start; `parse_trading_hours` reads PandaData's `trading_hours`
+  (bar-end ranges such as `21:01-23:00,09:01-10:15,...`). `has_night_session`
+  is true after a plain weekday or a weekend only.
+- `tick(job, now, write=True, data_root=None, runner=..., seen=None)` reads
+  `feed.json`, logs bars past their deadline as `missed`, and runs one
+  `--bar` process (five-minute timeout) for the oldest due bar that is not
+  finished; `seen` stands in for the run log in previews. `run_job` for a
+  minute job adds `--refresh` and never `--final`, and `build_scheduler` adds a
+  `<id>@bars` tick every 10 seconds.
 

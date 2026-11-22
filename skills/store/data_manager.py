@@ -22,6 +22,8 @@ Usage:
 """
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -145,6 +147,51 @@ def validate_ohlcv(df: pd.DataFrame) -> DataQualityReport:
 # ======================================================================
 
 
+@dataclass(frozen=True)
+class UpsertReport:
+    """What :meth:`DataManager.upsert_symbol` did to one stored file."""
+
+    symbol: str
+    frequency: str
+    path: Path
+    added: int
+    replaced: int
+    changed: pd.DataFrame
+    dropped: int
+    rows: int
+
+
+def _eob_indexed(bars: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Bars indexed by a sorted, unique, timezone-naive ``eob`` DatetimeIndex."""
+    frame = bars.copy()
+    if "eob" in frame.columns:
+        frame = frame.set_index("eob")
+    if not isinstance(frame.index, pd.DatetimeIndex):
+        frame.index = pd.to_datetime(frame.index)
+    if frame.index.tz is not None:
+        raise ValueError(f"{symbol}: eob must be timezone-naive")
+    if frame.index.has_duplicates:
+        raise ValueError(f"{symbol}: duplicate eob values")
+    frame.index.name = "eob"
+    return frame.sort_index()
+
+
+def _changed_values(stored, incoming, overlap, compare, tolerance) -> pd.DataFrame:
+    rows = []
+    for column in compare:
+        if column not in stored.columns or column not in incoming.columns:
+            continue
+        old = pd.to_numeric(stored.loc[overlap, column], errors="coerce")
+        new = pd.to_numeric(incoming.loc[overlap, column], errors="coerce")
+        both_missing = old.isna() & new.isna()
+        differs = ((old - new).abs() > tolerance) | (old.isna() != new.isna())
+        for eob in overlap[(differs & ~both_missing).to_numpy()]:
+            rows.append(
+                {"eob": eob, "column": column, "stored": old.loc[eob], "incoming": new.loc[eob]}
+            )
+    return pd.DataFrame(rows, columns=["eob", "column", "stored", "incoming"])
+
+
 class DataManager:
     """
     Central data manager for the quant research system.
@@ -157,9 +204,11 @@ class DataManager:
         data = dm.read_symbols(['510300.SH', '510500.SH'], frequency='1d')
     """
 
-    def __init__(self, data_root: str = None):
+    def __init__(self, data_root: str = None, *, create_layout: bool = True):
         self.root = Path(data_root) if data_root else _get_data_root()
-        self._ensure_dirs()
+        # A live strategy's data root holds market files only; it skips the research folders.
+        if create_layout:
+            self._ensure_dirs()
 
     # ------------------------------------------------------------------
     # Setup
@@ -229,6 +278,60 @@ class DataManager:
         out_dir.mkdir(parents=True, exist_ok=True)
         path = out_dir / f"{symbol}.parquet"
         df.to_parquet(path)
+
+    def upsert_symbol(
+        self,
+        symbol: str,
+        bars: pd.DataFrame,
+        frequency: str = "1d",
+        *,
+        keep_last: int | None = None,
+        compare: tuple[str, ...] = ("open", "high", "low", "close", "volume"),
+        tolerance: float = 0.0,
+    ) -> "UpsertReport":
+        """Merge ``bars`` into the stored file by ``eob`` and report what changed.
+
+        Incoming bars replace stored bars with the same ``eob``; other stored bars stay.
+        ``changed`` lists every overlapping bar whose ``compare`` columns differ by more than
+        ``tolerance`` (a missing value differs from any number), so a caller can tell a
+        provider rewriting history from a plain append. ``keep_last`` keeps only the newest
+        bars after the merge. Extra columns such as ``source`` are kept. The file is
+        replaced atomically.
+        """
+        incoming = _eob_indexed(bars, symbol)
+        out_dir = self.root / "market" / frequency
+        path = out_dir / f"{symbol}.parquet"
+        stored = _eob_indexed(pd.read_parquet(path), symbol) if path.exists() else None
+        if stored is None or stored.empty:
+            merged, overlap = incoming, pd.DatetimeIndex([])
+            changed = pd.DataFrame(columns=["eob", "column", "stored", "incoming"])
+        else:
+            overlap = stored.index.intersection(incoming.index)
+            changed = _changed_values(stored, incoming, overlap, compare, tolerance)
+            merged = pd.concat([stored.drop(index=overlap), incoming]).sort_index()
+        total = len(merged)
+        if keep_last is not None:
+            if keep_last < 1:
+                raise ValueError("keep_last must be at least 1")
+            merged = merged.iloc[-keep_last:]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=f".{symbol}.", suffix=".parquet", dir=out_dir)
+        os.close(fd)
+        try:
+            merged.to_parquet(temporary)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return UpsertReport(
+            symbol=symbol,
+            frequency=frequency,
+            path=path,
+            added=len(incoming) - len(overlap),
+            replaced=len(overlap),
+            changed=changed,
+            dropped=total - len(merged),
+            rows=len(merged),
+        )
 
     def import_symbol_csv(
         self, csv_path: str, symbol: str, frequency: str = "1d", time_col: str = "eob"

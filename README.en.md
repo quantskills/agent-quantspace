@@ -72,7 +72,7 @@ reports, and tests.
 ```text
 quantspace/
   skills/                 reusable capabilities
-    ingest/               data ingestion: default PandaData client and symbol conversion
+    ingest/               data ingestion: default PandaData client and symbol conversion; intraday bars via AKShare (Sina)
     store/                local Parquet storage, DuckDB queries, artifact management
     compute/              indicators, labels, utilities, factor examples
     strategy/             reusable contracts, cross-sectional/time-series types, weight helpers
@@ -81,7 +81,7 @@ quantspace/
     ml/                   ML helpers and optional model engines
     report/               HTML report rendering and charts
     factor_mining/        AI factor-mining contracts, ports, and cross-platform role protocol
-    live_trade/           live/paper trading: IM signal push; futures via the PandaAI client CLI
+    live_trade/           live/paper trading: daily and minute-level IM signal push; futures via the PandaAI client CLI
   strategies/
     cross_sectional/      cross-sectional strategy
     time_series/          time-series strategy
@@ -100,7 +100,7 @@ writing new research code.
 
 | Skill | Main import | Purpose |
 |---|---|---|
-| `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion |
+| `ingest` | `from skills.ingest import PandaDataClient` | Data ingestion, default PandaData access, symbol conversion; today's intraday bars via AKShare (Sina) |
 | `store` | `from skills.store.data_manager import DataManager` | Market data, factors, backtests, model metadata |
 | `compute` | `from skills.compute.indicators import trend_score` | Indicators, labels, utilities, generic factor examples |
 | `strategy` | `from skills.strategy import StrategyResult` | Reusable contracts, cross-sectional/time-series types, and target-weight helpers |
@@ -109,7 +109,7 @@ writing new research code.
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, three ports with their adapters, and cross-platform role task protocol; the governed workflow lives in `strategies/factor_mining/` |
-| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Turn the latest target weights into rebalance signals: size units and push to WeCom/Feishu/Slack/Discord and other IM webhooks; futures go through the PandaAI live-trading client's bundled CLI |
+| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Turn the latest target weights into rebalance signals: size units and push to WeCom/Feishu/Slack/Discord and other IM webhooks, daily or per minute bar during the session (reconciled against PandaData the next day); futures go through the PandaAI live-trading client's bundled CLI |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and

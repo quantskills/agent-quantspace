@@ -7,6 +7,14 @@
       "days": "mon-fri",
       "times": ["17:30", "19:30", "21:30"],
       "args": ["--capital", "100000"]
+    },
+    {
+      "strategy_id": "rb_ma_cross_5m",
+      "module": "strategies.time_series.workflows.live_rb_ma_cross_5m",
+      "frequency": "5m",
+      "days": "mon-fri",
+      "times": ["18:00", "20:00"],
+      "args": ["--capital", "100000"]
     }
   ]
 }

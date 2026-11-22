@@ -36,7 +36,11 @@ from skills.ingest import PandaDataClient
 - `get_future_daily_post(start_date, end_date, underlying_symbol="RB", method="close_pcs")`:
   backward-adjusted dominant-continuous daily bars (`RB_DOMINANT.SHF`, actual contract in `dominant_id`).
 - `get_future_detail(symbol, fields=..., exchange=..., date=...)`: contract multiplier,
-  `trading_hours`, `market_tplus`, margin rate.
+  `trading_hours` (bar-end ranges such as `21:01-23:00,09:01-10:15,...`),
+  `market_tplus`, margin rate.
+- `get_future_dominant(start_date, end_date, underlying_symbol=None)`: the dominant
+  contract of each underlying per trading day (`symbol` such as `RB2701.SHF`,
+  `trading_code` the exchange's own code); the next day's row is published 17:35-17:55.
 - `fetch_hk_daily(symbol, start_date, end_date)`
 - `fetch_us_daily(symbol, start_date, end_date)`
 - `get_fund_daily(start_date, end_date, symbol=...)`
@@ -55,7 +59,13 @@ from skills.ingest import PandaDataClient
 - `get_stock_industry`
 - `get_concept_list`
 - `get_concept_constituents`
-- `get_adj_factor`
+- `get_adj_factor`: adjustment events per stock; `ex_factor` is one event's
+  ratio and `ex_cum_factor` the cumulative backward factor from the ex-date on.
+- `get_stock_dividend(start_date, end_date, symbol=None)`: dividend plans with
+  `ex_date`, `announcement_date`, `effective_date`, `div_type`.
+- `get_fund_etf_dividend(start_date, end_date, symbol=None)`: ETF dividends; the
+  range must stay within five years and it often returns nothing, so derive ETF
+  factors from `get_fund_daily_post` over `get_fund_daily` instead.
 
 **ETF Creation/Redemption**
 
@@ -79,6 +89,31 @@ creation/redemption endpoints.
 
 `skills.ingest.panda_future_tick` contains offline-testable helpers and CLI
 building blocks for PandaData futures tick downloads.
+
+## Intraday bars from AKShare (Sina)
+
+PandaData publishes minute bars only after the close. During the session,
+`skills.ingest.akshare_bars` fetches today's bars from Sina through AKShare
+(`uv sync --extra akshare`, Python 3.11.5 or later):
+
+```python
+from skills.ingest.akshare_bars import fetch_intraday_bars, sina_code
+
+result = fetch_intraday_bars(["000001.SZ", "RB2701.SHF"], "5m", pause=1.0)
+result.bars      # symbol, eob, open, high, low, close, volume, amount, open_interest, source
+result.errors    # {symbol: message} for symbols that failed; others still return
+sina_code("CF2701.CZC")   # ("future", "CF2701")
+```
+
+- Codes in and out are PandaData codes; `sina_code` maps them (`sz000001`,
+  `sh510300`, `RB2701`). Continuous codes such as `RB_DOMINANT.SHF` are refused:
+  resolve them with `get_future_dominant` first.
+- Bars are unadjusted and labelled by end time. Every bar that ends after the
+  current minute is dropped: Sina also returns the bar still forming and, after
+  a night session, a placeholder stamped with the next session's first bar.
+- Sina returns only the most recent bars (about 1970 per stock, 1023 per
+  contract) and has no service guarantee; use it for the current day only and
+  PandaData for history. `source` is `akshare_sina`.
 
 ## Progressive References
 

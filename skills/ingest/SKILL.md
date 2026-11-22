@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: Download stock, index, futures, listed-fund and ETF, HK and US bars, adjustment factors, reference data, ETF creation and redemption data, and futures ticks from PandaData with `uv run qs ingest ...`, and store bars locally.
+description: Download stock, index, futures, listed-fund and ETF, HK and US bars, adjustment factors, reference data, ETF creation and redemption data, and futures ticks from PandaData with `uv run qs ingest ...`, store bars locally, and fetch today's intraday minute bars from Sina through AKShare while the market is open.
 ---
 
 # Ingest
@@ -12,7 +12,8 @@ Use the `uv run qs ingest` commands below; data tasks do not require reading
 
 ## Prerequisites
 
-- Install the SDK with `uv sync --extra panda_data`.
+- Install the SDK with `uv sync --extra panda_data`. `ingest intraday` needs
+  `uv sync --extra akshare` instead (Python 3.11.5 or later) and no account.
 - Set `PANDA_DATA_USERNAME` and `PANDA_DATA_PASSWORD` in the environment or
   `.env`. Credentials are never passed as command flags.
 
@@ -24,6 +25,8 @@ Use the `uv run qs ingest` commands below; data tasks do not require reading
 - Fetch ETF creation and redemption limits, flows, baskets, or lists.
 - Call a PandaData SDK function that has no dedicated command.
 - Download futures tick data.
+- Get today's finished minute bars during the session (`intraday`), which
+  PandaData only publishes after the close.
 
 ## Workflow
 
@@ -41,6 +44,8 @@ uv run qs ingest raw --list
 uv run qs ingest raw --method get_trade_cal --params '{"start_date": "20250101", "end_date": "20250131"}' \
   --output out/trade_cal.parquet
 uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-31
+uv run qs ingest intraday --symbols 000001.SZ,510300.SH,RB2701.SHF --freq 5m \
+  --output out/intraday_5m.parquet
 ```
 
 ## Files
@@ -52,6 +57,8 @@ uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-3
 - `adj-factor --write` stores `data/adj_factor/<symbol>.parquet`.
 - Reference and ETF commands write the returned table to `--output`.
 - `future-ticks` writes under `data/export/panda_future_ticks/<underlying>/`.
+- `intraday` writes one combined table (`symbol`, `eob`, OHLCV, `amount`,
+  `open_interest`, `source`) to `--output`; it never writes the store.
 
 ## Rules
 
@@ -61,9 +68,10 @@ uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-3
   `1d_adj` is only the store directory for adjusted daily bars and is never
   sent to the provider.
 - Symbols are PandaData codes in both directions and are never converted:
-  `510300.SH`, `600000.SH`, `RB2701.SHF`, `CF509.CZC` (Zhengzhou contracts use a
-  three-digit year-month), dominant continuous `RB_DOMINANT.SHF`. Stored files
-  and returned `symbol` columns use the same codes.
+  `510300.SH`, `600000.SH`, `RB2701.SHF`, `CF2701.CZC` (every exchange, Zhengzhou
+  included, uses a four-digit year-month; PandaData refuses `CF701.CZC`, which is
+  only the exchange's `trading_code`), dominant continuous `RB_DOMINANT.SHF`.
+  Stored files and returned `symbol` columns use the same codes.
 - Each asset class uses its dedicated PandaData endpoint, as listed at
   https://www.pandaaiquant.com/docs/api: `get_stock_daily*`, `get_index_daily`,
   `get_future_daily`, `get_fund_daily*` for daily bars and `get_stock_min*`,
@@ -77,6 +85,12 @@ uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-3
 - PandaData publishes daily and minute bars once a day after the close (each
   endpoint page lists its update window, for example stock minute bars
   15:57-16:17 and futures minute bars 16:41-17:01); they are not an intraday feed.
+- `intraday` takes today's bars from Sina through AKShare: unadjusted, labelled
+  by end time, only bars that have finished (the bar still forming and Sina's
+  placeholder for the next session are dropped). Pass actual contracts, not
+  `RB_DOMINANT.SHF`. Sina keeps only recent bars and has no service guarantee:
+  use it for the current session and PandaData for history. One failing symbol
+  is a warning; the command fails only when no symbol returned bars.
 - Commands that reach the network are marked `network` in the command list
   below; they fail with a hint when credentials are missing.
 
@@ -112,6 +126,7 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | Command | What it does | Side effects |
 |---|---|---|
 | `uv run qs ingest bars` | Fetch stock, index, future, fund, HK or US bars; optionally store them. | network, writes-output, writes-store |
+| `uv run qs ingest intraday` | Fetch today's finished intraday bars from Sina through AKShare (unadjusted). | network, writes-output |
 | `uv run qs ingest adj-factor` | Fetch stock adjustment-factor events; optionally store them per symbol. | network, writes-output, writes-store |
 | `uv run qs ingest ref stock-detail` | Fetch stock basic information (get_stock_detail). | network, writes-output |
 | `uv run qs ingest ref fund-detail` | Fetch fund and ETF metadata (get_fund_detail). | network, writes-output |

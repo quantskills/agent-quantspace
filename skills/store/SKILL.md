@@ -53,7 +53,9 @@ data/export/
 ```
 
 `<frequency>` is a directory key: the real bar interval plus an optional `_adj`
-suffix for adjusted prices.
+suffix for adjusted prices. Live strategies keep their own bars under
+`data/live/<strategy-id>/market/<frequency>/` in the same layout; that store
+belongs to the `live-trade` Skill and these commands never read or write it.
 
 | Directory key | Real interval | Meaning |
 |---------------|---------------|---------|

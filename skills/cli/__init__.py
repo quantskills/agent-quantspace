@@ -31,6 +31,7 @@ EXTRAS = {
     "query": "duckdb",
     "ts": "tsfresh",
     "panda_data": "panda_data",
+    "akshare": "akshare",
     "live": "apprise",
 }
 

@@ -23,18 +23,20 @@ from .ledger import SignalLedger, validate_strategy_id
 from .notify import channel_name, format_signal, load_notify_urls, send_notifications
 from .sizing import SizedTarget, size_targets
 
-# Run statuses that finish a trade date; the others are retried by the next scheduled run.
-DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day"})
+# Run statuses that finish a trade date or a bar; the others are retried by the next run.
+DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day", "missed"})
 RETRY_STATUSES = frozenset({"stale", "partial", "failed"})
 EXIT_CODES = {
     "stale": 3,
+    "source_error": 3,
+    "not_ready": 3,
     "partial": 4,
     "failed": 4,
     "error": 1,
     "test_partial": 4,
     "test_failed": 4,
 }
-# Trade dates kept in the run log; older ones are dropped oldest first.
+# Calendar days kept in the run log (daily and bar entries); older ones are dropped.
 MAX_RUN_DAYS = 90
 
 
@@ -66,6 +68,7 @@ def deliver_signal(
     multipliers: Mapping[str, float] | None = None,
     lot_size: int = 100,
     test: bool = False,
+    notes: Sequence[str] = (),
 ) -> Delivery:
     """Diff ``snapshot`` against the ledger base and, with ``write``, push it to every channel.
 
@@ -75,6 +78,8 @@ def deliver_signal(
 
     A ``test`` delivery sends the whole target as a marked test message to every channel and
     never reads or writes the ledger, so it can run at any time without touching live state.
+    ``notes`` are extra lines appended to the message, such as the actual contract behind a
+    continuous one; they never change the signal id.
     """
     urls = load_notify_urls() if urls is None else list(urls)
     signal = build_signal(snapshot, {} if test else ledger.base_weights())
@@ -92,6 +97,8 @@ def deliver_signal(
             )
         }
     title, body = format_signal(signal, sized, test=test)
+    if notes:
+        body = body + "\n" + "\n".join(notes)
     channels = [channel_name(url) for url in urls]
     delivery = {
         "signal": signal,
@@ -125,8 +132,19 @@ def deliver_signal(
     return Delivery(**delivery, status=status, results=results, skipped=skipped)
 
 
+def _run_key(when: date | datetime) -> str:
+    """``2026-11-23`` for a daily run, ``2026-11-23T21:05:00`` for a bar."""
+    if isinstance(when, datetime):
+        return when.replace(microsecond=0).isoformat()
+    return when.isoformat()
+
+
 class RunLog:
-    """Per-trade-date run results under ``<data_root>/live/<strategy_id>/runs.json``."""
+    """Run results per trade date (daily strategies) or per bar end time (minute strategies).
+
+    Stored in ``<data_root>/live/<strategy_id>/runs.json``. Alerts are claimed per trade
+    date and kind, so a minute strategy alerts once a day for each kind of problem.
+    """
 
     def __init__(self, strategy_id: str, data_root: str | Path | None = None):
         from skills.store.workspace import resolve_workspace_paths
@@ -142,7 +160,9 @@ class RunLog:
 
     def _write(self, state: dict) -> None:
         runs = state["runs"]
-        for stale in sorted(runs)[: max(0, len(runs) - MAX_RUN_DAYS)]:
+        days = sorted({key[:10] for key in runs})
+        kept = set(days[-MAX_RUN_DAYS:])
+        for stale in [key for key in runs if key[:10] not in kept]:
             del runs[stale]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
@@ -154,31 +174,52 @@ class RunLog:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
-    def get(self, trade_date: date) -> dict | None:
-        return self._read()["runs"].get(trade_date.isoformat())
+    def get(self, when: date | datetime) -> dict | None:
+        return self._read()["runs"].get(_run_key(when))
 
-    def is_done(self, trade_date: date) -> bool:
-        entry = self.get(trade_date)
-        return bool(entry and entry["status"] in DONE_STATUSES)
+    def is_done(self, when: date | datetime) -> bool:
+        entry = self.get(when)
+        return bool(entry and entry.get("status") in DONE_STATUSES)
 
     def record(
-        self, trade_date: date, status: str, detail: str = "", signal_id: str | None = None
+        self,
+        when: date | datetime,
+        status: str,
+        detail: str = "",
+        signal_id: str | None = None,
+        *,
+        target: Mapping[str, float] | None = None,
+        trade_date: date | None = None,
     ) -> None:
+        """Log one attempt; bar entries also keep the computed target and the trade date."""
         state = self._read()
-        entry = state["runs"].setdefault(trade_date.isoformat(), {"attempts": 0, "alerts": []})
+        entry = state["runs"].setdefault(_run_key(when), {"attempts": 0, "alerts": []})
         entry.update(
             status=status,
             detail=detail,
             signal_id=signal_id,
             at=datetime.now().isoformat(timespec="seconds"),
-            attempts=entry["attempts"] + 1,
+            attempts=entry.get("attempts", 0) + 1,
         )
+        if target is not None:
+            entry["target"] = {symbol: float(value) for symbol, value in sorted(target.items())}
+        if trade_date is not None:
+            entry["trade_date"] = trade_date.isoformat()
         self._write(state)
+
+    def bars(self, trade_date: date) -> dict[str, dict]:
+        """Bar entries of one trade date, keyed by bar end time."""
+        day = trade_date.isoformat()
+        return {
+            key: entry
+            for key, entry in self._read()["runs"].items()
+            if "T" in key and entry.get("trade_date") == day
+        }
 
     def claim_alert(self, trade_date: date, kind: str) -> bool:
         """Mark an alert of ``kind`` as sent for the day; False when it already was."""
         state = self._read()
-        entry = state["runs"].setdefault(trade_date.isoformat(), {"attempts": 0, "alerts": []})
+        entry = state["runs"].setdefault(_run_key(trade_date), {"attempts": 0, "alerts": []})
         entry.setdefault("status", "pending")
         if kind in entry["alerts"]:
             return False

@@ -755,6 +755,42 @@ class PandaDataClient:
             fields=fields or [],
         )
 
+    def get_future_dominant(
+        self, start_date: str, end_date: str, *, underlying_symbol: _SymbolLike = None
+    ) -> pd.DataFrame:
+        """Dominant contract per underlying and trading day via ``get_future_dominant``.
+
+        Columns ``date``, ``underlying_symbol``, ``symbol`` (such as ``RB2701.SHF``),
+        ``trading_code``. The next trading day's row is published 17:35-17:55, before the
+        night session that opens it.
+        """
+        return self._call(
+            "get_future_dominant",
+            underlying_symbol=underlying_symbol,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    def get_stock_dividend(
+        self, start_date: str, end_date: str, *, symbol: _SymbolLike = None
+    ) -> pd.DataFrame:
+        """Stock dividend plans via ``get_stock_dividend``; the dates bound the announcement.
+
+        Columns include ``symbol``, ``announcement_date``, ``ex_date``, ``div_type``; plans
+        list their ex-date before it arrives.
+        """
+        return self._call(
+            "get_stock_dividend", symbol=symbol, start_date=start_date, end_date=end_date
+        )
+
+    def get_fund_etf_dividend(
+        self, start_date: str, end_date: str, *, symbol: _SymbolLike = None
+    ) -> pd.DataFrame:
+        """ETF dividends via ``get_fund_etf_dividend``; ``date`` is the ex-dividend date."""
+        return self._call(
+            "get_fund_etf_dividend", symbol=symbol, start_date=start_date, end_date=end_date
+        )
+
     def get_trade_cal(
         self, start_date: str, end_date: str, *, exchange: str = "SH"
     ) -> pd.DataFrame:

@@ -1,6 +1,6 @@
 ---
 name: live-trade
-description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run strategy workflows on a cross-platform schedule that refreshes PandaData and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
+description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's minute bars from AKShare (Sina) during the session, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
 ---
 
 # Live Trade
@@ -17,6 +17,9 @@ Exact options: `uv run qs live-trade <command> --help` or
 - Run strategies unattended every trading day: download fresh PandaData bars,
   recompute targets, push only when the target changed, and alert on errors or
   data that never arrived (`serve`).
+- Run a minute-level strategy (1m to 60m bars of futures, stocks or listed
+  funds) during the session: one signal per bar, from today's bars on Sina
+  through AKShare, reconciled against PandaData's bars after the close.
 - Check that IM channels and the PandaAI client CLI are set up: CLI version,
   client capabilities, and which accounts the CLI may use.
 - Futures orders through the PandaAI client are not wired yet; this Skill only
@@ -26,10 +29,13 @@ Exact options: `uv run qs live-trade <command> --help` or
 
 ```bash
 uv sync --extra live
+uv sync --extra live --extra panda_data --extra akshare   # minute-level strategies
 ```
 
 `live` installs Apprise, requests, and APScheduler 3.x; the scheduler runs the
-same way on Windows, Linux, and macOS.
+same way on Windows, Linux, and macOS. Minute-level strategies also need
+PandaData (history, calendar, dominant contracts) and AKShare (today's bars;
+Python 3.11.5 or later).
 
 Paste each IM bot's webhook URL into its own `.env` variable; leave unused ones
 empty. One variable may hold several groups of the same IM, separated by commas:
@@ -78,6 +84,15 @@ uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation 
 uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation --test --write --capital 100000
 ```
 
+A minute-level strategy by hand: the pre-open refresh, then one bar (`--now`
+replays a past moment of the current trading day):
+
+```bash
+uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m --refresh
+uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m --bar 2026-11-23T09:05:00
+uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m --bar 2026-11-20T21:05:00 --now 2026-11-20T21:05:25
+```
+
 ## Scheduled runs
 
 `serve` reads a schedule such as
@@ -102,6 +117,43 @@ A workflow loads its data and computes the full target table, then calls
 | `error` | Loading or computing raised. | 1 |
 | `test_sent` / `test_partial` / `test_failed` | `--test --write`: the marked test message reached all, some, or no channels. | 0 / 4 / 4 |
 
+## Minute-level strategies
+
+A minute-level job has `"frequency": "5m"` (or `1m`, `15m`, `30m`, `60m`) in
+the schedule; its workflow declares a `LiveSpec` (instruments, bar interval,
+warm-up bars, price adjustment). Each trading day runs in two parts:
+
+1. **Refresh** at the job's `times`: `python -m <module> --refresh --write`.
+   Futures refresh after 17:55 (PandaData publishes the day's futures minute
+   bars at 16:41-17:01 and the next day's dominant contracts at 17:35-17:55),
+   for example `18:00` with `20:00` as a retry; stocks and funds before the
+   open, for example `08:30`. It reloads the warm-up window from PandaData,
+   maps continuous contracts such as `RB_DOMINANT.SHF` to the dominant contract
+   of the next trading day, takes futures sessions and multipliers from
+   `get_future_detail`, and writes the day's bar end times. `serve` also runs it
+   once when it starts.
+2. **Bars** during the session: every 10 seconds `serve` starts
+   `python -m <module> --bar <end time> --write` for the oldest bar that is due,
+   `bar_delay_seconds` (default 20) after the bar ends and until
+   `deadline_seconds` (default one bar). The run fetches today's finished bars
+   from Sina through AKShare, recomputes the whole target table on the stored
+   window, and pushes the bar's row if it changed.
+
+The next refresh compares the AKShare bars of the finished day with
+PandaData's, recomputes that day's bars, and alerts `reconcile` for every bar
+whose target would have been different.
+
+| Bar status | Meaning | Exit |
+|------------|---------|------|
+| `sent` / `unchanged` / `already_sent` | The bar is finished. | 0 |
+| `preview` | No `--write`: nothing sent or logged. | 0 |
+| `stale` | Sina has no bar at that time yet; the next tick retries. | 3 |
+| `source_error` | AKShare failed for a symbol without that bar; retried. | 3 |
+| `not_ready` | No refresh for the trading day yet. | 3 |
+| `missed` | Past the deadline; skipped. | 0 |
+| `partial` / `failed` | Some channels failed; the next tick retries only those. | 4 |
+| `error` | Fetching or computing raised, or the time is not a bar end. | 1 |
+
 ## Files
 
 - `--weights` and `--prices` are date by symbol tables (`eob` index or column,
@@ -111,7 +163,14 @@ A workflow loads its data and computes the full target table, then calls
 - The ledger `data/live/<strategy-id>/ledger.json` keeps the last target that
   every channel received and the per-channel results of recent signals.
 - `data/live/<strategy-id>/runs.json` keeps each trade date's run status,
-  attempts, and the alerts already sent.
+  attempts, and the alerts already sent; a minute strategy logs each bar under
+  its end time with the target it computed and its trade date.
+- A minute strategy keeps `data/live/<strategy-id>/feed.json` (the trading day
+  the last refresh prepared: contracts, factors, sessions, bar end times,
+  halted symbols), its bars in
+  `data/live/<strategy-id>/market/<frequency>/<symbol>.parquet` with a `source`
+  column (`pandadata` or `akshare_sina`), and the reconciliation of each day in
+  `data/live/<strategy-id>/reconcile/<date>.bars.json` and `.signals.json`.
 - A workflow keeps its own downloaded bars under
   `data/live/<strategy-id>/market/` and never writes the research store
   `data/market/`.
@@ -145,12 +204,29 @@ A workflow loads its data and computes the full target table, then calls
 - A live workflow recomputes the whole history each run from a fixed start date
   and uses the same weight function as the backtest, so the day's target equals
   the backtest's row for that day. Rebalance counts start at that fixed date.
+- Minute strategies: a bar is used only once it has finished; Sina's forming
+  bar and its placeholder for the next session are dropped. Each kind of bar
+  problem (`not_ready`, `source_error`, `missed`, `error`, delivery failures)
+  alerts once per trade date.
+- A futures night session belongs to the next trading day, and there is none
+  before a trading day that follows a holiday. A session whose length is not a
+  whole number of bars is refused (rebar's 09:00-10:15 rules out 30m and 60m).
+- One minute strategy trades either futures or stocks and funds. Futures are
+  never adjusted. Stock and fund signals use backward-adjusted prices by
+  default (`adjust="post"`): history is PandaData's raw minute bars times each
+  day's post/raw daily close ratio, and today's Sina bars are raw prices times
+  the factor known before the open. A stock whose ex-date is today without a
+  published factor is halted for the day: its last delivered weight is kept,
+  the message says so, and `halted` alerts. Sizing always uses raw prices.
+- Sina is a free source without a service guarantee; the `reconcile` alert is
+  how differences from PandaData show up. Keep the live store separate from the
+  research store: minute strategies never write `data/market/`.
 
 ## References
 
 - [references/python-api.md](references/python-api.md): contracts, sizing,
-  ledger, notification, and PandaAI CLI APIs. Read it when changing
-  this Skill or writing strategy code.
+  ledger, notification, PandaAI CLI, scheduled and minute-level run APIs. Read
+  it when changing this Skill or writing strategy code.
 
 ## CLI command reference
 

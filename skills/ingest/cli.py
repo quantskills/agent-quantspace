@@ -1298,6 +1298,107 @@ def future_ticks(args: FutureTicksInput) -> CommandResult:
 
 
 # ---------------------------------------------------------------------------
+# AKShare intraday bars
+# ---------------------------------------------------------------------------
+
+
+class IntradayInput(OutputOptions):
+    symbols: list[str] = Field(
+        min_length=1,
+        description="PandaData codes of stocks, listed funds, indexes or actual futures "
+        "contracts, such as 000001.SZ, 510300.SH, RB2701.SHF, CF2701.CZC; comma-separate.",
+    )
+    freq: Literal["1m", "5m", "15m", "30m", "60m"] = Field(
+        "5m", description="Bar interval; bars are unadjusted and labelled by end time."
+    )
+    pause: float = Field(
+        1.0, ge=0, le=10, description="Seconds to wait between symbols, to stay under Sina's limits."
+    )
+
+
+class IntradaySymbol(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    symbol: str = Field(description="PandaData code.")
+    sina_code: str | None = Field(description="Code sent to Sina through AKShare.")
+    rows: int = Field(description="Finished bars returned.")
+    first: str | None = Field(description="First bar end time.")
+    last: str | None = Field(description="Last finished bar end time.")
+    unfinished: int = Field(description="Bars dropped because they end after the current minute.")
+    error: str | None = Field(description="Why this symbol returned nothing, if it failed.")
+
+
+class IntradayOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(description="Data source tag written to the source column.")
+    frequency: str = Field(description="Bar interval.")
+    as_of: str = Field(description="Minute that decided which bars had finished (Asia/Shanghai).")
+    rows: int = Field(description="Rows in the combined table.")
+    symbols: list[IntradaySymbol] = Field(description="Per-symbol summary.")
+    output: str | None = Field(description="Table artifact path, if --output was given.")
+    preview: list[dict] = Field(description="Last rows of the table.")
+
+
+def intraday(args: IntradayInput) -> CommandResult:
+    from skills.ingest.akshare_bars import (
+        INSTALL_HINT,
+        IntradayDependencyError,
+        fetch_intraday_bars,
+        sina_code,
+    )
+
+    symbols = _items(args.symbols)
+    problems = []
+    for symbol in symbols:
+        try:
+            sina_code(symbol)
+        except ValueError as exc:
+            problems.append(str(exc))
+    if problems:
+        raise CLIError("INVALID_INPUT", "; ".join(problems))
+    _prepare_output(args)
+    try:
+        result = fetch_intraday_bars(symbols, args.freq, pause=args.pause)
+    except IntradayDependencyError as exc:
+        raise CLIError("MISSING_DEPENDENCY", str(exc), 3, hint=INSTALL_HINT) from exc
+    bars = result.bars
+    summaries = []
+    for symbol in symbols:
+        rows = bars.loc[bars["symbol"] == symbol, "eob"]
+        summaries.append(
+            IntradaySymbol(
+                symbol=symbol,
+                sina_code=result.codes.get(symbol),
+                rows=len(rows),
+                first=str(rows.min()) if len(rows) else None,
+                last=str(rows.max()) if len(rows) else None,
+                unfinished=result.unfinished.get(symbol, 0),
+                error=result.errors.get(symbol),
+            )
+        )
+    if bars.empty:
+        raise CLIError(
+            "UPSTREAM_ERROR",
+            "AKShare returned no finished bars: "
+            + "; ".join(f"{name}: {text}" for name, text in result.errors.items()),
+            4,
+        )
+    artifacts = _write_output(bars, args, "intraday")
+    return CommandResult(
+        data=IntradayOutput(
+            source=bars["source"].iloc[0],
+            frequency=args.freq,
+            as_of=result.as_of.isoformat(timespec="minutes"),
+            rows=len(bars),
+            symbols=summaries,
+            output=artifacts[0].path if artifacts else None,
+            preview=json_safe(bars.tail(args.preview).to_dict("records")),
+        ),
+        artifacts=artifacts,
+        warnings=[f"{name}: {text}" for name, text in result.errors.items()],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -1312,6 +1413,14 @@ COMMANDS = [
         "Fetch stock, index, future, fund, HK or US bars; optionally store them.",
         side_effects=("network", "writes-output", "writes-store"),
         priority="P0",
+    ),
+    Command(
+        "ingest.intraday",
+        IntradayInput,
+        IntradayOutput,
+        intraday,
+        "Fetch today's finished intraday bars from Sina through AKShare (unadjusted).",
+        side_effects=NETWORK_OUTPUT,
     ),
     Command(
         "ingest.adj-factor",

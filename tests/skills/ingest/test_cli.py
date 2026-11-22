@@ -218,6 +218,7 @@ def test_commands_are_registered_with_described_schemas():
     assert len(names) == len(set(names))
     assert set(names) == {
         "ingest.bars",
+        "ingest.intraday",
         "ingest.adj-factor",
         "ingest.ref.stock-detail",
         "ingest.ref.fund-detail",

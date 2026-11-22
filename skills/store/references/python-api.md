@@ -57,7 +57,7 @@ upstream market-data API; use `freq="1d"` there.
 
 Main methods:
 
-- `read_symbol`, `read_symbols`, `save_symbol`
+- `read_symbol`, `read_symbols`, `save_symbol`, `upsert_symbol`
 - `import_symbol_csv`, `import_combined_csv`, `list_symbols`
 - `save_factor`, `read_factor`, `factor_namespace_dir`, `factor_filename`
 - `save_factor_correlation`, `read_factor_correlation`
@@ -66,6 +66,27 @@ Main methods:
 
 `read_symbols` returns a MultiIndex `(symbol, eob)` panel and reports every
 missing symbol in one `FileNotFoundError`.
+
+`upsert_symbol(symbol, bars, frequency="1d", *, keep_last=None, compare=OHLCV,
+tolerance=0.0)` merges bars into the stored file by `eob` instead of replacing
+it: incoming bars replace stored bars at the same `eob`, other stored bars stay,
+and `keep_last` keeps only the newest bars afterwards. The returned
+`UpsertReport` has `added`, `replaced`, `dropped`, `rows`, and `changed` (one
+row per overlapping bar and `compare` column whose value moved by more than
+`tolerance`), so a caller can tell a provider rewriting history from an append.
+Extra columns such as `source` are kept, timezone-aware or duplicate `eob`
+values are refused, and the file is replaced atomically. Live minute
+strategies use it on their own store:
+
+```python
+from skills.store.data_manager import DataManager
+
+live = DataManager("data/live/rb_ma_cross_5m", create_layout=False)
+report = live.upsert_symbol("RB_DOMINANT.SHF", bars, "5m", keep_last=345)
+```
+
+`DataManager(data_root, create_layout=False)` points at another root that uses
+the `market/<frequency>/` layout without creating the research directories.
 
 `DataManagerArtifactStore` (`skills.factor_mining.adapters.store`) persists
 factor-mining research artifacts under

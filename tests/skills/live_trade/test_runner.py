@@ -195,3 +195,36 @@ def test_test_mode_previews_without_write_and_reports_failures(tmp_path, http):
     http.rejecting.add("open.feishu.cn")
     failed = _run(tmp_path, _loader(frame), write=True, test=True)
     assert (failed.status, failed.exit_code, failed.alerts) == ("test_failed", 4, [])
+
+
+def test_run_log_keys_bars_by_end_time_and_groups_them_by_trade_date(tmp_path):
+    from datetime import datetime
+
+    log = RunLog("demo", tmp_path)
+    night, day = datetime(2026, 11, 20, 21, 5), datetime(2026, 11, 23, 9, 5)
+    log.record(night, "sent", target={"RB.SHF": 1.0}, trade_date=date(2026, 11, 23))
+    log.record(day, "stale", trade_date=date(2026, 11, 23))
+    log.record(FRIDAY, "sent")
+
+    assert log.is_done(night) and not log.is_done(day) and log.is_done(FRIDAY)
+    assert sorted(log.bars(date(2026, 11, 23))) == ["2026-11-20T21:05:00", "2026-11-23T09:05:00"]
+    assert log.get(night)["target"] == {"RB.SHF": 1.0}
+    assert log.claim_alert(date(2026, 11, 23), "missed")
+    assert not log.claim_alert(date(2026, 11, 23), "missed")
+    assert log.bars(FRIDAY) == {}
+
+
+def test_run_log_keeps_only_the_most_recent_days(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from skills.live_trade import runner
+
+    monkeypatch.setattr(runner, "MAX_RUN_DAYS", 2)
+    log = RunLog("demo", tmp_path)
+    for offset in range(3):
+        moment = datetime(2026, 11, 18, 9, 35) + timedelta(days=offset)
+        log.record(moment, "sent", trade_date=moment.date())
+        log.record(moment + timedelta(minutes=5), "sent", trade_date=moment.date())
+
+    kept = json.loads(log.path.read_text())["runs"]
+    assert sorted(key[:10] for key in kept) == ["2026-11-19"] * 2 + ["2026-11-20"] * 2

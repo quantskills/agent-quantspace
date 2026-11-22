@@ -182,3 +182,133 @@ def test_preview_runs_omit_write_and_never_alert(tmp_path, http, monkeypatch):
 
     assert "--write" not in runner.calls[0][0]
     assert attempt.status == "crashed" and http.sent == []
+
+
+# --------------------------------------------------------------------------- minute jobs
+
+
+def _minute_job(tmp_path, refresh: bool = True):
+    from skills.live_trade.feeds import MinuteFeed
+
+    from .fakes import MONDAY, RB_SPEC, FakePandaData, FakeSina
+
+    if refresh:
+        feed = MinuteFeed(RB_SPEC, FakePandaData(), data_root=tmp_path, akshare=FakeSina())
+        feed.refresh(MONDAY, now=datetime(2026, 11, 20, 18, 0))
+    return _config(strategy_id="rb_demo", frequency="5m", times=["18:00"]).jobs[0]
+
+
+def test_minute_jobs_refresh_at_their_times_even_after_a_finished_day(tmp_path):
+    from skills.live_trade.scheduler import tick
+
+    job = _minute_job(tmp_path, refresh=False)
+    RunLog("rb_demo", tmp_path).record(FRIDAY, "sent")
+    runner = FakeRunner()
+
+    attempt = run_job(job, FRIDAY, final=True, data_root=tmp_path, runner=runner)
+
+    command = runner.calls[0][0]
+    assert job.intraday and attempt.status == "ran"
+    assert "--refresh" in command and "--final" not in command
+    assert tick(job, datetime(2026, 11, 20, 21, 5, 25), data_root=tmp_path, runner=runner) == []
+    assert len(runner.calls) == 1
+
+
+def test_tick_runs_the_oldest_ready_bar(tmp_path):
+    from skills.live_trade.scheduler import tick
+
+    job, runner = _minute_job(tmp_path), FakeRunner()
+
+    early = tick(job, datetime(2026, 11, 20, 21, 5, 10), data_root=tmp_path, runner=runner)
+    first = tick(job, datetime(2026, 11, 20, 21, 5, 25), data_root=tmp_path, runner=runner)
+    RunLog("rb_demo", tmp_path).record(datetime(2026, 11, 20, 21, 5), "sent")
+    second = tick(job, datetime(2026, 11, 20, 21, 10, 25), data_root=tmp_path, runner=runner)
+
+    assert early == []
+    assert [(item.trade_date, item.status) for item in first + second] == [
+        ("2026-11-20T21:05:00", "ran"),
+        ("2026-11-20T21:10:00", "ran"),
+    ]
+    command, kwargs = runner.calls[0]
+    assert command[1:] == [
+        "-m",
+        "strategies.demo.live",
+        "--bar",
+        "2026-11-20T21:05:00",
+        "--write",
+        "--data-root",
+        str(tmp_path),
+        "--capital",
+        "100000",
+    ]
+    assert kwargs["timeout"] == 300
+
+
+def test_tick_logs_bars_past_their_deadline_and_alerts_once(tmp_path, http, monkeypatch):
+    from skills.live_trade.scheduler import tick
+
+    from .conftest import FEISHU
+
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    job, runner = _minute_job(tmp_path), FakeRunner()
+
+    attempts = tick(job, datetime(2026, 11, 20, 21, 20, 25), data_root=tmp_path, runner=runner)
+    again = tick(job, datetime(2026, 11, 20, 21, 20, 35), data_root=tmp_path, runner=runner)
+
+    assert [item.status for item in attempts] == ["missed", "missed", "missed", "ran"]
+    assert [item.status for item in again] == ["ran"]
+    assert all(call[0][4] == "2026-11-20T21:20:00" for call in runner.calls)
+    log = RunLog("rb_demo", tmp_path)
+    assert log.is_done(datetime(2026, 11, 20, 21, 15))
+    assert log.get(datetime(2026, 11, 20, 21, 5))["trade_date"] == "2026-11-23"
+    assert len(http.sent) == 1 and "missed" in http.sent[0]["body"]
+
+
+def test_tick_alerts_a_crashed_bar_once(tmp_path, http, monkeypatch):
+    from skills.live_trade.scheduler import tick
+
+    from .conftest import FEISHU
+
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    job, runner = _minute_job(tmp_path), FakeRunner(code=2)
+
+    for second in (25, 35):
+        (attempt,) = tick(
+            job, datetime(2026, 11, 20, 21, 5, second), data_root=tmp_path, runner=runner
+        )
+
+    assert attempt.status == "crashed" and len(runner.calls) == 2
+    assert len(http.sent) == 1 and "boom" in http.sent[0]["body"]
+
+
+def test_preview_ticks_remember_what_they_finished(tmp_path, http):
+    from skills.live_trade.scheduler import tick
+
+    job, runner, seen = _minute_job(tmp_path), FakeRunner(), set()
+    now = datetime(2026, 11, 20, 21, 10, 25)
+
+    first = tick(job, now, write=False, data_root=tmp_path, runner=runner, seen=seen)
+    second = tick(job, now, write=False, data_root=tmp_path, runner=runner, seen=seen)
+
+    assert [item.status for item in first] == ["missed", "ran"] and second == []
+    assert "--write" not in runner.calls[0][0] and len(runner.calls) == 1
+    assert RunLog("rb_demo", tmp_path).get(datetime(2026, 11, 20, 21, 5)) is None
+    assert http.sent == []
+
+
+def test_minute_jobs_get_a_tick_and_always_refresh_on_start(tmp_path):
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    config = _config(strategy_id="rb_demo", frequency="5m", times=["18:00"])
+    scheduler = build_scheduler(config, data_root=tmp_path, scheduler_class=BackgroundScheduler)
+    jobs = {job.id: job for job in scheduler.get_jobs()}
+    runner = FakeRunner()
+
+    attempts = catch_up(
+        config, datetime(2026, 11, 22, 9, 0, tzinfo=ZONE), data_root=tmp_path, runner=runner
+    )
+
+    assert sorted(jobs) == ["rb_demo@1800", "rb_demo@bars"]
+    assert str(jobs["rb_demo@bars"].trigger.fields[-1]) == "*/10"
+    assert jobs["rb_demo@bars"].max_instances == 1
+    assert [item.status for item in attempts] == ["ran"] and "--refresh" in runner.calls[0][0]
