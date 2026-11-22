@@ -1,20 +1,42 @@
 """Unified ML engine for classification and regression tasks.
 
 Provides MLEngine for training/prediction and ModelPredictor for inference-only usage.
-PyCaret is lazily imported to avoid slow startup.
+Models are scikit-learn pipelines (mean imputation, scaling, optional PCA, estimator)
+built by :mod:`skills.ml.estimators`; scikit-learn and XGBoost load lazily.
+
+Training follows PyCaret 3.3's defaults, which QuantSpace used before: a shuffled
+70/30 split (stratified for classification) seeded by ``session_id``, k-fold
+cross-validation on the 70% part (``StratifiedKFold`` for classification, ``KFold``
+for regression, unshuffled), then a final fit on every row.
 """
 
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
+from skills.ml.estimators import (
+    LABEL_COLUMN,
+    SCORE_COLUMN,
+    TrainedModel,
+    check_model,
+    check_normalize,
+    check_task,
+    cross_validation_table,
+    encode_labels,
+    feature_matrix,
+    make_estimator,
+    make_pipeline,
+)
 from skills.store.workspace import resolve_workspace_paths
 
 logger = logging.getLogger(__name__)
+
+TRAIN_SIZE = 0.7
+MODEL_FORMAT = "quantspace-sklearn-v1"
 
 
 def _get_data_root_path() -> Path:
@@ -22,69 +44,78 @@ def _get_data_root_path() -> Path:
     return resolve_workspace_paths().data_root
 
 
-def _get_pycaret(task: str):
-    """Lazily import PyCaret module based on task type."""
-    if task == "classification":
-        from pycaret.classification import (
-            create_model,
-            finalize_model,
-            load_model,
-            predict_model,
-            pull,
-            save_model,
-            setup,
-            tune_model,
+def _model_file(path) -> Path:
+    """``path`` with a ``.pkl`` suffix (a stem such as ``models/model`` gets one appended)."""
+    path = Path(path)
+    return path if path.suffix == ".pkl" else path.with_name(path.name + ".pkl")
+
+
+def check_model_format(meta: dict) -> None:
+    """Raise ``ValueError`` unless registry metadata was written by this engine."""
+    if meta.get("format") == MODEL_FORMAT:
+        return
+    model = f"{meta.get('namespace')}/{meta.get('model_id')}"
+    if "pycaret_version" in meta:
+        raise ValueError(
+            f"Model {model} was saved by PyCaret {meta['pycaret_version']}, which QuantSpace "
+            "no longer uses; train it again with `qs ml train --write`."
         )
-    elif task == "regression":
-        from pycaret.regression import (
-            create_model,
-            finalize_model,
-            load_model,
-            predict_model,
-            pull,
-            save_model,
-            setup,
-            tune_model,
-        )
-    else:
-        raise ValueError(f"Unknown task: {task}. Use 'classification' or 'regression'.")
-    return (
-        setup,
-        create_model,
-        finalize_model,
-        predict_model,
-        save_model,
-        pull,
-        load_model,
-        tune_model,
+    raise ValueError(
+        f"Model {model} has format {meta.get('format')!r}, expected {MODEL_FORMAT!r}; "
+        "train it again with `qs ml train --write`."
     )
 
 
+def load_model_file(path) -> TrainedModel:
+    """Load a model written by ``MLEngine.save`` or ``save_to_registry``."""
+    import joblib
+
+    try:
+        model = joblib.load(_model_file(path))
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            f"{_model_file(path)} needs module {exc.name!r} to load; models saved before "
+            "QuantSpace dropped PyCaret must be trained again."
+        ) from exc
+    if not isinstance(model, TrainedModel):
+        raise ValueError(f"{_model_file(path)} is not an MLEngine model.")
+    return model
+
+
+def _versions() -> dict:
+    from importlib.metadata import PackageNotFoundError, version
+
+    found = {}
+    for package in ("scikit-learn", "xgboost"):
+        try:
+            found[package.replace("-", "_") + "_version"] = version(package)
+        except PackageNotFoundError:
+            found[package.replace("-", "_") + "_version"] = None
+    return found
+
+
 class MLEngine:
-    """Unified PyCaret ML interface — supports classification and regression.
+    """Unified scikit-learn / XGBoost ML interface — supports classification and regression.
 
     Parameters
     ----------
     task : str
         'classification' or 'regression'
     model_name : str
-        PyCaret model identifier, e.g. 'xgboost', 'catboost'
+        Model id from ``skills.ml.estimators.MODEL_IDS[task]``, e.g. 'xgboost', 'lr', 'rf'
     normalize : str
-        Normalization method for PyCaret setup
+        Feature scaling: 'zscore', 'minmax', 'maxabs', 'robust' or 'none'
     """
 
     def __init__(self, task="classification", model_name="xgboost", normalize="zscore"):
-        self.task = task
-        self.model_name = model_name
-        self.normalize = normalize
-        self._pycaret = None
+        self.task = check_task(task)
+        self.model_name = check_model(task, model_name)
+        self.normalize = check_normalize(normalize)
         self.model = None
         self.model_dir = None
-
-    def _load_pycaret(self):
-        if self._pycaret is None:
-            self._pycaret = _get_pycaret(self.task)
-        return self._pycaret
+        self.session_id = None
+        self.folds = None
+        self.model_params = {}
 
     def setup_and_train(
         self,
@@ -93,62 +124,78 @@ class MLEngine:
         pca_components=None,
         session_id=369,
         n_jobs=1,
-        **create_kwargs,
+        folds=10,
+        model_params=None,
     ):
-        """Run PyCaret setup + create_model + finalize_model.
+        """Cross-validate on the 70% split, then fit the model on every row.
 
         Parameters
         ----------
         train_data : pd.DataFrame
-            Training data with target column.
+            Training data with target column; every other column is a numeric feature.
         target : str
             Target column name.
         pca_components : int, optional
             Number of PCA components. None to disable.
         session_id : int
-            Random seed.
+            Random seed for the split, the PCA, and the estimator.
         n_jobs : int
-            Number of parallel jobs.
-        **create_kwargs
-            Extra kwargs for create_model (e.g. objective, deterministic).
+            Parallel jobs for estimators that support them.
+        folds : int
+            Cross-validation folds.
+        model_params : dict, optional
+            Estimator constructor arguments overriding the defaults (e.g. n_estimators).
 
         Returns
         -------
         tuple
-            (finalized_model, cv_metrics_df)
+            (trained model, cv_metrics_df) where cv_metrics_df is indexed by fold
+            ``"0".."k-1"``, ``"Mean"``, ``"Std"``.
         """
-        setup_fn, create_model, finalize_model, _, _, pull, _, _ = self._load_pycaret()
+        from sklearn.base import clone
+        from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
-        setup_kwargs = {
-            "data": train_data,
-            "target": target,
-            "session_id": session_id,
-            "normalize": self.normalize,
-            "n_jobs": n_jobs,
-        }
-        if pca_components is not None:
-            setup_kwargs["pca"] = True
-            setup_kwargs["pca_components"] = pca_components
-
-        setup_fn(**setup_kwargs)
-
-        if not create_kwargs:
-            if self.task == "classification" and self.model_name in ("xgboost", "xgb"):
-                create_kwargs = {
-                    "deterministic": True,
-                    "nthread": 1,
-                    "n_jobs": 1,
-                    "objective": "binary:logistic",
-                }
-            elif self.task == "classification" and self.model_name in ("catboost", "catb"):
-                create_kwargs = {"nthread": 1, "objective": "Logloss"}
-
-        model = create_model(self.model_name, **create_kwargs)
-        cv_metrics = pull()
-        cv_metrics.index = cv_metrics.index.astype(str)
+        if target not in train_data.columns:
+            raise ValueError(f"train_data requires target column {target!r}")
+        features = [column for column in train_data.columns if column != target]
+        X = feature_matrix(train_data, features)
+        y = train_data[target]
+        if y.isna().any():
+            raise ValueError(f"{int(y.isna().sum())} missing values in target column {target!r}")
+        estimator = make_estimator(
+            self.task, self.model_name, random_state=session_id, n_jobs=n_jobs, params=model_params
+        )
+        pipeline = make_pipeline(
+            estimator,
+            normalize=self.normalize,
+            pca_components=pca_components,
+            random_state=session_id,
+        )
+        classes = None
+        if self.task == "classification":
+            y, classes = encode_labels(y)
+            cv = StratifiedKFold(folds)
+        else:
+            y = y.to_numpy()
+            cv = KFold(folds)
+        train_idx, test_idx = train_test_split(
+            np.arange(len(X)),
+            train_size=TRAIN_SIZE,
+            random_state=session_id,
+            shuffle=True,
+            stratify=y if self.task == "classification" else None,
+        )
+        cv_metrics = cross_validation_table(
+            pipeline, X.iloc[train_idx], y[train_idx], task=self.task, cv=cv
+        )
         logger.info("CV metrics:\n%s", cv_metrics.loc[["Mean"]])
 
-        self.model = finalize_model(model)
+        # Final fit on every row, training split first (PyCaret's finalize_model order).
+        order = np.concatenate([train_idx, test_idx])
+        fitted = clone(pipeline).fit(X.iloc[order], y[order])
+        self.model = TrainedModel(self.task, fitted, features, classes)
+        self.session_id, self.folds = session_id, folds
+        self.model_params = dict(model_params or {})
         return self.model, cv_metrics
 
     def predict(self, data):
@@ -157,31 +204,30 @@ class MLEngine:
         Parameters
         ----------
         data : pd.DataFrame
-            Data to predict on.
+            Data to predict on; it must hold the training feature columns.
 
         Returns
         -------
         pd.DataFrame
-            Predictions with prediction_label (and prediction_score if classification).
+            ``data`` plus prediction_label (and prediction_score if classification).
         """
-        _, _, _, predict_model, _, _, _, _ = self._load_pycaret()
         if self.model is None:
             raise ValueError("No model trained. Call setup_and_train() first.")
-        return predict_model(self.model, data=data)
+        return self.model.predict(data)
 
     def save(self, path):
-        """Save the trained model."""
-        _, _, _, _, save_model, _, _, _ = self._load_pycaret()
+        """Save the trained model to ``path`` (``.pkl`` is appended to a bare stem)."""
+        import joblib
+
         if self.model is None:
             raise ValueError("No model to save.")
-        save_model(self.model, path)
-        logger.info("Model saved to %s", path)
+        joblib.dump(self.model, _model_file(path))
+        logger.info("Model saved to %s", _model_file(path))
 
     def load(self, path):
-        """Load a previously saved model."""
-        _, _, _, _, _, _, load_model, _ = self._load_pycaret()
-        self.model = load_model(path)
-        logger.info("Model loaded from %s", path)
+        """Load a model saved by ``save``."""
+        self.model = load_model_file(path)
+        logger.info("Model loaded from %s", _model_file(path))
         return self.model
 
     def save_to_registry(
@@ -200,34 +246,28 @@ class MLEngine:
         model_id = f"{self.task}_{self.model_name}_{datetime.now():%Y%m%d_%H%M%S}"
         out_dir = root / "models" / namespace / model_id
         out_dir.mkdir(parents=True, exist_ok=True)
-
-        _, _, _, _, save_model, _, _, _ = self._load_pycaret()
-        model_stem = out_dir / "model"
-        save_model(self.model, str(model_stem))
+        self.save(out_dir / "model.pkl")
 
         features = None
         if train_data is not None:
             features = [c for c in train_data.columns if c != target]
 
-        try:
-            import pycaret as _pc
-
-            pycaret_version = getattr(_pc, "__version__", "unknown")
-        except Exception:
-            pycaret_version = "unknown"
-
         meta = {
             "model_id": model_id,
             "namespace": namespace,
+            "format": MODEL_FORMAT,
             "task": self.task,
             "model_name": self.model_name,
+            "model_params": self.model_params,
             "target": target,
             "features": features,
             "metrics": metrics if metrics is not None else {},
             "pca_components": pca_components,
             "normalize": self.normalize,
+            "session_id": self.session_id,
+            "folds": self.folds,
             "created_at": datetime.now().isoformat(),
-            "pycaret_version": pycaret_version,
+            **_versions(),
         }
         with open(out_dir / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, default=str)
@@ -236,12 +276,13 @@ class MLEngine:
         return model_id
 
     def load_from_registry(self, namespace: str, model_id: str, data_root: str = None) -> object:
-        """Load model from ``data/models/{namespace}/{model_id}/model`` (PyCaret stem, adds .pkl)."""
+        """Load model from ``data/models/{namespace}/{model_id}/model.pkl``."""
         root = Path(data_root) if data_root else _get_data_root_path()
-        model_stem = root / "models" / namespace / model_id / "model"
-        _, _, _, _, _, _, load_model, _ = self._load_pycaret()
-        self.model = load_model(str(model_stem))
-        logger.info("Model loaded from registry: %s", model_stem)
+        model_dir = root / "models" / namespace / model_id
+        with open(model_dir / "metadata.json", encoding="utf-8") as f:
+            check_model_format(json.load(f))
+        self.model = load_model_file(model_dir / "model.pkl")
+        logger.info("Model loaded from registry: %s", model_dir)
         return self.model
 
     @staticmethod
@@ -269,7 +310,8 @@ class MLEngine:
         pca_range=None,
         session_id=369,
         n_jobs=1,
-        **create_kwargs,
+        folds=10,
+        model_params=None,
     ):
         """Sweep PCA dimensions and train a model for each, returning metrics.
 
@@ -284,10 +326,11 @@ class MLEngine:
         session_id : int
             Random seed.
         n_jobs : int
-            Passed to PyCaret setup. Defaults to 1 (serial) because
-            PyCaret ``setup()`` is not thread-safe.
-        **create_kwargs
-            Extra kwargs forwarded to ``setup_and_train``.
+            Parallel jobs for estimators that support them.
+        folds : int
+            Cross-validation folds.
+        model_params : dict, optional
+            Estimator constructor arguments forwarded to ``setup_and_train``.
 
         Returns
         -------
@@ -306,12 +349,10 @@ class MLEngine:
                     pca_components=pca_n,
                     session_id=session_id,
                     n_jobs=n_jobs,
-                    **create_kwargs,
+                    folds=folds,
+                    model_params=model_params,
                 )
-                mean_row = (
-                    cv_metrics.loc["Mean"] if "Mean" in cv_metrics.index else cv_metrics.iloc[-1]
-                )
-                row = mean_row.to_dict()
+                row = cv_metrics.loc["Mean"].to_dict()
                 row["pca_components"] = pca_n
                 rows.append(row)
                 logger.info(
@@ -328,36 +369,24 @@ class MLEngine:
 
 
 class ModelPredictor:
-    """Inference-only wrapper: load a saved PyCaret model and predict on new data.
+    """Inference-only wrapper: load a saved MLEngine model and predict on new data.
 
-    Handles PCA alignment by concatenating train features with test features
-    (the "3-segment" trick from HZ_1).
+    Rows with missing values are dropped before predicting. Preprocessing (including
+    PCA) is fitted inside the saved pipeline, so no training rows are needed.
 
     Parameters
     ----------
     model_path : str
-        Path to the saved PyCaret model (without .pkl extension).
-    train_features : pd.DataFrame
-        Training features used during model training (needed for PCA alignment).
-    task : str
-        'classification' or 'regression'
+        Path to the saved model, with or without the ``.pkl`` extension.
     """
 
-    def __init__(self, model_path, train_features, task="classification"):
-        if task == "classification":
-            from pycaret.classification import load_model, predict_model
-        else:
-            from pycaret.regression import load_model, predict_model
-        self._predict_model = predict_model
+    def __init__(self, model_path):
         self.model_path = model_path
-        self.model = load_model(os.path.splitext(model_path)[0])
+        self.model = load_model_file(model_path)
         logger.info("Model loaded: %s", model_path)
-        self.train_features = train_features
-        self._another_train = train_features.copy()
-        self._another_train.index = self._another_train.index + pd.DateOffset(years=100)
 
     def predict(self, test_features):
-        """Predict on test features with PCA alignment.
+        """Predict on test features.
 
         Parameters
         ----------
@@ -369,14 +398,11 @@ class ModelPredictor:
         pd.DataFrame
             Columns: prediction_label, prediction_score (if classification).
         """
-        if test_features.dropna().empty:
+        rows = test_features.dropna()
+        if rows.empty:
             raise ValueError("test_features is empty after dropping NaN")
-        pca_features = pd.concat([self.train_features, test_features, self._another_train]).dropna()
-        pca_preds = self._predict_model(self.model, data=pca_features)
-        inter_idx = pca_preds.index.intersection(test_features.index)
-        if inter_idx.empty:
-            raise ValueError("No intersection between predictions and test_features")
-        pred_cols = ["prediction_label"]
-        if "prediction_score" in pca_preds.columns:
-            pred_cols.append("prediction_score")
-        return pca_preds.loc[inter_idx][pred_cols]
+        preds = self.model.predict(rows)
+        pred_cols = [LABEL_COLUMN]
+        if SCORE_COLUMN in preds.columns:
+            pred_cols.append(SCORE_COLUMN)
+        return preds[pred_cols]

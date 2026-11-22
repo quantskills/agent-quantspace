@@ -1,12 +1,12 @@
 """
 ML因子排序引擎
 
-利用PyCaret集成XGBoost/随机森林模型，将多因子信号压缩为单一ML排序因子。
+用 scikit-learn / XGBoost 模型 (见 skills.ml.estimators) 将多因子信号压缩为单一ML排序因子。
 对 Backtester 模块的扩展 (Open/Closed Principle: 对扩展开放，对修改关闭)。
 
 核心流程:
 1. 多因子 → 特征矩阵 (date, symbol, features)
-2. PyCaret 训练 (fold_strategy='timeseries' k-fold CV)
+2. 模型训练 (TimeSeriesSplit k-fold CV, 均值填补 + zscore 标准化)
 3. 预测值 → 截面 rank (0~1)
 4. rank pivot 包装为 Backtester 兼容的因子函数
 
@@ -35,16 +35,18 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-# ---------------------------------------------------------------------------
-# PyCaret lazy import (avoid slow startup when module is just imported)
-# ---------------------------------------------------------------------------
+from skills.ml.estimators import (
+    LABEL_COLUMN,
+    cross_validation_table,
+    make_estimator,
+    make_pipeline,
+    metric_table,
+    score,
+)
 
-
-def _get_pycaret_regression():
-    from pycaret.regression import RegressionExperiment
-
-    return RegressionExperiment
-
+TARGET = "forward_rank"
+SEED = 42
+N_JOBS = -1  # estimators use every core; results do not depend on it
 
 # ---------------------------------------------------------------------------
 # Helper: 将预计算 pivot 包装为 Backtester 兼容因子函数
@@ -97,7 +99,7 @@ class MLFactorEngine:
         因子配置列表, 格式同 Backtester:
         [{'func': callable, 'kwargs': dict, 'name': str}, ...]
     model_type : str
-        PyCaret 模型标识: 'xgboost' | 'rf' (随机森林)
+        回归模型 id (skills.ml.estimators.REGRESSION_MODELS): 'xgboost' | 'rf' | 'lr' ...
     target_forward : int
         前瞻 N 期收益作为训练标签 (默认 1)
     train_mode : str
@@ -111,9 +113,9 @@ class MLFactorEngine:
     retrain_freq : int
         rolling 模式的重训练间隔 (交易日, 默认 20)
     n_folds : int
-        PyCaret k-fold CV 折数 (默认 5)
-    pycaret_kwargs : dict, optional
-        额外传给 PyCaret setup() 的参数
+        TimeSeriesSplit CV 折数 (默认 5; rolling 模式上限为 训练天数 // 10, 至少 2)
+    model_params : dict, optional
+        模型构造参数, 覆盖默认值 (如 {'n_estimators': 200, 'max_depth': 3})
     """
 
     def __init__(
@@ -127,7 +129,7 @@ class MLFactorEngine:
         train_window=120,
         retrain_freq=20,
         n_folds=5,
-        pycaret_kwargs=None,
+        model_params=None,
     ):
         self.data = data
         self.factor_configs = factor_configs
@@ -138,7 +140,9 @@ class MLFactorEngine:
         self.train_window = train_window
         self.retrain_freq = retrain_freq
         self.n_folds = n_folds
-        self.pycaret_kwargs = pycaret_kwargs or {}
+        self.model_params = dict(model_params or {})
+        # 提前校验模型 id 和参数 (rolling 模式会跳过失败的窗口)
+        make_estimator("regression", model_type, random_state=SEED, params=self.model_params)
 
         # 因子名列表
         self.feature_names = [c.get("name", c["func"].__name__) for c in factor_configs]
@@ -146,9 +150,9 @@ class MLFactorEngine:
         # ---- 结果属性 (generate() 后填充) ----
         self.prediction_rank_pivot = None  # 截面 rank pivot (date × symbol)
         self.eval_df = None  # 逐日 IC, 列: eob, ic, period_type
-        self.cv_metrics_list = []  # per-window PyCaret CV 指标
-        self.holdout_metrics_list = []  # per-window PyCaret holdout 指标
-        self.models = []  # 训练得到的模型对象
+        self.cv_metrics_list = []  # per-window CV 指标 (行: 折 0..k-1, Mean, Std)
+        self.holdout_metrics_list = []  # per-window holdout 指标 (一行)
+        self.models = []  # 训练得到的模型 (sklearn Pipeline: 填补 → 标准化 → 模型)
         self.feature_importance_df = None  # 因子重要性
         self.oos_start_date = None  # 样本外起始日期
 
@@ -200,7 +204,7 @@ class MLFactorEngine:
         # 确保 eob 是 Timestamp
         feature_df["eob"] = pd.to_datetime(feature_df["eob"])
 
-        # 按时间排序 (PyCaret timeseries CV 依赖行顺序)
+        # 按时间排序 (TimeSeriesSplit 依赖行顺序)
         feature_df = feature_df.sort_values("eob").reset_index(drop=True)
 
         # Drop NaN
@@ -247,6 +251,41 @@ class MLFactorEngine:
         return pd.DataFrame({"eob": ic_series.index, "ic": ic_series.values})
 
     # ------------------------------------------------------------------
+    # 单个训练窗口: TimeSeriesSplit CV → 全量训练 → holdout → 预测
+    # ------------------------------------------------------------------
+
+    def _fit_window(self, train_df, test_df, *, n_folds, seed):
+        """Cross-validate on ``train_df`` (time order), fit on all of it, score ``test_df``.
+
+        Returns (pipeline, cv_metrics, holdout_metrics, train_pred, test_pred); the
+        prediction frames are the inputs plus a ``prediction_label`` column.
+        """
+        from sklearn.base import clone
+        from sklearn.model_selection import TimeSeriesSplit
+
+        X_train = train_df[self.feature_names]
+        y_train = train_df[TARGET].to_numpy()
+        estimator = make_estimator(
+            "regression",
+            self.model_type,
+            random_state=seed,
+            n_jobs=N_JOBS,
+            params=self.model_params,
+        )
+        pipeline = make_pipeline(estimator, normalize="zscore", random_state=seed)
+        cv_metrics = cross_validation_table(
+            pipeline, X_train, y_train, task="regression", cv=TimeSeriesSplit(n_folds)
+        )
+        model = clone(pipeline).fit(X_train, y_train)
+        X_test = test_df[self.feature_names]
+        holdout = metric_table([score("regression", model, X_test, test_df[TARGET])], "regression")
+        holdout = holdout.iloc[[0]].reset_index(drop=True)
+        holdout.insert(0, "Model", type(estimator).__name__)
+        train_pred = train_df.assign(**{LABEL_COLUMN: model.predict(X_train)})
+        test_pred = test_df.assign(**{LABEL_COLUMN: model.predict(X_test)})
+        return model, cv_metrics, holdout, train_pred, test_pred
+
+    # ------------------------------------------------------------------
     # Step 3a: 固定窗口训练
     # ------------------------------------------------------------------
 
@@ -272,33 +311,13 @@ class MLFactorEngine:
             f"{split_date.strftime('%Y-%m-%d')} ~ {dates[-1].strftime('%Y-%m-%d')}"
         )
 
-        # PyCaret setup
-        RegressionExperiment = _get_pycaret_regression()
-        exp = RegressionExperiment()
-
-        setup_kwargs = {
-            "data": train_df,
-            "test_data": test_df,
-            "target": "forward_rank",
-            "index": False,
-            "fold_strategy": "timeseries",
-            "fold": self.n_folds,
-            "data_split_shuffle": False,
-            "normalize": True,
-            "numeric_imputation": "mean",
-            "ignore_features": ["eob", "symbol", "forward_return"],
-            "session_id": 42,
-            "verbose": False,
-            "html": False,
-        }
-        setup_kwargs.update(self.pycaret_kwargs)
-        exp.setup(**setup_kwargs)
-
-        # 训练 (k-fold CV)
+        # 训练 (k-fold CV) + holdout
         print(f"   训练 {self.model_type} (timeseries {self.n_folds}-fold CV)...")
-        model = exp.create_model(self.model_type, verbose=False)
-        cv_metrics = exp.pull()
+        model, cv_metrics, holdout_metrics, train_pred, test_pred = self._fit_window(
+            train_df, test_df, n_folds=self.n_folds, seed=SEED
+        )
         self.cv_metrics_list.append(cv_metrics)
+        self.holdout_metrics_list.append(holdout_metrics)
         self.models.append(model)
 
         mean_row = cv_metrics.loc["Mean"]
@@ -306,20 +325,11 @@ class MLFactorEngine:
             f"   CV (in-sample):  MAE={mean_row['MAE']:.4f}  "
             f"MSE={mean_row['MSE']:.4f}  R2={mean_row['R2']:.4f}"
         )
-
-        # Holdout 指标
-        exp.predict_model(model, verbose=False)
-        holdout_metrics = exp.pull()
-        self.holdout_metrics_list.append(holdout_metrics)
         print(
             f"   Holdout (OOS):   MAE={holdout_metrics['MAE'].iloc[0]:.4f}  "
             f"MSE={holdout_metrics['MSE'].iloc[0]:.4f}  "
             f"R2={holdout_metrics['R2'].iloc[0]:.4f}"
         )
-
-        # 在 train / test 上分别预测
-        train_pred = exp.predict_model(model, data=train_df, verbose=False)
-        test_pred = exp.predict_model(model, data=test_df, verbose=False)
 
         # 截面 rank
         train_rank = self._compute_cross_sectional_rank(train_pred)
@@ -365,7 +375,6 @@ class MLFactorEngine:
 
         all_rank_records = []
         all_ic_records = []
-        RegressionExperiment = _get_pycaret_regression()
 
         for i, retrain_idx in enumerate(retrain_indices):
             # Expanding: 训练数据从第0天开始, 到当前重训练点
@@ -395,41 +404,14 @@ class MLFactorEngine:
                 end="",
             )
 
-            # PyCaret
-            exp = RegressionExperiment()
             n_folds = min(self.n_folds, max(2, len(train_dates) // 10))
-            setup_kwargs = {
-                "data": train_data,
-                "test_data": predict_data,
-                "target": "forward_rank",
-                "index": False,
-                "fold_strategy": "timeseries",
-                "fold": n_folds,
-                "data_split_shuffle": False,
-                "normalize": True,
-                "numeric_imputation": "mean",
-                "ignore_features": ["eob", "symbol", "forward_return"],
-                "session_id": 42 + i,
-                "verbose": False,
-                "html": False,
-            }
-            setup_kwargs.update(self.pycaret_kwargs)
-
             try:
-                exp.setup(**setup_kwargs)
-                model = exp.create_model(self.model_type, verbose=False)
-                cv_metrics = exp.pull()
+                model, cv_metrics, holdout_metrics, train_pred, predict_pred = self._fit_window(
+                    train_data, predict_data, n_folds=n_folds, seed=SEED + i
+                )
                 self.cv_metrics_list.append(cv_metrics)
-                self.models.append(model)
-
-                # Holdout
-                exp.predict_model(model, verbose=False)
-                holdout_metrics = exp.pull()
                 self.holdout_metrics_list.append(holdout_metrics)
-
-                # Predictions → rank & IC
-                train_pred = exp.predict_model(model, data=train_data, verbose=False)
-                predict_pred = exp.predict_model(model, data=predict_data, verbose=False)
+                self.models.append(model)
 
                 # Rank (collect OOS for pivot, IS for IC only)
                 predict_rank = self._compute_cross_sectional_rank(predict_pred)
@@ -487,8 +469,9 @@ class MLFactorEngine:
         """从模型中提取 feature_importances_ (XGBoost / RF 原生支持)"""
         importances = []
         for model in self.models:
-            if hasattr(model, "feature_importances_"):
-                importances.append(model.feature_importances_)
+            estimator = model[-1] if hasattr(model, "steps") else model
+            if hasattr(estimator, "feature_importances_"):
+                importances.append(estimator.feature_importances_)
 
         if importances:
             avg_imp = np.mean(importances, axis=0)
@@ -550,8 +533,8 @@ class MLFactorEngine:
         """
         返回评估摘要字典, 包含:
         - in_sample / out_of_sample: IC 统计
-        - cv_metrics_mean: PyCaret CV 指标均值
-        - holdout_metrics_mean: PyCaret holdout 指标均值
+        - cv_metrics_mean: 各窗口 CV Mean 行的均值
+        - holdout_metrics_mean: 各窗口 holdout 指标的均值
         """
         if self.eval_df is None:
             raise ValueError("请先调用 generate()")

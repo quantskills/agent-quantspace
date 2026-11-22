@@ -26,7 +26,7 @@ SUMMARY_TEXT = 200  # Characters kept from a summarized string.
 # Optional dependency profile -> module whose presence `qs version` reports.
 EXTRAS = {
     "analyze": "seaborn",
-    "ml": "pycaret",
+    "ml": "xgboost",
     "report": "jinja2",
     "query": "duckdb",
     "ts": "tsfresh",

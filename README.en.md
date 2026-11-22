@@ -144,7 +144,7 @@ Optional extras:
 ```bash
 uv sync --extra panda_data  # PandaData SDK
 uv sync --extra analyze     # plotting, time-series diagnostics, parallel analysis
-uv sync --extra ml          # optional PyCaret-based ML helpers
+uv sync --extra ml          # optional ML helpers (scikit-learn, XGBoost)
 uv sync --extra query       # optional DuckDB querying
 uv sync --extra report      # Jinja2 and report charts
 uv sync --extra live        # Apprise, requests, and APScheduler for IM push and scheduled runs

@@ -11,6 +11,7 @@ Install model dependencies with `uv sync --extra ml`.
 ## Public API
 
 ```python
+from skills.ml.estimators import MODEL_IDS, make_estimator, make_pipeline
 from skills.ml.ml_engine import MLEngine, ModelPredictor
 from skills.ml.ml_factor import MLFactorEngine, make_precomputed_factor
 from skills.ml.lasso_tracker import lasso_track
@@ -22,7 +23,8 @@ from skills.ml.walk_forward import date_level_mask, expanding_purged_folds
 
 | Module | Purpose |
 |--------|---------|
-| `skills.ml.ml_engine` | Lazy PyCaret classification/regression engine and inference wrapper |
+| `skills.ml.estimators` | Model ids with their default arguments, preprocessing pipelines (mean imputation, scaling, optional PCA), CV metric tables |
+| `skills.ml.ml_engine` | Classification/regression engine with the model registry, and an inference wrapper |
 | `skills.ml.ml_factor` | Compress factor configs into ML-ranked cross-sectional factor pivots |
 | `skills.ml.lasso_tracker` | Rolling LASSO sparse index-tracking weight generation |
 | `skills.ml.pca_fold` | Train-only PCA fold transforms (no StandardScaler) and frozen regressors |
@@ -118,12 +120,25 @@ weights = lasso_track(
 )
 ```
 
-**PyCaret classification**
+**Registry classification model**
 
 ```python
 from skills.ml.ml_engine import MLEngine
 
-engine = MLEngine(task="classification", model_name="xgboost")
-model, metrics = engine.setup_and_train(train_df, target="label")
-preds = engine.predict(test_df)
+engine = MLEngine(task="classification", model_name="xgboost")  # ids: MODEL_IDS[task]
+model, metrics = engine.setup_and_train(
+    train_df, target="label", folds=10, model_params={"max_depth": 3}
+)
+preds = engine.predict(test_df)  # adds prediction_label and prediction_score
+model_id = engine.save_to_registry("demo", train_data=train_df, target="label")
 ```
+
+`setup_and_train` follows the PyCaret 3.3 defaults QuantSpace used before: a
+shuffled 70/30 split seeded by `session_id` (stratified for classification),
+unshuffled k-fold CV on the 70% part (`StratifiedKFold` or `KFold`), then a fit on
+every row. `metrics` has rows `0..k-1`, `Mean`, `Std` and the columns Accuracy,
+AUC, Recall, Prec., F1, Kappa, MCC (classification) or MAE, MSE, RMSE, R2, RMSLE,
+MAPE (regression), rounded to four decimals. Two-class targets use binary
+averaging with the larger label as the positive class; more classes use weighted
+averaging and one-vs-rest AUC. `MLFactorEngine` uses the same pipeline with
+`TimeSeriesSplit` CV in each training window.

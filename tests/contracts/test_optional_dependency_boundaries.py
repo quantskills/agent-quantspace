@@ -11,7 +11,7 @@ def test_strategy_package_import_does_not_touch_optional_heavy_dependencies() ->
     code = """
 import builtins
 
-blocked = {"jinja2", "matplotlib", "pycaret", "sklearn", "streamlit", "xgboost"}
+blocked = {"jinja2", "matplotlib", "sklearn", "streamlit", "xgboost"}
 real_import = builtins.__import__
 
 def guarded_import(name, *args, **kwargs):
@@ -31,3 +31,19 @@ import strategies.time_series
         capture_output=True,
         text=True,
     )
+
+
+def test_pycaret_is_not_a_dependency() -> None:
+    """ML runs on scikit-learn and XGBoost directly; PyCaret pinned pandas below 2.2."""
+    assert "pycaret" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
+    assert "pycaret" not in (ROOT / "uv.lock").read_text(encoding="utf-8").lower()
+    imports = [
+        str(path.relative_to(ROOT))
+        for folder in ("skills", "strategies", "scripts")
+        for path in sorted((ROOT / folder).rglob("*.py"))
+        if any(
+            line.lstrip().startswith(("import pycaret", "from pycaret"))
+            for line in path.read_text(encoding="utf-8").splitlines()
+        )
+    ]
+    assert imports == []

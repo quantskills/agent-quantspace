@@ -27,6 +27,20 @@ from skills.cli.models import (
     PanelSource,
 )
 from skills.cli.registry import Command
+from skills.ml.estimators import (
+    CLASSIFICATION_MODELS,
+    MODEL_IDS,
+    NORMALIZE_METHODS,
+    REGRESSION_MODELS,
+)
+
+ModelId = Literal[tuple(dict.fromkeys(CLASSIFICATION_MODELS + REGRESSION_MODELS))]
+RegressionModelId = Literal[REGRESSION_MODELS]
+NormalizeMethod = Literal[NORMALIZE_METHODS]
+MODEL_PARAMS_HELP = (
+    "Estimator constructor arguments overriding the model defaults, e.g. "
+    '{"n_estimators": 200, "max_depth": 3}; unknown names are rejected.'
+)
 
 
 def _has_panel_source(args) -> bool:
@@ -60,9 +74,7 @@ class MLFactorItem(BaseModel):
 class FactorRankInput(PanelSource, OutputOptions):
     output: Path = Field(description="Destination rank table (date by symbol, values in [0, 1]).")
     factors: list[MLFactorItem] = Field(description="Feature factors, each called per symbol.")
-    model: str = Field(
-        default="xgboost", description="PyCaret regression model id, e.g. xgboost or rf."
-    )
+    model: RegressionModelId = Field(default="xgboost", description="Regression model id.")
     target_forward: int = Field(default=1, gt=0, description="Forward return horizon of the label.")
     train_mode: Literal["fixed", "rolling"] = Field(
         default="rolling", description="fixed: one split; rolling: expanding retraining."
@@ -72,10 +84,10 @@ class FactorRankInput(PanelSource, OutputOptions):
     retrain_freq: int = Field(
         default=20, gt=0, description="rolling mode retraining interval in days."
     )
-    n_folds: int = Field(default=5, gt=1, description="PyCaret cross-validation folds.")
-    pycaret_kwargs: dict[str, Any] = Field(
-        default_factory=dict, description="Extra keyword arguments for PyCaret setup()."
+    n_folds: int = Field(
+        default=5, gt=1, description="TimeSeriesSplit cross-validation folds per training window."
     )
+    model_params: dict[str, Any] = Field(default_factory=dict, description=MODEL_PARAMS_HELP)
     importance_output: Path | None = Field(
         default=None, description="Optional feature importance table."
     )
@@ -121,7 +133,7 @@ def factor_rank(args: FactorRankInput) -> CommandResult:
         train_window=args.train_window,
         retrain_freq=args.retrain_freq,
         n_folds=args.n_folds,
-        pycaret_kwargs=args.pycaret_kwargs,
+        model_params=args.model_params,
     )
     rank = engine.generate()
     importance = None
@@ -369,17 +381,25 @@ class TrainInput(CLIModel):
     task: Literal["classification", "regression"] = Field(
         default="classification", description="MLEngine task."
     )
-    model_name: str = Field(default="xgboost", description="PyCaret model id, e.g. xgboost or lr.")
-    normalize: str = Field(default="zscore", description="PyCaret normalize method.")
+    model_name: ModelId = Field(
+        default="xgboost",
+        description=f"Model id. Classification: {', '.join(CLASSIFICATION_MODELS)}. "
+        f"Regression: {', '.join(REGRESSION_MODELS)}.",
+    )
+    normalize: NormalizeMethod = Field(
+        default="zscore", description="Feature scaling after mean imputation; none disables it."
+    )
     pca_components: int | None = Field(
-        default=None, gt=0, description="PyCaret PCA components; omitted disables PCA."
+        default=None, gt=0, description="PCA components after scaling; omitted disables PCA."
     )
-    session_id: int = Field(default=369, description="PyCaret random seed.")
-    n_jobs: int = Field(default=1, gt=0, description="PyCaret parallel jobs.")
-    create_kwargs: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Extra create_model arguments; omitted uses MLEngine's deterministic defaults.",
+    session_id: int = Field(
+        default=369, description="Random seed for the 70/30 split, PCA, and the model."
     )
+    n_jobs: int = Field(default=1, gt=0, description="Parallel jobs for models that support them.")
+    folds: int = Field(
+        default=10, gt=1, description="Cross-validation folds on the 70% training split."
+    )
+    model_params: dict[str, Any] = Field(default_factory=dict, description=MODEL_PARAMS_HELP)
     namespace: str = Field(description="Registry namespace under data/models.")
     data_root: Path | None = Field(
         None, description="Managed data root; otherwise QUANTSPACE_DATA_ROOT or repository data/."
@@ -387,6 +407,15 @@ class TrainInput(CLIModel):
     write: bool = Field(
         default=False, description="Train and save to the registry; otherwise return a plan."
     )
+
+    @model_validator(mode="after")
+    def model_fits_task(self):
+        if self.model_name not in MODEL_IDS[self.task]:
+            raise ValueError(
+                f"model_name {self.model_name!r} is not a {self.task} model; choose one of "
+                + ", ".join(MODEL_IDS[self.task])
+            )
+        return self
 
 
 class TrainData(BaseModel):
@@ -398,7 +427,7 @@ class TrainData(BaseModel):
     rows: int = Field(description="Training rows.")
     features: list[str] = Field(description="Feature columns: every column except the target.")
     cv_metrics_mean: dict[str, float | None] = Field(
-        description="Mean row of the PyCaret CV metrics, also stored in metadata.json."
+        description="Mean row of the cross-validation metrics, also stored in metadata.json."
     )
 
 
@@ -416,6 +445,11 @@ def train(args: TrainInput) -> CommandResult:
         "rows": len(frame),
         "features": features,
     }
+    from skills.ml.estimators import feature_matrix, make_estimator
+
+    # Reject bad features or model parameters in the plan too, before anything trains.
+    feature_matrix(frame, [column for column in frame.columns if column != args.target])
+    make_estimator(args.task, args.model_name, params=args.model_params)
     if not args.write:
         return CommandResult(
             data=TrainData(dry_run=True, model_id=None, cv_metrics_mean={}, **plan)
@@ -429,9 +463,10 @@ def train(args: TrainInput) -> CommandResult:
         pca_components=args.pca_components,
         session_id=args.session_id,
         n_jobs=args.n_jobs,
-        **args.create_kwargs,
+        folds=args.folds,
+        model_params=args.model_params,
     )
-    mean = cv_metrics.loc["Mean"] if "Mean" in cv_metrics.index else cv_metrics.iloc[-1]
+    mean = cv_metrics.loc["Mean"]
     metrics = json_safe({str(key): value for key, value in mean.to_dict().items()})
     model_id = engine.save_to_registry(
         namespace,
@@ -460,11 +495,14 @@ class PredictData(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rows: int = Field(description="Predicted rows.")
     task: str = Field(description="Task recorded in the model metadata.")
-    columns: list[str] = Field(description="Prediction columns added by PyCaret.")
+    columns: list[str] = Field(
+        description="Added columns: prediction_label, plus prediction_score (probability of "
+        "the predicted class) for classifiers with probabilities."
+    )
 
 
 def predict(args: PredictInput) -> CommandResult:
-    from skills.ml.ml_engine import MLEngine
+    from skills.ml.ml_engine import MLEngine, check_model_format
 
     check_output(args.output, overwrite=args.overwrite, data_root=args.data_root)
     namespace = _namespace(args.namespace)
@@ -484,6 +522,15 @@ def predict(args: PredictInput) -> CommandResult:
             exit_code=3,
             hint=f"Run `uv run qs store list --kind models --namespace {namespace}` for saved models.",
         )
+    try:
+        check_model_format(meta)
+    except ValueError as exc:
+        raise CLIError(
+            "INVALID_INPUT",
+            str(exc),
+            hint=f"Retrain with `uv run qs ml train --train <table> --namespace {namespace} "
+            f"--model-name {meta.get('model_name')} --write`, then predict with the new model id.",
+        ) from exc
     engine = MLEngine(task=meta["task"], model_name=meta["model_name"], normalize=meta["normalize"])
     engine.load_from_registry(namespace, args.model_id, data_root=root)
     frame = read_frame(args.data)
@@ -534,7 +581,7 @@ COMMANDS = [
         TrainInput,
         TrainData,
         train,
-        "Train a PyCaret MLEngine model and save it to the model registry.",
+        "Train a scikit-learn or XGBoost MLEngine model and save it to the model registry.",
         side_effects=("writes-store",),
         priority="P2",
     ),

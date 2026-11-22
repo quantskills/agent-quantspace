@@ -1,6 +1,6 @@
 ---
 name: ml
-description: Rank factors with a walk-forward model, plan purged walk-forward folds, fit train-only PCA regressors, track an index with sparse LASSO weights, and train or apply registered PyCaret models with `uv run qs ml ...`.
+description: Rank factors with a walk-forward model, plan purged walk-forward folds, fit train-only PCA regressors, track an index with sparse LASSO weights, and train or apply registered scikit-learn / XGBoost models with `uv run qs ml ...`.
 ---
 
 # ML
@@ -46,7 +46,11 @@ uv run qs ml predict --data out/predict.parquet --namespace demo --model-id <mod
 - `factor-rank` writes a wide date by symbol rank table, the `--scores` input
   of `qs strategy top-n`.
 - `train --write` stores the model under `data/models/<namespace>/`; without
-  `--write` it only reports the plan.
+  `--write` it only reports the plan. `predict` refuses models saved by the old
+  PyCaret engine; train them again.
+- `--model-name` (train) and `--model` (factor-rank) take the ids listed in
+  `--help`; `--model-params` passes estimator arguments such as
+  `{"n_estimators": 200}`.
 
 ## Rules
 
@@ -59,8 +63,8 @@ uv run qs ml predict --data out/predict.parquet --namespace demo --model-id <mod
 ## References
 
 - [references/python-api.md](references/python-api.md): `MLFactorEngine`,
-  walk-forward folds, PCA fold transforms, LASSO tracking, and the PyCaret
-  engine. Read it when changing this Skill or writing strategy code.
+  walk-forward folds, PCA fold transforms, LASSO tracking, and the `MLEngine`
+  model registry. Read it when changing this Skill or writing strategy code.
 
 ## CLI command reference
 
@@ -74,7 +78,7 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | `uv run qs ml lasso-track` | Rolling LASSO index-tracking weights. | writes-output |
 | `uv run qs ml folds` | Expanding walk-forward folds with label purge. | read-only |
 | `uv run qs ml pca-predict` | Fit train-only PCA and a frozen regressor, then predict rows. | writes-output |
-| `uv run qs ml train` | Train a PyCaret MLEngine model and save it to the model registry. | writes-store |
+| `uv run qs ml train` | Train a scikit-learn or XGBoost MLEngine model and save it to the model registry. | writes-store |
 | `uv run qs ml predict` | Predict with a registry model. | writes-output |
 
 <!-- END GENERATED: qs commands -->

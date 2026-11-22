@@ -119,7 +119,7 @@ fixture 数据是合成 OHLCV，不需要 PandaData 凭据，结果可复现，�
 ```bash
 uv sync --extra panda_data  # PandaData SDK
 uv sync --extra analyze     # 绘图、时序诊断和并行分析
-uv sync --extra ml          # 可选 PyCaret ML 辅助模块
+uv sync --extra ml          # 可选 ML 辅助模块（scikit-learn、XGBoost）
 uv sync --extra query       # 可选 DuckDB 查询能力
 uv sync --extra report      # Jinja2 与报告图表
 uv sync --extra live        # Apprise、requests 和 APScheduler，用于 IM 推送和定时运行

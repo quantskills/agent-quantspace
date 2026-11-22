@@ -1,14 +1,13 @@
 """Tests for the ``qs ml`` command adapters.
 
-``lasso-track``, ``folds`` and ``pca-predict`` run for real. PyCaret is never trained: the
-``factor-rank`` command is tested with a stand-in for ``MLFactorEngine``, and ``train`` and
-``predict`` run the real ``MLEngine`` registry code over a fake ``_get_pycaret``.
+``lasso-track``, ``folds``, ``pca-predict``, ``train`` and ``predict`` run for real on small
+tables. ``factor-rank`` is mostly tested with a stand-in for ``MLFactorEngine``; two tests run
+the real engine.
 """
 
 from __future__ import annotations
 
 import json
-import pickle
 
 import numpy as np
 import pandas as pd
@@ -109,7 +108,7 @@ class FakeFactorEngine:
 
 
 class TextMetricsEngine(MLFactorEngine):
-    """The real get_eval_summary over PyCaret-style holdout metrics with a text Model column."""
+    """The real get_eval_summary over holdout metrics that carry a text Model column."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -169,7 +168,7 @@ def test_factor_rank_builds_the_engine_from_the_inputs_and_writes_the_rank(
             panel_path, output, "--importance-output", str(importance), "--model", "rf",
             "--target-forward", "3", "--train-mode", "fixed", "--train-ratio", "0.6",
             "--train-window", "50", "--retrain-freq", "10", "--n-folds", "3",
-            "--pycaret-kwargs", '{"fold_strategy": "timeseries"}',
+            "--model-params", '{"n_estimators": 50}',
         ),
     )  # fmt: skip
     assert code == 0, body
@@ -184,7 +183,7 @@ def test_factor_rank_builds_the_engine_from_the_inputs_and_writes_the_rank(
         "train_window": 50,
         "retrain_freq": 10,
         "n_folds": 3,
-        "pycaret_kwargs": {"fold_strategy": "timeseries"},
+        "model_params": {"n_estimators": 50},
     }
     first, second = kwargs["factor_configs"]
     assert first == {"func": discover_indicators()["roc"], "kwargs": {"period": 3}, "name": "roc3"}
@@ -251,11 +250,11 @@ def test_factor_rank_defaults_and_store_panel_source(capsys, tmp_path, fake_engi
         120,
         20,
     )
-    assert (kwargs["train_ratio"], kwargs["n_folds"], kwargs["pycaret_kwargs"]) == (0.7, 5, {})
+    assert (kwargs["train_ratio"], kwargs["n_folds"], kwargs["model_params"]) == (0.7, 5, {})
     assert list(kwargs["data"].index.get_level_values("symbol").unique()) == ["S0", "S1", "S2"]
 
 
-def test_factor_rank_evaluation_averages_pycaret_metrics_past_the_text_model_column(
+def test_factor_rank_evaluation_averages_holdout_metrics_past_the_text_model_column(
     capsys, tmp_path, panel_file, monkeypatch
 ):
     _, panel_path = panel_file
@@ -317,6 +316,8 @@ def test_factor_rank_output_conflicts_leave_files_untouched(
         ["--n-folds", "1"],
         ["--target-forward", "0"],
         ["--train-mode", "sliding"],
+        ["--model", "lightgbm"],
+        ["--model", "gbc"],  # a classification-only id
     ],
 )
 def test_factor_rank_rejects_invalid_inputs(capsys, tmp_path, panel_file, fake_engine, extra):
@@ -338,6 +339,36 @@ def test_factor_rank_rejects_invalid_inputs(capsys, tmp_path, panel_file, fake_e
     code, body = run(capsys, *argv)
     assert body["ok"] is False and code in (2, 3), body
     assert fake_engine.instances == [] and not output.exists()
+
+
+def test_factor_rank_with_the_real_engine_writes_unit_interval_ranks(capsys, tmp_path, panel_file):
+    _, panel_path = panel_file
+    output, importance = tmp_path / "rank.parquet", tmp_path / "importance.parquet"
+    code, body = run(
+        capsys,
+        *rank_argv(
+            panel_path, output, "--model", "rf", "--train-mode", "fixed", "--n-folds", "2",
+            "--model-params", '{"n_estimators": 10, "n_jobs": 1}',
+            "--importance-output", str(importance),
+        ),
+    )  # fmt: skip
+    assert code == 0, body
+    ranks = pd.read_parquet(output)
+    assert set(ranks.columns) == set(SYMBOLS) and len(ranks) == body["data"]["rows"]
+    values = ranks.to_numpy(dtype=float)
+    assert np.nanmin(values) > 0 and np.nanmax(values) <= 1
+    evaluation = body["data"]["evaluation"]
+    assert set(evaluation["cv_metrics_mean"]) == {"MAE", "MSE", "RMSE", "R2", "RMSLE", "MAPE"}
+    assert set(evaluation["holdout_metrics_mean"]) == set(evaluation["cv_metrics_mean"])
+    assert sorted(pd.read_parquet(importance)["feature"]) == ["roc3", "rsi"]
+
+
+def test_factor_rank_real_engine_rejects_unknown_model_params(capsys, tmp_path, panel_file):
+    _, panel_path = panel_file
+    output = tmp_path / "rank.parquet"
+    code, body = run(capsys, *rank_argv(panel_path, output, "--model-params", '{"depth": 3}'))
+    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "depth" in body["error"]["message"] and not output.exists()
 
 
 def test_factor_rank_unknown_function_reference_is_invalid_input(
@@ -696,93 +727,24 @@ def test_pca_predict_input_errors_and_conflicts(capsys, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# train and predict (real MLEngine registry code over a fake PyCaret)
+# train and predict (real MLEngine on small tables)
 # ---------------------------------------------------------------------------
 
 
-class FakeModel:
-    """Predicts the row mean of the feature columns; picklable like a PyCaret pipeline."""
-
-    def predict_frame(self, data):
-        features = data.drop(columns=[c for c in ("label",) if c in data.columns])
-        return features.mean(axis=1)
-
-
-class FakePyCaret:
-    def __init__(self):
-        self.calls = []
-
-    def functions(self):
-        def setup(**kwargs):
-            self.calls.append(("setup", kwargs))
-
-        def create_model(name, **kwargs):
-            self.calls.append(("create_model", {"name": name, **kwargs}))
-            return FakeModel()
-
-        def finalize_model(model):
-            self.calls.append(("finalize_model", {}))
-            return model
-
-        def predict_model(model, data):
-            self.calls.append(("predict_model", {}))
-            result = data.copy()
-            result["prediction_label"] = model.predict_frame(data)
-            return result
-
-        def save_model(model, stem):
-            with open(f"{stem}.pkl", "wb") as stream:
-                pickle.dump(model, stream)
-
-        def pull():
-            return pd.DataFrame(
-                {"Accuracy": [0.5, 0.7, 0.6, 0.1], "AUC": [0.6, 0.8, 0.7, 0.1]},
-                index=["0", "1", "Mean", "Std"],
-            )
-
-        def load_model(stem):
-            with open(f"{stem}.pkl", "rb") as stream:
-                return pickle.load(stream)
-
-        return (
-            setup, create_model, finalize_model, predict_model, save_model, pull, load_model,
-            lambda *a, **k: None,
-        )  # fmt: skip
-
-
-@pytest.fixture
-def pycaret(monkeypatch):
-    fake = FakePyCaret()
-    monkeypatch.setattr(ml_engine, "_get_pycaret", lambda task: fake.functions())
-    return fake
-
-
-def describe(calls):
-    """Calls with DataFrame arguments reduced to their shape and columns."""
-    return [
-        (
-            name,
-            {
-                key: (value.shape, list(value.columns))
-                if isinstance(value, pd.DataFrame)
-                else value
-                for key, value in kwargs.items()
-            },
-        )
-        for name, kwargs in calls
-    ]
-
-
-def training_table(tmp_path, rows=40):
+def training_table(tmp_path, rows=40, labels=(0, 1)):
     rng = np.random.default_rng(8)
     frame = pd.DataFrame({"feature_a": rng.normal(size=rows), "feature_b": rng.normal(size=rows)})
-    frame["label"] = (frame["feature_a"] > 0).astype(int)
+    frame["label"] = np.where(frame["feature_a"] > 0, labels[1], labels[0])
     path = tmp_path / "train.parquet"
     frame.to_parquet(path)
     return frame, path
 
 
-def test_train_without_write_is_a_plan_and_writes_nothing(capsys, tmp_path, pycaret):
+def test_train_without_write_is_a_plan_and_writes_nothing(capsys, tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("a plan must not train")
+
+    monkeypatch.setattr(MLEngine, "setup_and_train", refuse)
     frame, path = training_table(tmp_path)
     root = tmp_path / "root"
     code, body = run(
@@ -798,18 +760,14 @@ def test_train_without_write_is_a_plan_and_writes_nothing(capsys, tmp_path, pyca
         "features": ["feature_a", "feature_b"],
         "cv_metrics_mean": {},
     }
-    assert pycaret.calls == [] and not root.exists() and body["artifacts"] == []
+    assert not root.exists() and body["artifacts"] == []
 
 
-def test_train_write_saves_the_model_with_metadata(capsys, tmp_path, pycaret):
+def test_train_write_saves_the_model_with_metadata(capsys, tmp_path):
     frame, path = training_table(tmp_path)
     root = tmp_path / "root"
     direct = MLEngine(task="classification", model_name="xgboost", normalize="zscore")
-    _, cv_metrics = direct.setup_and_train(
-        frame, target="label", pca_components=None, session_id=369, n_jobs=1
-    )
-    direct_calls = list(pycaret.calls)
-    pycaret.calls.clear()
+    _, cv_metrics = direct.setup_and_train(frame, target="label")
     code, body = run(
         capsys, "train", "--train", str(path), "--namespace", "demo", "--data-root", str(root),
         "--write",
@@ -817,15 +775,26 @@ def test_train_write_saves_the_model_with_metadata(capsys, tmp_path, pycaret):
     assert code == 0, body
     data = body["data"]
     assert data["dry_run"] is False
+    assert list(cv_metrics.index) == [str(i) for i in range(10)] + ["Mean", "Std"]
     assert data["cv_metrics_mean"] == json_safe(cv_metrics.loc["Mean"].to_dict())
-    # Same PyCaret setup / create_model / finalize sequence as a direct MLEngine call.
-    assert describe(pycaret.calls) == describe(direct_calls)
+    assert list(data["cv_metrics_mean"]) == [
+        "Accuracy",
+        "AUC",
+        "Recall",
+        "Prec.",
+        "F1",
+        "Kappa",
+        "MCC",
+    ]
     model_dir = root / "models" / "demo" / data["model_id"]
     assert data["model_id"].startswith("classification_xgboost_")
     meta = json.loads((model_dir / "metadata.json").read_text())
     assert meta["features"] == ["feature_a", "feature_b"]
     assert meta["metrics"] == data["cv_metrics_mean"] and meta["target"] == "label"
     assert meta["task"] == "classification" and meta["normalize"] == "zscore"
+    assert meta["format"] == ml_engine.MODEL_FORMAT and "pycaret_version" not in meta
+    assert (meta["session_id"], meta["folds"], meta["model_params"]) == (369, 10, {})
+    assert meta["scikit_learn_version"] and meta["xgboost_version"]
     assert (model_dir / "model.pkl").exists()
     assert body["artifacts"] == [
         {
@@ -841,58 +810,105 @@ def test_train_write_saves_the_model_with_metadata(capsys, tmp_path, pycaret):
     ]
 
 
-def test_train_options_reach_pycaret(capsys, tmp_path, pycaret):
+def test_train_options_reach_the_engine(capsys, tmp_path):
     frame, path = training_table(tmp_path)
+    root = tmp_path / "root"
+    params = {"fit_intercept": False}
     code, body = run(
         capsys, "train", "--train", str(path), "--namespace", "demo", "--write",
-        "--data-root", str(tmp_path / "root"), "--task", "regression", "--model-name", "lr",
+        "--data-root", str(root), "--task", "regression", "--model-name", "lr",
         "--normalize", "minmax", "--pca-components", "2", "--session-id", "5", "--n-jobs", "2",
-        "--create-kwargs", '{"fold": 3}',
+        "--folds", "3", "--model-params", json.dumps(params),
     )  # fmt: skip
     assert code == 0, body
-    assert body["data"]["model_id"].startswith("regression_lr_")
-    setup = dict(pycaret.calls)["setup"]
-    assert setup["target"] == "label" and setup["session_id"] == 5 and setup["n_jobs"] == 2
-    assert setup["normalize"] == "minmax" and setup["pca"] is True and setup["pca_components"] == 2
-    pd.testing.assert_frame_equal(setup["data"], frame)
-    assert dict(pycaret.calls)["create_model"] == {"name": "lr", "fold": 3}
+    data = body["data"]
+    assert data["model_id"].startswith("regression_lr_")
+    direct = MLEngine(task="regression", model_name="lr", normalize="minmax")
+    _, cv_metrics = direct.setup_and_train(
+        frame, target="label", pca_components=2, session_id=5, n_jobs=2, folds=3,
+        model_params=params,
+    )  # fmt: skip
+    assert len(cv_metrics) == 3 + 2
+    assert data["cv_metrics_mean"] == json_safe(cv_metrics.loc["Mean"].to_dict())
+    loaded = MLEngine(task="regression", model_name="lr")
+    model = loaded.load_from_registry("demo", data["model_id"], data_root=str(root))
+    steps = dict(model.pipeline.steps)
+    assert list(steps) == ["imputer", "scaler", "pca", "model"]
+    assert type(steps["scaler"]).__name__ == "MinMaxScaler" and steps["pca"].n_components == 2
+    assert steps["model"].get_params()["fit_intercept"] is False
+    assert steps["model"].get_params()["n_jobs"] == 2
+    meta = MLEngine.list_models("demo", data_root=str(root))[0]
+    assert (meta["normalize"], meta["pca_components"], meta["session_id"]) == ("minmax", 2, 5)
+    assert (meta["folds"], meta["model_params"]) == (3, params)
 
 
-def test_train_input_errors_do_not_train(capsys, tmp_path, pycaret):
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--target", "missing"],
+        ["--pca-components", "0"],
+        ["--task", "ranking"],
+        ["--model-name", "lightgbm"],
+        ["--model-name", "lasso"],  # a regression-only id with the default classification task
+        ["--normalize", "zscored"],
+        ["--folds", "1"],
+        ["--model-params", '{"no_such_param": 1}'],
+    ],
+)
+def test_train_input_errors_do_not_train(capsys, tmp_path, extra):
+    _, path = training_table(tmp_path)
+    root = tmp_path / "root"
+    base = ["train", "--train", str(path), "--data-root", str(root), "--namespace", "demo"]
+    for write in ([], ["--write"]):
+        code, body = run(capsys, *base, *write, *extra)
+        assert_error(code, body, "INVALID_INPUT", 2)
+    assert not root.exists()
+
+
+def test_train_namespace_text_features_and_missing_table_errors(capsys, tmp_path):
     frame, path = training_table(tmp_path)
     root = tmp_path / "root"
     base = ["train", "--train", str(path), "--data-root", str(root), "--write"]
-    code, body = run(capsys, *base, "--namespace", "demo", "--target", "missing")
-    assert_error(code, body, "INVALID_INPUT", 2)
     for namespace in ("a/b", "..", ""):
         code, body = run(capsys, *base, "--namespace", namespace)
         assert_error(code, body, "INVALID_INPUT", 2)
     code, body = run(capsys, *base)  # namespace is required
     assert_error(code, body, "INVALID_INPUT", 2)
-    code, body = run(capsys, *base, "--namespace", "demo", "--pca-components", "0")
+    text = tmp_path / "text.parquet"
+    frame.assign(sector="bank").to_parquet(text)
+    code, body = run(capsys, "train", "--train", str(text), "--namespace", "demo")
     assert_error(code, body, "INVALID_INPUT", 2)
-    code, body = run(capsys, *base, "--namespace", "demo", "--task", "ranking")
-    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "sector" in body["error"]["message"]
     code, body = run(
         capsys, "train", "--train", str(tmp_path / "missing.parquet"), "--namespace", "demo"
     )
     assert_error(code, body, "NOT_FOUND", 3)
-    assert pycaret.calls == [] and not root.exists()
+    assert not root.exists()
 
 
-def test_predict_equals_the_registry_models_prediction(capsys, tmp_path, pycaret):
-    frame, path = training_table(tmp_path)
+@pytest.mark.parametrize(
+    ("task", "model", "labels", "columns"),
+    [
+        ("classification", "xgboost", (-1, 1), ["prediction_label", "prediction_score"]),
+        ("classification", "ridge", (0, 1), ["prediction_label"]),  # no probabilities
+        ("regression", "rf", (0, 1), ["prediction_label"]),
+    ],
+)
+def test_predict_equals_the_registry_models_prediction(
+    capsys, tmp_path, task, model, labels, columns
+):
+    frame, path = training_table(tmp_path, labels=labels)
     root = tmp_path / "root"
     code, body = run(
         capsys, "train", "--train", str(path), "--namespace", "demo", "--write",
-        "--data-root", str(root),
+        "--data-root", str(root), "--task", task, "--model-name", model,
     )  # fmt: skip
     assert code == 0, body
     model_id = body["data"]["model_id"]
     rows = frame.drop(columns=["label"]).head(7)
     data_path = tmp_path / "rows.parquet"
     rows.to_parquet(data_path)
-    direct = MLEngine(task="classification", model_name="xgboost", normalize="zscore")
+    direct = MLEngine(task=task, model_name=model)
     direct.load_from_registry("demo", model_id, data_root=str(root))
     expected = direct.predict(rows)
     output = tmp_path / "predictions.parquet"
@@ -902,8 +918,10 @@ def test_predict_equals_the_registry_models_prediction(capsys, tmp_path, pycaret
     )  # fmt: skip
     assert code == 0, body
     pd.testing.assert_frame_equal(pd.read_parquet(output), expected)
-    assert body["data"] == {"rows": 7, "task": "classification", "columns": ["prediction_label"]}
+    assert body["data"] == {"rows": 7, "task": task, "columns": columns}
     assert body["artifacts"][0]["name"] == "predictions"
+    if task == "classification":
+        assert set(expected["prediction_label"]) <= set(labels)
     # Conflict leaves the existing predictions alone.
     output.write_bytes(b"keep me")
     code, body = run(
@@ -914,7 +932,7 @@ def test_predict_equals_the_registry_models_prediction(capsys, tmp_path, pycaret
     assert output.read_bytes() == b"keep me"
 
 
-def test_predict_errors(capsys, tmp_path, pycaret):
+def test_predict_errors(capsys, tmp_path):
     frame, path = training_table(tmp_path)
     root = tmp_path / "root"
     output = tmp_path / "predictions.parquet"
@@ -937,4 +955,39 @@ def test_predict_errors(capsys, tmp_path, pycaret):
         "--model-id", model_id, "--data-root", str(root), "--output", str(output),
     )  # fmt: skip
     assert_error(code, body, "NOT_FOUND", 3)
+    rows = tmp_path / "rows.parquet"
+    frame[["feature_a"]].to_parquet(rows)  # feature_b is missing
+    code, body = run(
+        capsys, "predict", "--data", str(rows), "--namespace", "demo",
+        "--model-id", model_id, "--data-root", str(root), "--output", str(output),
+    )  # fmt: skip
+    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "feature_b" in body["error"]["message"]
+    assert not output.exists()
+
+
+def test_predict_refuses_a_pycaret_model_and_asks_for_retraining(capsys, tmp_path):
+    frame, path = training_table(tmp_path)
+    root = tmp_path / "root"
+    model_dir = root / "models" / "demo" / "classification_xgboost_20250101_000000"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.pkl").write_bytes(b"a PyCaret pipeline")
+    meta = {
+        "model_id": model_dir.name,
+        "namespace": "demo",
+        "task": "classification",
+        "model_name": "catboost",
+        "normalize": "zscore",
+        "created_at": "2025-01-01T00:00:00",
+        "pycaret_version": "3.3.2",
+    }
+    (model_dir / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    output = tmp_path / "predictions.parquet"
+    code, body = run(
+        capsys, "predict", "--data", str(path), "--namespace", "demo", "--model-id", model_dir.name,
+        "--data-root", str(root), "--output", str(output),
+    )  # fmt: skip
+    assert_error(code, body, "INVALID_INPUT", 2)
+    assert "PyCaret 3.3.2" in body["error"]["message"]
+    assert "qs ml train" in body["error"]["hint"] and "--namespace demo" in body["error"]["hint"]
     assert not output.exists()

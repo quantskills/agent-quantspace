@@ -20,6 +20,7 @@ PUBLIC_MODULES = [
     "skills.backtest.weighting",
     "skills.analyze.factor_analysis",
     "skills.analyze.factor_information",
+    "skills.ml.estimators",
     "skills.ml.lasso_tracker",
     "skills.ml.ml_engine",
     "skills.ml.ml_factor",
