@@ -439,7 +439,16 @@ def workflow_arguments(argv: Sequence[str] | None = None):
         help="Minute futures strategies: PandaAI account code or id to trade with --write; "
         "only SimNow accounts (broker 9999) are traded.",
     )
+    parser.add_argument(
+        "--max-lots",
+        type=int,
+        default=None,
+        help="Minute futures strategies: most contracts any actual contract may target; "
+        "a larger target places no order and alerts over_limit.",
+    )
     args = parser.parse_args(argv)
+    if args.max_lots is not None and args.max_lots < 1:
+        parser.error("--max-lots must be at least 1")
     args.bar = datetime.fromisoformat(args.bar) if args.bar else None
     args.now = (
         datetime.fromisoformat(args.now)

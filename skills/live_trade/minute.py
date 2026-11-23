@@ -25,13 +25,15 @@ from .execution import ExecutionResult
 from .feeds import FeedNotReady, MinuteFeed, RefreshReport, _write_json, upcoming_trading_date
 from .ledger import SignalLedger
 from .runner import Delivery, RunLog, RunOutcome, deliver_signal, send_alert
-from .sizing import size_targets
+from .sizing import SizingLimitError, size_targets
 from .spec import LiveSpec
 
 Compute = Callable[[pd.DataFrame], pd.DataFrame]
 # ``execute(wanted contracts per actual contract, request id)``, e.g. a bound
 # :func:`~skills.live_trade.execution.execute_targets`.
 Execute = Callable[[Mapping[str, int], str], Any]
+# While ``<data_root>/live/<strategy_id>/STOP`` exists, bars still signal but place no orders.
+STOP_FILE = "STOP"
 
 _BAR_ALERTS = {
     "error": "这根 K 线运行出错，没有生成信号。",
@@ -47,7 +49,14 @@ _EXECUTION_ALERTS = {
     "rejected": "有委托被拒绝或撤销，持仓没有达到目标。",
     "pending_cancel": "上一根 K 线的委托还没撤完，本根没有下新单。",
     "unknown": "有委托回报不明，自动下单已停止，请在客户端核实。",
+    "stopped": "发现紧急停止文件，自动下单已暂停；信号照常推送，删除该文件后恢复下单。",
+    "over_limit": "目标手数超过单合约上限，本根 K 线没有下单。",
 }
+
+
+def stop_file(strategy_id: str, data_root: str | Path | None = None) -> Path:
+    """The emergency stop file ``<data_root>/live/<strategy_id>/STOP`` (it may not exist)."""
+    return RunLog(strategy_id, data_root).path.parent / STOP_FILE
 
 
 def _notes(spec: LiveSpec, contracts: dict[str, str], halted: dict[str, str]) -> list[str]:
@@ -82,6 +91,7 @@ def run_bar(
     data_root: str | Path | None = None,
     urls: Sequence[str] | None = None,
     execute: Execute | None = None,
+    max_lots: int | None = None,
 ) -> RunOutcome:
     """Run the strategy for the bar ending at ``bar``.
 
@@ -95,7 +105,9 @@ def run_bar(
     into whole contracts of each actual contract and handed to ``execute`` after the
     signal; its result is logged with the bar, every bar that placed orders is pushed as a
     ``trade`` message, and each kind of execution problem alerts once per trade date. The
-    bar's status stays the delivery status, so a finished bar never trades twice.
+    bar's status stays the delivery status, so a finished bar never trades twice. Two safety
+    switches place no order: the :func:`stop_file` (execution ``stopped``) and ``max_lots``,
+    the most contracts any actual contract may target (``over_limit``).
     """
     runs = RunLog(spec.strategy_id, data_root)
     alerts: list[DeliveryResult] = []
@@ -182,9 +194,15 @@ def run_bar(
         return finish("error", f"{type(exc).__name__}: {exc}")
     execution = None
     if write and execute is not None:
+        stop = runs.path.parent / STOP_FILE
         try:
-            wanted = wanted_contracts(spec, snapshot, state, capital, lot_size)
-            execution = execute(wanted, f"{spec.strategy_id}:{label}")
+            if stop.exists():
+                execution = ExecutionResult("stopped", f"停止文件：{stop}")
+            else:
+                wanted = wanted_contracts(spec, snapshot, state, capital, lot_size, max_lots)
+                execution = execute(wanted, f"{spec.strategy_id}:{label}")
+        except SizingLimitError as exc:
+            execution = ExecutionResult("over_limit", "；".join(exc.breaches))
         except Exception as exc:  # noqa: BLE001 - reported and alerted like any bar problem
             execution = ExecutionResult("error", f"{type(exc).__name__}: {exc}")
         if execution.legs:
@@ -208,15 +226,25 @@ def wanted_contracts(
     state: Any,
     capital: float | None,
     lot_size: int = 100,
+    max_lots: int | None = None,
 ) -> dict[str, int]:
-    """Whole contracts per actual contract for the full target, rounded toward zero."""
+    """Whole contracts per actual contract for the full target, rounded toward zero.
+
+    Raises :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
+    ``max_lots``.
+    """
     if not spec.futures:
         raise ValueError("automatic orders are only wired for futures strategies")
     if capital is None:
         raise ValueError("--capital is required to size orders")
     weights = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
     sized = size_targets(
-        weights, capital, snapshot.prices, multipliers=dict(state.multipliers), lot_size=lot_size
+        weights,
+        capital,
+        snapshot.prices,
+        multipliers=dict(state.multipliers),
+        lot_size=lot_size,
+        max_units=max_lots,
     )
     return {state.contracts.get(item.symbol, item.symbol): item.units for item in sized}
 
@@ -363,10 +391,12 @@ def refresh_day(
 __all__ = [
     "Compute",
     "Execute",
+    "STOP_FILE",
     "RefreshOutcome",
     "SignalMismatch",
     "reconcile_signals",
     "refresh_day",
     "run_bar",
+    "stop_file",
     "wanted_contracts",
 ]

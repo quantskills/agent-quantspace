@@ -179,19 +179,47 @@ def _held_sides(items: list[dict], symbol: str) -> set[str]:
     }
 
 
+def account_problems(account: PandaAccount) -> list[str]:
+    """Why ``account`` may not be traded automatically; empty for an eligible SimNow account."""
+    if not account.is_simnow:
+        return [
+            f"{account.name}（{account.code}）不是 SimNow 账号（broker {account.broker_id}），"
+            "实盘账号不自动下单"
+        ]
+    problems = []
+    if not account.cli_eligible:
+        problems.append(account.unavailable_reason or "账号未开启 CLI")
+    if not account.runtime_state_known or account.running_asset_units:
+        problems.append("账号下有运行中的资金单元或运行状态未确认")
+    return problems
+
+
 def check_account(trader: PandaTrader) -> PandaAccount:
     """The account if it is a SimNow account the CLI may trade now; raise otherwise."""
     account = trader.account_info()
-    if not account.is_simnow:
-        raise ExecutionRefused(
-            f"{account.name}（{account.code}）不是 SimNow 账号（broker {account.broker_id}），"
-            "实盘账号不自动下单"
-        )
-    if not account.cli_eligible:
-        raise ExecutionRefused(account.unavailable_reason or "账号未开启 CLI")
-    if not account.runtime_state_known or account.running_asset_units:
-        raise ExecutionRefused("账号下有运行中的资金单元或运行状态未确认")
+    problems = account_problems(account)
+    if problems:
+        raise ExecutionRefused("；".join(problems))
     return account
+
+
+def trading_problems(trader: PandaTrader) -> tuple[PandaAccount | None, list[str]]:
+    """The account and why it cannot be traded automatically right now (empty when it can).
+
+    Checks what :func:`execute_targets` checks before any order: the account exists, is an
+    eligible SimNow account, and its counter is connected and ready. A real account's
+    connection is never queried. CLI failures raise ``PandaCliError`` or ``TimeoutError``.
+    """
+    try:
+        account = trader.account_info()
+    except ExecutionRefused as exc:
+        return None, [str(exc)]
+    problems = account_problems(account)
+    if not problems:
+        connection = trader.connection()
+        if not (connection.get("connected") and connection.get("cli_ready")):
+            problems.append(f"柜台未就绪（{connection.get('connection_status') or '未知'}）")
+    return account, problems
 
 
 def _wait(poll: Callable[[], bool], wait_seconds: float, sleep: Callable[[float], None]) -> bool:
@@ -221,12 +249,11 @@ def execute_targets(
     products = {product_of(symbol) for symbol in wanted}
     result: dict[str, Any] = {"account": trader.account, "wanted": wanted}
     try:
-        account = check_account(trader)
-        result["account"] = f"{account.name}（{account.code}）"
-        connection = trader.connection()
-        if not (connection.get("connected") and connection.get("cli_ready")):
-            state = connection.get("connection_status") or "未知"
-            return ExecutionResult("blocked", f"柜台未就绪（{state}）", **result)
+        account, problems = trading_problems(trader)
+        if account is not None:
+            result["account"] = f"{account.name}（{account.code}）"
+        if problems:
+            return ExecutionResult("blocked", "；".join(problems), **result)
 
         mine = [
             order
@@ -313,8 +340,6 @@ def execute_targets(
         result["legs"] = list(legs.values())
         after = _net_positions(trader.positions(), products)
         result["after"] = after
-    except ExecutionRefused as exc:
-        return ExecutionResult("blocked", str(exc), **result)
     except (PandaCliError, TimeoutError, ValueError, KeyError) as exc:
         return ExecutionResult("error", f"{type(exc).__name__}: {exc}", **result)
 
@@ -339,7 +364,9 @@ __all__ = [
     "ExecutionResult",
     "LegResult",
     "PandaTrader",
+    "account_problems",
     "check_account",
     "execute_targets",
     "product_of",
+    "trading_problems",
 ]

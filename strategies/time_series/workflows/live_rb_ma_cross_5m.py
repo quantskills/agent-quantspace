@@ -141,6 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             lot_size=args.lot_size,
             data_root=args.data_root,
             execute=execute,
+            max_lots=args.max_lots,
         )
         report = {
             "strategy_id": STRATEGY_ID,

@@ -337,3 +337,69 @@ def test_run_bar_without_capital_or_write_places_no_order(tmp_path, http):
     missing = _bar_run(tmp_path / "other", execute, write=True)
     assert missing.execution.status == "error" and "--capital" in missing.execution.detail
     assert calls == []
+
+
+def test_run_bar_places_no_order_above_max_lots(tmp_path, http):
+    calls = []
+
+    def execute(wanted, request_id):
+        calls.append(wanted)
+        return ExecutionResult("filled")
+
+    # 100000 / (3010 * 10) = 3 contracts, above the cap of 2
+    outcome = _bar_run(tmp_path, execute, write=True, capital=100_000, max_lots=2)
+
+    assert calls == [] and outcome.status == "sent"
+    assert outcome.execution.status == "over_limit"
+    assert "3 units > max 2" in outcome.execution.detail
+    texts = [json.loads(item["body"])["content"]["text"] for item in http.sent]
+    (alert,) = [text for text in texts if "execution_over_limit" in text]
+    assert "超过单合约上限" in alert
+
+    within = _bar_run(tmp_path / "within", execute, write=True, capital=100_000, max_lots=3)
+    assert within.execution.status == "filled" and calls == [{"RB2701.SHF": 3}]
+
+
+def test_a_stop_file_skips_orders_but_not_the_signal(tmp_path, http):
+    from skills.live_trade.minute import stop_file
+    from skills.live_trade.runner import RunLog
+
+    from .test_minute import BAR
+
+    calls = []
+
+    def execute(wanted, request_id):
+        calls.append(wanted)
+        return ExecutionResult("filled")
+
+    stop = stop_file("rb_demo", tmp_path)
+    stop.parent.mkdir(parents=True)
+    stop.write_text("", encoding="utf-8")
+
+    outcome = _bar_run(tmp_path, execute, write=True, capital=100_000)
+
+    assert calls == [] and outcome.status == "sent"
+    assert outcome.execution.status == "stopped" and str(stop) in outcome.execution.detail
+    assert RunLog("rb_demo", tmp_path).get(BAR)["execution"]["status"] == "stopped"
+    texts = [json.loads(item["body"])["content"]["text"] for item in http.sent]
+    (alert,) = [text for text in texts if "execution_stopped" in text]
+    assert "紧急停止文件" in alert
+
+
+def test_trading_problems_lists_every_reason_and_skips_real_accounts():
+    from skills.live_trade.execution import trading_problems
+
+    client = FakeClient()
+    client.accounts = [
+        {**ACCOUNTS[0], "cliEligible": False, "cliUnavailableReason": "未开启 CLI 模式"},
+        ACCOUNTS[1],
+    ]
+    account, problems = trading_problems(PandaTrader(["panda"], "100001", runner=client))
+    assert account.code == "100001" and problems == ["未开启 CLI 模式"]
+
+    account, problems = trading_problems(PandaTrader(["panda"], "200002", runner=client))
+    assert account.code == "200002" and "不是 SimNow 账号" in problems[0]
+    assert "connection" not in client.names()
+
+    account, problems = trading_problems(PandaTrader(["panda"], "100001", runner=FakeClient()))
+    assert problems == []
