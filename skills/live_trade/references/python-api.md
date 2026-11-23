@@ -240,7 +240,8 @@ def main(argv=None) -> int:
 - `run_bar(spec, feed, compute, bar=, now=, write=False, capital=None,
   lot_size=100, data_root=None, urls=None, execute=None, max_lots=None)` returns a `RunOutcome`
   whose status is a delivery status or `not_ready`, `stale`, `source_error`,
-  `missed`, `done`, or `error`. The weights' last row must be the bar itself.
+  `missed`, `done`, or `error`. It computes on the stored bars up to `bar` (a late
+  run may already hold the next bar), and the weights' last row must be the bar itself.
   With `write` it logs the bar and the target it computed in `RunLog`. With
   `write` and `execute(wanted, request_id)` (futures only) it also sizes the
   full target with `wanted_contracts(spec, snapshot, state, capital,

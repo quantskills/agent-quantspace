@@ -187,18 +187,27 @@ into whole contracts (rounded toward zero) of the actual contract
 3. One `target-position` plan sets each wanted contract (and every other month
    of the same products still held, to 0); the client prices its orders at the
    best opposite quote, good for the day, and handles closing today's or
-   yesterday's position and reversing. The frozen plan is executed with
-   `plan execute --yes` and its orders are followed for 15 seconds.
+   yesterday's position and reversing. The client submits a plan's legs one at
+   a time in target order, so closes come first (an old month before the new
+   one, a reversal closes before it opens), and `plan execute --yes` is called
+   on the same frozen plan again each time the earlier legs have filled. All of
+   it is followed for 15 seconds; a leg that has not filled holds back the rest.
 
 | Execution status | Meaning |
 |------------------|---------|
 | `in_position` | The account already holds the target. |
 | `filled` | Orders filled and the account holds the target. |
-| `working` | Orders still open; the next bar cancels them and re-targets. |
+| `working` | Orders still open or legs not yet sent; the next bar cancels them and re-targets. |
 | `rejected` | An order was rejected or cancelled by the counter. |
 | `pending_cancel` / `blocked` / `unknown` / `error` | Nothing new was sent; see the detail. |
 | `stopped` | The stop file exists; no order was placed. |
 | `over_limit` | The target exceeds `--max-lots`; no order was placed. |
+
+The client does not reconnect by itself when SimNow drops the counter (measured
+2026-11-23: disconnected at 19:48, `FAILED` until reconnected by hand). Every
+bar is then `blocked` with the client's `last_error`, alerted once per trade
+date; reconnect in the client (or `panda-live-trading connect --account
+<code>`) and the next bar trades again.
 
 Emergency stop: create `data/live/<strategy-id>/STOP` (any content) and every
 later bar still signals but places no orders, alerting `execution_stopped`
@@ -211,7 +220,11 @@ each other status except `in_position`, `filled`, and `working` alerts once per
 trade date as `execution_<status>`. The bar's own status stays the delivery
 status, so a finished bar never trades twice, and a later bar always
 re-targets from the account's actual position. Measured on SimNow on
-2026-11-23: one call takes 7–8 seconds (about ten CLI calls).
+2026-11-23: one call takes 8–12 seconds with one order and 15–17 seconds for a
+reversal or a roll (two orders). The last bar of a session (10:15, 11:30, 15:00,
+23:00 for rebar) runs after the close: if its target differs from the
+position, the client refuses the plan for lack of a live quote (`error`,
+nothing sent, alerted once a day), and the next session's first bar trades.
 
 ## From a backtest to a live workflow
 

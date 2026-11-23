@@ -9,8 +9,9 @@ contract (``{"RB2701.SHF": 2}``; negative is short). Each call:
    working orders of the same products left from an earlier bar (the account is meant to
    be the strategy's own);
 3. builds one ``target-position`` plan for the wanted contracts and every other month of
-   the same products still held (target 0), executes that frozen plan, and follows its
-   orders for a few seconds.
+   the same products still held (target 0), closes first, and executes that frozen plan,
+   once more each time its submitted legs have filled (the client sends one leg at a
+   time), following its orders for a few seconds.
 
 The client prices plan orders at the best opposite quote, good for the day; what is still
 working when the call returns is cancelled and re-targeted by the next bar. Nothing is
@@ -194,6 +195,32 @@ def account_problems(account: PandaAccount) -> list[str]:
     return problems
 
 
+def _order_rank(symbol: str, before: Mapping[str, int], wanted: Mapping[str, int]):
+    """Closes first, then reversals, then opens: a roll closes the old month before the new.
+
+    The client submits a plan's legs in the order of its targets.
+    """
+    have, want = before.get(symbol, 0), wanted.get(symbol, 0)
+    if have and (want * have < 0):
+        rank = 1
+    elif abs(want) <= abs(have):
+        rank = 0
+    else:
+        rank = 2
+    return rank, symbol
+
+
+def _plan_operations(executed: Mapping[str, Any]) -> list[str]:
+    """Operation ids of the legs a ``plan execute`` has submitted so far, in plan order."""
+    raw = executed.get("result_json")
+    summary = json.loads(raw) if isinstance(raw, str) and raw else (raw or {})
+    found = [
+        str((leg.get("result") or {}).get("operation_id") or "")
+        for leg in summary.get("legs") or []
+    ]
+    return [operation for operation in found if operation]
+
+
 def check_account(trader: PandaTrader) -> PandaAccount:
     """The account if it is a SimNow account the CLI may trade now; raise otherwise."""
     account = trader.account_info()
@@ -218,7 +245,10 @@ def trading_problems(trader: PandaTrader) -> tuple[PandaAccount | None, list[str
     if not problems:
         connection = trader.connection()
         if not (connection.get("connected") and connection.get("cli_ready")):
-            problems.append(f"柜台未就绪（{connection.get('connection_status') or '未知'}）")
+            reason = f"柜台未就绪（{connection.get('connection_status') or '未知'}）"
+            if connection.get("last_error"):
+                reason += f"：{connection['last_error']}"
+            problems.append(reason)
     return account, problems
 
 
@@ -289,7 +319,9 @@ def execute_targets(
         before = _net_positions(items, products)
         result["before"] = before
         targets = []
-        for symbol in sorted(set(wanted) | set(before)):
+        for symbol in sorted(
+            set(wanted) | set(before), key=lambda s: _order_rank(s, before, wanted)
+        ):
             units = wanted.get(symbol, 0)
             if units == before.get(symbol, 0) and len(_held_sides(items, symbol)) <= 1:
                 continue
@@ -304,15 +336,11 @@ def execute_targets(
 
         plan = trader.target_position(targets)
         result["plan_id"] = str(plan.get("plan_id") or "")
-        if not plan.get("legs"):
+        planned = len(plan.get("legs") or [])
+        if not planned:
             return ExecutionResult("in_position", "客户端认为无需调仓", **result, after=before)
-        executed = trader.execute_plan(result["plan_id"])
-        raw = executed.get("result_json")
-        summary = json.loads(raw) if isinstance(raw, str) and raw else (raw or {})
-        operations = [
-            str((leg.get("result") or {}).get("operation_id") or "")
-            for leg in summary.get("legs") or []
-        ]
+        deadline = time.monotonic() + wait_seconds
+        operations: list[str] = []
         legs: dict[str, LegResult] = {}
 
         def refresh_legs() -> bool:
@@ -336,8 +364,19 @@ def execute_targets(
                 )
             return all(leg.status not in WORKING for leg in legs.values())
 
-        _wait(refresh_legs, wait_seconds, sleep)
+        # The client submits a plan's legs one stage at a time, each ``plan execute`` after
+        # the previous legs are done; legs already submitted are never sent again.
+        while True:
+            submitted = _plan_operations(trader.execute_plan(result["plan_id"]))
+            added = [op for op in submitted if op not in operations]
+            operations += added
+            _wait(refresh_legs, max(0.0, deadline - time.monotonic()), sleep)
+            if not added or len(operations) >= planned or time.monotonic() >= deadline:
+                break
+            if any(leg.status != FILLED for leg in legs.values()):
+                break
         result["legs"] = list(legs.values())
+        unsent = planned - len(operations)
         after = _net_positions(trader.positions(), products)
         result["after"] = after
     except (PandaCliError, TimeoutError, ValueError, KeyError) as exc:
@@ -351,6 +390,10 @@ def execute_targets(
         return ExecutionResult("filled", **result)
     if statuses & WORKING:
         return ExecutionResult("working", "部分委托仍在挂单，下一根 K 线撤单重下", **result)
+    if unsent > 0 and result["legs"] and statuses <= {FILLED}:
+        return ExecutionResult(
+            "working", f"计划还有 {unsent} 条委托未提交，下一根 K 线重新调仓", **result
+        )
     failed = [leg for leg in result["legs"] if leg.status != FILLED]
     detail = "；".join(
         f"{leg.contract} {leg.side} {leg.offset}: {leg.status} {leg.error}" for leg in failed
