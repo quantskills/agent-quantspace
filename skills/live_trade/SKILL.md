@@ -22,8 +22,9 @@ Exact options: `uv run qs live-trade <command> --help` or
   through AKShare, reconciled against PandaData's bars after the close.
 - Check that IM channels and the PandaAI client CLI are set up: CLI version,
   client capabilities, and which accounts the CLI may use.
-- Futures orders through the PandaAI client are not wired yet; this Skill only
-  checks the client so far.
+- Trade a minute-level futures strategy automatically on a SimNow account
+  through the PandaAI client CLI: each bar sizes the target into whole
+  contracts and brings the account there with one target-position plan.
 
 ## Setup
 
@@ -159,6 +160,43 @@ whose target would have been different.
 | `partial` / `failed` | Some channels failed; the next tick retries only those. | 4 |
 | `error` | Fetching or computing raised, or the time is not a bar end. | 1 |
 
+### Automatic orders (SimNow only)
+
+Add `--capital <amount> --account <PandaAI account code>` to a futures minute
+job's `args` (`--write` is added by `serve`). After each bar's signal, the run
+sizes the full target into whole contracts (rounded toward zero) of the actual
+contract (`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
+`execute_targets`:
+
+1. It re-reads the account and trades only a SimNow account (broker `9999`) with
+   CLI mode on, no running asset unit, and the counter connected and ready;
+   anything else is `blocked`. A real account is never traded automatically.
+2. An order the client marks `UNKNOWN` stops trading (`unknown`) until you check
+   it in the client. Working orders of the same products left from an earlier
+   bar are cancelled first; if a cancel does not finish within 15 seconds, the
+   bar places nothing (`pending_cancel`).
+3. One `target-position` plan sets each wanted contract (and every other month
+   of the same products still held, to 0); the client prices its orders at the
+   best opposite quote, good for the day, and handles closing today's or
+   yesterday's position and reversing. The frozen plan is executed with
+   `plan execute --yes` and its orders are followed for 15 seconds.
+
+| Execution status | Meaning |
+|------------------|---------|
+| `in_position` | The account already holds the target. |
+| `filled` | Orders filled and the account holds the target. |
+| `working` | Orders still open; the next bar cancels them and re-targets. |
+| `rejected` | An order was rejected or cancelled by the counter. |
+| `pending_cancel` / `blocked` / `unknown` / `error` | Nothing new was sent; see the detail. |
+
+The result is logged with the bar in `runs.json` (`execution`). Every bar that
+placed orders pushes a `trade` message with the fills and the position after;
+each other status except `in_position`, `filled`, and `working` alerts once per
+trade date as `execution_<status>`. The bar's own status stays the delivery
+status, so a finished bar never trades twice, and a later bar always
+re-targets from the account's actual position. Measured on SimNow on
+2026-11-23: one call takes 7–8 seconds (about ten CLI calls).
+
 ## Files
 
 - `--weights` and `--prices` are date by symbol tables (`eob` index or column,
@@ -196,8 +234,9 @@ whose target would have been different.
   variables (the environment or `.env`); output shows redacted labels such as
   `wecom-1a2b3c4d`.
 - The PandaAI client keeps the trading account and its password. This Skill
-  only calls the client's bundled CLI (`PANDA_LIVE_CLI` overrides its path); it
-  never reads the client's files, database, or internal HTTP API.
+  only calls the client's bundled CLI (its launcher on the client's own runtime;
+  `PANDA_LIVE_CLI` overrides the path); it never reads the client's files,
+  database, or internal HTTP API, and leaves the client's update reminders on.
 - An account is usable only after you turn on its CLI mode in the client and
   stop its running asset units; `doctor` lists each account's state and reason.
 - Only SimNow accounts (broker `9999`) may ever execute without a human

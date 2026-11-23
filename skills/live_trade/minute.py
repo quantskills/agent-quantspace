@@ -12,20 +12,26 @@ target would have been different.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from .contracts import DeliveryResult, TargetSnapshot, diff_weights
+from .execution import ExecutionResult
 from .feeds import FeedNotReady, MinuteFeed, RefreshReport, _write_json, upcoming_trading_date
 from .ledger import SignalLedger
 from .runner import Delivery, RunLog, RunOutcome, deliver_signal, send_alert
+from .sizing import size_targets
 from .spec import LiveSpec
 
 Compute = Callable[[pd.DataFrame], pd.DataFrame]
+# ``execute(wanted contracts per actual contract, request id)``, e.g. a bound
+# :func:`~skills.live_trade.execution.execute_targets`.
+Execute = Callable[[Mapping[str, int], str], Any]
 
 _BAR_ALERTS = {
     "error": "这根 K 线运行出错，没有生成信号。",
@@ -34,6 +40,13 @@ _BAR_ALERTS = {
     "failed": "信号没有送达任何 IM 通道。",
     "partial": "信号只送达了部分 IM 通道。",
     "not_ready": "开盘前的整段重拉还没完成，盘中无法取数。",
+}
+_EXECUTION_ALERTS = {
+    "blocked": "账号现在不能自动下单，本根 K 线没有调仓。",
+    "error": "自动下单出错，本根 K 线没有完成调仓。",
+    "rejected": "有委托被拒绝或撤销，持仓没有达到目标。",
+    "pending_cancel": "上一根 K 线的委托还没撤完，本根没有下新单。",
+    "unknown": "有委托回报不明，自动下单已停止，请在客户端核实。",
 }
 
 
@@ -68,6 +81,7 @@ def run_bar(
     lot_size: int = 100,
     data_root: str | Path | None = None,
     urls: Sequence[str] | None = None,
+    execute: Execute | None = None,
 ) -> RunOutcome:
     """Run the strategy for the bar ending at ``bar``.
 
@@ -76,6 +90,12 @@ def run_bar(
     failed for a lagging symbol; retried and alerted), ``not_ready`` (no refresh for the
     day), ``error``, or the delivery status. With ``write`` every attempt is logged and each
     kind of problem alerts once per trade date.
+
+    With ``write`` and ``execute`` (futures only), the full target is sized with ``capital``
+    into whole contracts of each actual contract and handed to ``execute`` after the
+    signal; its result is logged with the bar, every bar that placed orders is pushed as a
+    ``trade`` message, and each kind of execution problem alerts once per trade date. The
+    bar's status stays the delivery status, so a finished bar never trades twice.
     """
     runs = RunLog(spec.strategy_id, data_root)
     alerts: list[DeliveryResult] = []
@@ -89,14 +109,24 @@ def run_bar(
     else:
         not_ready = ""
 
-    def finish(status, detail="", delivery: Delivery | None = None, target=None) -> RunOutcome:
+    def finish(
+        status, detail="", delivery: Delivery | None = None, target=None, execution=None
+    ) -> RunOutcome:
         if write:
             signal_id = delivery.signal.signal_id if delivery else None
-            runs.record(bar, status, detail, signal_id, target=target, trade_date=trade_date)
+            runs.record(
+                bar,
+                status,
+                detail,
+                signal_id,
+                target=target,
+                trade_date=trade_date,
+                execution=execution.to_dict() if execution else None,
+            )
             if status in _BAR_ALERTS and runs.claim_alert(trade_date, status):
                 text = f"K 线：{label}\n{_BAR_ALERTS[status]}" + (f"\n{detail}" if detail else "")
                 alerts.extend(send_alert(spec.strategy_id, trade_date, status, text, urls=urls))
-        return RunOutcome(spec.strategy_id, label, status, detail, delivery, alerts)
+        return RunOutcome(spec.strategy_id, label, status, detail, delivery, alerts, execution)
 
     if state is None:
         return finish("not_ready", not_ready)
@@ -150,7 +180,57 @@ def run_bar(
         )
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
         return finish("error", f"{type(exc).__name__}: {exc}")
-    return finish(delivery.status, delivery=delivery, target=computed.weights)
+    execution = None
+    if write and execute is not None:
+        try:
+            wanted = wanted_contracts(spec, snapshot, state, capital, lot_size)
+            execution = execute(wanted, f"{spec.strategy_id}:{label}")
+        except Exception as exc:  # noqa: BLE001 - reported and alerted like any bar problem
+            execution = ExecutionResult("error", f"{type(exc).__name__}: {exc}")
+        if execution.legs:
+            alerts.extend(
+                send_alert(
+                    spec.strategy_id, trade_date, "trade", _trade_text(label, execution), urls=urls
+                )
+            )
+        kind = f"execution_{execution.status}"
+        if execution.status in _EXECUTION_ALERTS and runs.claim_alert(trade_date, kind):
+            text = f"K 线：{label}\n{_EXECUTION_ALERTS[execution.status]}"
+            text += f"\n账号：{execution.account}" if execution.account else ""
+            text += f"\n{execution.detail}" if execution.detail else ""
+            alerts.extend(send_alert(spec.strategy_id, trade_date, kind, text, urls=urls))
+    return finish(delivery.status, delivery=delivery, target=computed.weights, execution=execution)
+
+
+def wanted_contracts(
+    spec: LiveSpec,
+    snapshot: TargetSnapshot,
+    state: Any,
+    capital: float | None,
+    lot_size: int = 100,
+) -> dict[str, int]:
+    """Whole contracts per actual contract for the full target, rounded toward zero."""
+    if not spec.futures:
+        raise ValueError("automatic orders are only wired for futures strategies")
+    if capital is None:
+        raise ValueError("--capital is required to size orders")
+    weights = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
+    sized = size_targets(
+        weights, capital, snapshot.prices, multipliers=dict(state.multipliers), lot_size=lot_size
+    )
+    return {state.contracts.get(item.symbol, item.symbol): item.units for item in sized}
+
+
+def _trade_text(label: str, execution: ExecutionResult) -> str:
+    lines = [f"K 线：{label}", f"账号：{execution.account}", f"结果：{execution.status}"]
+    lines += [
+        f"- {leg.contract} {leg.side} {leg.offset} {leg.quantity} 手 @ {leg.price}："
+        f"{leg.status}，成交 {leg.filled}"
+        for leg in execution.legs
+    ]
+    held = "，".join(f"{symbol} {units:+d}" for symbol, units in execution.after.items())
+    lines.append(f"调仓后持仓：{held or '空仓'}")
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -282,9 +362,11 @@ def refresh_day(
 
 __all__ = [
     "Compute",
+    "Execute",
     "RefreshOutcome",
     "SignalMismatch",
     "reconcile_signals",
     "refresh_day",
     "run_bar",
+    "wanted_contracts",
 ]

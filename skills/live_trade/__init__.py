@@ -3,7 +3,8 @@
 Futures go to the PandaAI live-trading client through its bundled CLI; other symbols are
 pushed to IM webhooks through Apprise. Daily runs live in ``runner`` and ``scheduler``;
 minute-level runs in ``spec``, ``clock``, ``feeds`` and ``minute``, imported from their
-modules because they need PandaData and AKShare.
+modules because they need PandaData and AKShare; ``execution`` trades a minute futures
+target on a SimNow account through the client CLI.
 """
 
 from .contracts import (

@@ -19,8 +19,11 @@ from .contracts import is_futures_symbol
 
 CLI_ENV = "PANDA_LIVE_CLI"
 CLI_NAME = "panda-live-trading"
-# Where the macOS client installs its bundled CLI entry.
-BUNDLED_CLI = Path("/Applications/PandaAI.app/Contents/Resources/cli/bin/panda-live-trading.mjs")
+# The macOS client's bundled CLI: its launcher runs on the client's own runtime
+# (``ELECTRON_RUN_AS_NODE=1``) and prefers a newer official npm install when there is one.
+CLIENT_APP = Path("/Applications/PandaAI.app")
+CLIENT_RUNTIME = CLIENT_APP / "Contents/MacOS/PandaAI"
+BUNDLED_CLI = CLIENT_APP / "Contents/Resources/cli/bundled-launcher.mjs"
 # Oldest CLI whose commands and JSON fields this Skill was checked against.
 MIN_CLI_VERSION = (0, 1, 11)
 # SimNow accounts use broker 9999; only they may ever run without a human confirming.
@@ -75,7 +78,7 @@ class PandaAccount:
 def _cli_env() -> dict[str, str]:
     return {
         **os.environ,
-        "PANDA_LIVE_UPDATE_CHECK": "off",
+        "ELECTRON_RUN_AS_NODE": "1",
         "PANDA_LIVE_ACTOR": "AI",
         "PANDA_LIVE_ACTOR_ID": ACTOR_ID,
     }
@@ -94,9 +97,8 @@ def discover_cli() -> list[str] | None:
     configured = os.environ.get(CLI_ENV)
     if configured:
         return _command_for(configured)
-    bundled = _command_for(BUNDLED_CLI)
-    if bundled:
-        return bundled
+    if CLIENT_RUNTIME.is_file() and BUNDLED_CLI.is_file():
+        return [str(CLIENT_RUNTIME), str(BUNDLED_CLI)]
     found = shutil.which(CLI_NAME)
     return [found] if found else None
 
@@ -129,9 +131,15 @@ def version_problem(version: str) -> str | None:
     return None
 
 
-def run_cli(command: list[str], *args: str, timeout: float = 30.0) -> Any:
+def run_cli(
+    command: list[str],
+    *args: str,
+    timeout: float = 30.0,
+    env: Mapping[str, str] | None = None,
+) -> Any:
     """Run one CLI command and return its ``data``.
 
+    ``env`` adds variables such as ``PANDA_LIVE_TRACE_ID`` for the client's audit trail.
     Raises ``PandaCliError`` when the CLI answers ``ok: false`` or prints no JSON, and
     ``TimeoutError`` when it does not finish in time.
     """
@@ -141,7 +149,7 @@ def run_cli(command: list[str], *args: str, timeout: float = 30.0) -> Any:
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_cli_env(),
+            env={**_cli_env(), **(env or {})},
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError(f"{CLI_NAME} {' '.join(args)} timed out") from exc
@@ -192,6 +200,7 @@ def require_actual_contract(symbol: str) -> str:
 __all__ = [
     "ACTOR_ID",
     "BUNDLED_CLI",
+    "CLIENT_RUNTIME",
     "CLI_ENV",
     "CLI_NAME",
     "MIN_CLI_VERSION",

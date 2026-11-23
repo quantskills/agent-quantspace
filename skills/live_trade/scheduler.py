@@ -433,6 +433,12 @@ def workflow_arguments(argv: Sequence[str] | None = None):
     parser.add_argument("--data-root", default=None, help="Data root for live state and data.")
     parser.add_argument("--capital", type=float, default=None, help="Capital for target units.")
     parser.add_argument("--lot-size", type=int, default=100, help="Board lot for non-futures.")
+    parser.add_argument(
+        "--account",
+        default=None,
+        help="Minute futures strategies: PandaAI account code or id to trade with --write; "
+        "only SimNow accounts (broker 9999) are traded.",
+    )
     args = parser.parse_args(argv)
     args.bar = datetime.fromisoformat(args.bar) if args.bar else None
     args.now = (

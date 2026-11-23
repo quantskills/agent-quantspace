@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -190,8 +191,10 @@ class RunLog:
         *,
         target: Mapping[str, float] | None = None,
         trade_date: date | None = None,
+        execution: Mapping | None = None,
     ) -> None:
-        """Log one attempt; bar entries also keep the computed target and the trade date."""
+        """Log one attempt; bar entries also keep the computed target, the trade date and,
+        when orders were placed for the bar, what the execution did."""
         state = self._read()
         entry = state["runs"].setdefault(_run_key(when), {"attempts": 0, "alerts": []})
         entry.update(
@@ -205,6 +208,8 @@ class RunLog:
             entry["target"] = {symbol: float(value) for symbol, value in sorted(target.items())}
         if trade_date is not None:
             entry["trade_date"] = trade_date.isoformat()
+        if execution is not None:
+            entry["execution"] = dict(execution)
         self._write(state)
 
     def bars(self, trade_date: date) -> dict[str, dict]:
@@ -262,6 +267,7 @@ class RunOutcome:
     detail: str = ""
     delivery: Delivery | None = None
     alerts: list[DeliveryResult] = field(default_factory=list)
+    execution: Any = None  # an ExecutionResult when a minute bar placed orders
 
     @property
     def exit_code(self) -> int:

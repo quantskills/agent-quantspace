@@ -9,7 +9,12 @@ through AKShare. Run by ``qs live-trade serve`` (``frequency: "5m"``) or by hand
     uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m --bar 2026-11-23T09:05:00
     uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m --test
 
-Add ``--write`` to push and log; without it every run only previews.
+Add ``--write`` to push and log; without it every run only previews. With ``--write``,
+``--capital`` and ``--account <SimNow account>`` each bar also trades the target through
+the PandaAI client (SimNow accounts only)::
+
+    uv run python -m strategies.time_series.workflows.live_rb_ma_cross_5m \
+        --bar 2026-11-23T09:05:00 --write --capital 100000 --account <code>
 """
 
 from __future__ import annotations
@@ -53,6 +58,22 @@ def _delivery(delivery) -> dict:
         "message": f"{delivery.title}\n{delivery.body}",
         "deliveries": [vars(item) for item in delivery.results],
     }
+
+
+def _trader(account: str, bar):
+    """``execute`` for run_bar: trade ``account`` through the PandaAI client CLI."""
+    from skills.live_trade.execution import PandaTrader, execute_targets
+    from skills.live_trade.panda_cli import discover_cli
+
+    command = discover_cli()
+    if command is None:
+        raise SystemExit("PandaAI client CLI not found")
+    trader = PandaTrader(command, account, trace_id=f"{STRATEGY_ID}-{bar:%Y%m%dT%H%M}")
+
+    def execute(wanted, request_id):
+        return execute_targets(trader, wanted, request_id=request_id)
+
+    return execute
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -108,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.bar is None:
             print("--bar, --refresh or --test is required", file=sys.stderr)
             return 2
+        execute = _trader(args.account, args.bar) if args.account else None
         outcome = run_bar(
             SPEC,
             feed,
@@ -118,10 +140,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             capital=args.capital,
             lot_size=args.lot_size,
             data_root=args.data_root,
+            execute=execute,
         )
         report = {
             "strategy_id": STRATEGY_ID,
             "bar": outcome.trade_date,
+            "execution": outcome.execution.to_dict() if outcome.execution else None,
             "status": outcome.status,
             "detail": outcome.detail,
             **_delivery(outcome.delivery),

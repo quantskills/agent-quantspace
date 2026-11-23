@@ -78,13 +78,25 @@ ledger.record(signal, results, [result.channel for result in results])
   error code in the body, so they are posted directly with `requests` and count
   as delivered only when that code is 0. Slack and Discord go through Apprise.
   Install both with `uv sync --extra live`.
-- `discover_cli()` checks `PANDA_LIVE_CLI`, then the macOS client bundle
-  `/Applications/PandaAI.app/Contents/Resources/cli/bin/panda-live-trading.mjs`
-  (run with `node`), then `panda-live-trading` on `PATH`.
-- `run_cli(command, *args)` returns the CLI's `data` and raises `PandaCliError`
-  (with the CLI's error `code`) on `ok: false` or output that is not JSON. Every
-  call sets `PANDA_LIVE_ACTOR=AI` and `PANDA_LIVE_ACTOR_ID=quantspace-live-trade`
-  for the client's audit trail and turns off its update check.
+- `discover_cli()` checks `PANDA_LIVE_CLI`, then the macOS client's launcher
+  (`CLIENT_RUNTIME` `/Applications/PandaAI.app/Contents/MacOS/PandaAI` running
+  `BUNDLED_CLI` `.../Contents/Resources/cli/bundled-launcher.mjs`, the entry the
+  client's AI guide gives), then `panda-live-trading` on `PATH`.
+- `run_cli(command, *args, env=None)` returns the CLI's `data` and raises
+  `PandaCliError` (with the CLI's error `code`) on `ok: false` or output that is
+  not JSON. Every call sets `ELECTRON_RUN_AS_NODE=1`, `PANDA_LIVE_ACTOR=AI` and
+  `PANDA_LIVE_ACTOR_ID=quantspace-live-trade`; `env` adds more, such as
+  `PANDA_LIVE_TRACE_ID`. The client's update check stays on.
+- `execution.PandaTrader(command, account, trace_id="", runner=run_cli)` wraps
+  the calls for one account (`accounts`, `connection`, `positions`, `orders`,
+  `operation`, `cancel`, `target-position --targets`, `plan execute --yes`);
+  queries are tried twice, cancels and plan executions once.
+  `execution.execute_targets(trader, wanted, request_id=, wait_seconds=15)`
+  brings a SimNow account to `wanted` whole contracts per actual contract
+  (negative is short) and returns an `ExecutionResult` (`status`, `detail`,
+  `account`, `wanted`, `before`, `after`, `cancelled`, `plan_id`, `legs` of
+  `LegResult`); see the Skill for the steps and statuses. `check_account`
+  raises `ExecutionRefused` for anything but an eligible SimNow account.
 - `list_accounts(command)` returns `PandaAccount` items; `is_simnow` means
   broker `9999` (`SIMNOW_BROKER_ID`), `cli_eligible` and `unavailable_reason`
   come from the client.
@@ -208,10 +220,15 @@ workflow with `--test`.
   (`get_stock_dividend`) the published `ex_cum_factor` of `get_adj_factor`; if
   that is missing the stock is in `FeedState.halted`.
 - `run_bar(spec, feed, compute, bar=, now=, write=False, capital=None,
-  lot_size=100, data_root=None, urls=None)` returns a `RunOutcome` whose status
-  is a delivery status or `not_ready`, `stale`, `source_error`, `missed`,
-  `done`, or `error`. The weights' last row must be the bar itself. With
-  `write` it logs the bar and the target it computed in `RunLog`.
+  lot_size=100, data_root=None, urls=None, execute=None)` returns a `RunOutcome`
+  whose status is a delivery status or `not_ready`, `stale`, `source_error`,
+  `missed`, `done`, or `error`. The weights' last row must be the bar itself.
+  With `write` it logs the bar and the target it computed in `RunLog`. With
+  `write` and `execute(wanted, request_id)` (futures only) it also sizes the
+  full target with `wanted_contracts(spec, snapshot, state, capital)` and
+  trades it; `RunOutcome.execution` and the run log's `execution` hold the
+  result, a bar that placed orders pushes a `trade` message, and other problems
+  alert `execution_<status>` once per trade date.
 - `refresh_day(spec, feed, compute, now=, write=False, ...)` refreshes the
   trading day after `now` (`upcoming_trading_date`: today before 15:30, else
   the next trading day), recomputes the days it replaced, and returns

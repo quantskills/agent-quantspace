@@ -58,7 +58,8 @@ def fake_cli(tmp_path, responses):
         "if command == '--version':\n"
         "    print('0.1.11'); sys.exit(0)\n"
         "if command == 'env':\n"
-        "    keys = ('PANDA_LIVE_ACTOR', 'PANDA_LIVE_ACTOR_ID', 'PANDA_LIVE_UPDATE_CHECK')\n"
+        "    keys = ('PANDA_LIVE_ACTOR', 'PANDA_LIVE_ACTOR_ID', 'PANDA_LIVE_TRACE_ID',\n"
+        "            'PANDA_LIVE_UPDATE_CHECK', 'ELECTRON_RUN_AS_NODE')\n"
         "    print(json.dumps({'ok': True, 'data': {k: os.environ.get(k) for k in keys}}))\n"
         "    sys.exit(0)\n"
         "answer = responses.get(command)\n"
@@ -85,11 +86,27 @@ def cli(tmp_path):
 
 def test_run_cli_returns_data_and_marks_calls_for_the_audit_trail(cli):
     assert run_cli(cli, "capabilities") == CAPABILITIES
-    assert run_cli(cli, "env") == {
+    # The client's update reminders stay on; the launcher runs on the client's runtime.
+    assert run_cli(cli, "env", env={"PANDA_LIVE_TRACE_ID": "rb-1"}) == {
         "PANDA_LIVE_ACTOR": "AI",
         "PANDA_LIVE_ACTOR_ID": "quantspace-live-trade",
-        "PANDA_LIVE_UPDATE_CHECK": "off",
+        "PANDA_LIVE_TRACE_ID": "rb-1",
+        "PANDA_LIVE_UPDATE_CHECK": None,
+        "ELECTRON_RUN_AS_NODE": "1",
     }
+
+
+def test_the_client_launcher_is_found_before_path(tmp_path, monkeypatch):
+    import skills.live_trade.panda_cli as module
+
+    runtime, launcher = tmp_path / "PandaAI", tmp_path / "bundled-launcher.mjs"
+    monkeypatch.delenv(module.CLI_ENV, raising=False)
+    monkeypatch.setattr(module, "CLIENT_RUNTIME", runtime)
+    monkeypatch.setattr(module, "BUNDLED_CLI", launcher)
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    assert module.discover_cli() is None
+    runtime.write_text(""), launcher.write_text("")
+    assert module.discover_cli() == [str(runtime), str(launcher)]
 
 
 def test_run_cli_raises_the_cli_error(cli):
