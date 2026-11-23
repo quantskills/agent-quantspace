@@ -105,8 +105,8 @@ day); without `serve --write` the runs only preview and nothing is sent. On star
 when it starts and when it stops. It does not start itself after a reboot; use
 your system's login items, systemd user service, or Task Scheduler for that.
 
-A workflow loads its data and computes the full target table, then calls
-`run_live` (see the Python API). One run of a trade date ends as one of:
+A workflow loads its data and computes the full target table, and `daily_main`
+hands it to `run_live` (see the Python API). One run of a trade date ends as one of:
 
 | Status | Meaning | Exit |
 |--------|---------|------|
@@ -217,6 +217,19 @@ re-targets from the account's actual position. Measured on SimNow on
 2026-11-23: one call takes 8–12 seconds with one order and 15–17 seconds for a
 reversal or a roll (two orders).
 
+## From a backtest to a live workflow
+
+A live workflow is one module under `strategies/<domain>/workflows/live_<name>.py`
+with the strategy id (daily) or a `LiveSpec` (minute), a data loader (daily), and the
+`target_weights` function the backtest calls; `main` is one line,
+`daily_main(STRATEGY_ID, load_inputs, argv)` or `minute_main(SPEC, target_weights, argv)`
+from `skills.live_trade.workflow`, which handles the arguments, modes, JSON report,
+exit codes, and `--account`. Before writing one, read
+[references/backtest-to-live.md](references/backtest-to-live.md): which strategies can
+go live, how the backtest's `trade_at`, `signal_lag`, adjustment, and rounding map to
+live timing, how to test that the live target is the backtest's row
+(`replay_mismatches`), and how to schedule it.
+
 ## Files
 
 - `--weights` and `--prices` are date by symbol tables (`eob` index or column,
@@ -288,6 +301,8 @@ reversal or a roll (two orders).
 
 ## References
 
+- [references/backtest-to-live.md](references/backtest-to-live.md): turning a
+  backtested strategy into a live workflow, step by step, with the checks.
 - [references/python-api.md](references/python-api.md): contracts, sizing,
   ledger, notification, PandaAI CLI, scheduled and minute-level run APIs. Read
   it when changing this Skill or writing strategy code.

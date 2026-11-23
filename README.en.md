@@ -109,7 +109,7 @@ writing new research code.
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML training/inference helpers, ML factors, and sparse LASSO fitting |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | Versioned AI factor-mining contracts, unrestricted local Python factor generation/resolution, three ports with their adapters, and cross-platform role task protocol; the governed workflow lives in `strategies/factor_mining/` |
-| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Turn the latest target weights into rebalance signals: size units and push to WeCom/Feishu/Slack/Discord and other IM webhooks, daily or per minute bar during the session (reconciled against PandaData the next day); futures go through the PandaAI live-trading client's bundled CLI |
+| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Turn the latest target weights into rebalance signals: size units and push to WeCom/Feishu/Slack/Discord and other IM webhooks, daily or per minute bar during the session (reconciled against PandaData the next day); a backtested strategy goes live with a strategy id or `LiveSpec`, a loader, and the backtest's `target_weights` behind `daily_main` / `minute_main`; futures go through the PandaAI live-trading client's bundled CLI |
 
 Each skill directory contains a `SKILL.md` guide. There is no separate public
 `construct` or `model` skill: portfolio construction belongs in `backtest`, and

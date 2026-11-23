@@ -89,7 +89,7 @@ Skills 是 AI 开发策略前应该优先调用的公共能力。
 | `ml` | `from skills.ml.ml_engine import MLEngine` | ML 训练/推理 |
 | `report` | `from skills.report import ReportRenderer, write_research_bundle` | HTML 研究报告和图表工具 |
 | `factor_mining` | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | AI 多因子挖掘的版本化契约、任意本地 Python 因子生成/解析、三个端口及其适配器、跨平台角色任务协议；治理流程在 `strategies/factor_mining/` |
-| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | 把最新目标权重变成调仓信号：换算手数、推送企业微信/飞书/Slack/Discord 等 IM；支持日频和分钟级（盘中逐根 K 线出信号，次日用 PandaData 对账）；期货经 PandaAI 实盘客户端自带的 CLI |
+| `live_trade` | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | 把最新目标权重变成调仓信号：换算手数、推送企业微信/飞书/Slack/Discord 等 IM；支持日频和分钟级（盘中逐根 K 线出信号，次日用 PandaData 对账）；回测策略转实盘只需写策略 ID 或 `LiveSpec`、取数函数和与回测共用的 `target_weights`，入口用 `daily_main` / `minute_main`；期货经 PandaAI 实盘客户端自带的 CLI |
 
 每个 skill 目录都有自己的 `SKILL.md` 使用说明。`strategy` 只放可复用的策略类型和
 target-weight 原语；具体因子、特征、规则、模型行为和 workflow 放在 `strategies/`。

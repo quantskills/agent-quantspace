@@ -71,5 +71,5 @@ rebalance dates.
 `strategies.cross_sectional.workflows.live_asset_class_rotation` runs the same
 `target_weights` function live: it downloads backward-adjusted closes from
 `HISTORY_START` up to the trade date, anchors rebalances at that date, sizes
-with unadjusted closes, and hands the result to `skills.live_trade.run_live`.
+with unadjusted closes, and hands its loader to `skills.live_trade.workflow.daily_main`.
 A backtest that should match the live signals uses the same start date.
