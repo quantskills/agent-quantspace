@@ -187,14 +187,17 @@ into whole contracts (rounded toward zero) of the actual contract
 3. One `target-position` plan sets each wanted contract (and every other month
    of the same products still held, to 0); the client prices its orders at the
    best opposite quote, good for the day, and handles closing today's or
-   yesterday's position and reversing. The frozen plan is executed with
-   `plan execute --yes` and its orders are followed for 15 seconds.
+   yesterday's position and reversing. The client submits a plan's legs one at
+   a time in target order, so closes come first (an old month before the new
+   one, a reversal closes before it opens), and `plan execute --yes` is called
+   on the same frozen plan again each time the earlier legs have filled. All of
+   it is followed for 15 seconds; a leg that has not filled holds back the rest.
 
 | Execution status | Meaning |
 |------------------|---------|
 | `in_position` | The account already holds the target. |
 | `filled` | Orders filled and the account holds the target. |
-| `working` | Orders still open; the next bar cancels them and re-targets. |
+| `working` | Orders still open or legs not yet sent; the next bar cancels them and re-targets. |
 | `rejected` | An order was rejected or cancelled by the counter. |
 | `pending_cancel` / `blocked` / `unknown` / `error` | Nothing new was sent; see the detail. |
 | `stopped` | The stop file exists; no order was placed. |
@@ -211,7 +214,8 @@ each other status except `in_position`, `filled`, and `working` alerts once per
 trade date as `execution_<status>`. The bar's own status stays the delivery
 status, so a finished bar never trades twice, and a later bar always
 re-targets from the account's actual position. Measured on SimNow on
-2026-11-23: one call takes 7–8 seconds (about ten CLI calls).
+2026-11-23: one call takes 8–12 seconds with one order and 15–17 seconds for a
+reversal or a roll (two orders).
 
 ## Files
 

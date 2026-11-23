@@ -32,6 +32,7 @@ class FakeClient:
         self.calls: list[tuple] = []
         self.envs: list[dict] = []
         self.plans: dict[str, list[dict]] = {}
+        self.submitted: dict[str, int] = {}
         self.operations: dict[str, dict] = {}
 
     def __call__(self, command, *args, env=None):
@@ -87,28 +88,37 @@ class FakeClient:
         return {"plan_id": plan_id, "legs": self.plans[plan_id]}
 
     def _execute(self, plan_id):
-        results = []
-        for number, leg in enumerate(self.plans[plan_id], 1):
-            operation_id = f"{plan_id}-op{number}"
-            filled = leg["quantity"] if self.outcome == "FILLED" else 0
-            if filled:
-                sign = 1 if leg["side"] == "BUY" else -1
-                self.net[leg["symbol"]] = self.net.get(leg["symbol"], 0) + sign * filled
-            self.operations[operation_id] = {
-                "status": self.outcome,
-                "error_message": "资金不足" if self.outcome == "REJECTED" else None,
-                "order": {
-                    "contract_code": leg["symbol"].partition(".")[0].lower(),
-                    "side": leg["side"],
-                    "offset": leg["offset"],
-                    "quantity": leg["quantity"],
-                    "price": 2980.0,
-                    "status": self.outcome,
-                    "filled_quantity": filled,
-                },
-            }
-            results.append({"result": {"operation_id": operation_id}})
+        """Like the client: each call submits the next leg once the earlier ones filled."""
+        submitted = self.submitted.setdefault(plan_id, 0)
+        earlier = [f"{plan_id}-op{number}" for number in range(1, submitted + 1)]
+        done = all(self.operations[op]["status"] == "FILLED" for op in earlier)
+        if done and submitted < len(self.plans[plan_id]):
+            self._submit(plan_id, submitted + 1, self.plans[plan_id][submitted])
+            self.submitted[plan_id] = submitted + 1
+        results = [
+            {"result": {"operation_id": f"{plan_id}-op{number}"}}
+            for number in range(1, self.submitted[plan_id] + 1)
+        ]
         return {"status": "SUBMITTED", "result_json": json.dumps({"legs": results})}
+
+    def _submit(self, plan_id, number, leg):
+        filled = leg["quantity"] if self.outcome == "FILLED" else 0
+        if filled:
+            sign = 1 if leg["side"] == "BUY" else -1
+            self.net[leg["symbol"]] = self.net.get(leg["symbol"], 0) + sign * filled
+        self.operations[f"{plan_id}-op{number}"] = {
+            "status": self.outcome,
+            "error_message": "资金不足" if self.outcome == "REJECTED" else None,
+            "order": {
+                "contract_code": leg["symbol"].partition(".")[0].lower(),
+                "side": leg["side"],
+                "offset": leg["offset"],
+                "quantity": leg["quantity"],
+                "price": 2980.0,
+                "status": self.outcome,
+                "filled_quantity": filled,
+            },
+        }
 
     def names(self):
         return [call[0] for call in self.calls]
@@ -196,6 +206,36 @@ def test_reversal_and_leftover_orders_are_cancelled_first():
         ("SELL", "OPEN"),
     ]
     assert result.status == "filled" and result.after == {"RB2701.SHF": -1}
+
+
+def test_a_roll_closes_the_old_month_before_opening_the_new_one():
+    client = FakeClient(positions={"RB2705.SHF": 1})
+
+    result = _trade(client, {"RB2701.SHF": 1})
+
+    plan_call = next(call for call in client.calls if call[0] == "target-position")
+    assert json.loads(plan_call[plan_call.index("--targets") + 1]) == [
+        {"symbol": "RB2705.SHF", "direction": "long", "volume": 0},
+        {"symbol": "RB2701.SHF", "direction": "long", "volume": 1},
+    ]
+    # One plan, executed once per leg: the open waits for the close to fill.
+    assert client.names().count("target-position") == 1 and client.names().count("plan") == 2
+    assert [(leg.contract, leg.side, leg.offset) for leg in result.legs] == [
+        ("rb2705", "SELL", "CLOSETODAY"),
+        ("rb2701", "BUY", "OPEN"),
+    ]
+    assert result.status == "filled" and result.after == {"RB2701.SHF": 1}
+
+
+def test_a_close_that_does_not_fill_holds_back_the_open():
+    client = FakeClient(positions={"RB2701.SHF": 1}, outcome="ACCEPTED")
+
+    result = _trade(client, {"RB2701.SHF": -1})
+
+    assert [(leg.side, leg.offset, leg.status) for leg in result.legs] == [
+        ("SELL", "CLOSETODAY", "ACCEPTED")
+    ]
+    assert result.status == "working" and client.names().count("plan") == 1
 
 
 def test_a_cancel_that_does_not_finish_places_no_new_order():
