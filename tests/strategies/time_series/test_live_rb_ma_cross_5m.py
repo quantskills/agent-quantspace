@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+import numpy as np
+import pandas as pd
 import pytest
 
+from skills.live_trade.workflow import replay_mismatches
 from strategies.time_series.rules import ma_golden_death_cross_weights
 from strategies.time_series.workflows import live_rb_ma_cross_5m as workflow
 from tests.skills.live_trade.fakes import FakePandaData, FakeSina
@@ -65,3 +68,39 @@ def test_target_weights_are_the_backtest_function(tmp_path, offline, capsys):
 
 def test_a_bar_or_mode_is_required(tmp_path, offline, capsys):
     assert workflow.main(["--data-root", str(tmp_path)]) == 2
+
+
+def _walk(rows: int = 400) -> pd.DataFrame:
+    """A random-walk 5-minute panel of the strategy's symbol, long and flat in turn."""
+    close = 3000.0 * np.exp(np.cumsum(np.random.default_rng(7).normal(0.0, 0.002, rows)))
+    index = pd.date_range("2026-11-02 09:05", periods=rows, freq="5min", name="eob")
+    bars = pd.DataFrame(
+        {"open": close, "high": close + 1, "low": close - 1, "close": close, "volume": 100.0},
+        index=index,
+    )
+    return pd.concat({workflow.SYMBOL: bars}, names=["symbol"])
+
+
+def test_live_rows_need_only_the_warmup_window():
+    """A bar's live run sees at least warmup_bars bars; that is enough for the backtest row."""
+    panel = _walk()
+    assert workflow.target_weights(panel)[workflow.SYMBOL].iloc[-100:].nunique() == 2
+
+    window = workflow.SPEC.warmup_bars
+    assert replay_mismatches(workflow.target_weights, panel, window=window, last=100) == []
+    assert replay_mismatches(workflow.target_weights, panel, window=window - 1, last=100)
+
+
+def test_the_live_panel_backtests_with_a_one_bar_lag():
+    """The backtest runs the same function on the same panel; row t trades on bar t + 1."""
+    from skills.backtest import VectorBacktester
+
+    panel = _walk()
+    weights = workflow.target_weights(panel)
+    result = VectorBacktester(
+        panel, trade_at="open", signal_lag=1, commission=0.0001, slippage_bp=1.0
+    ).run(weights)
+
+    pd.testing.assert_frame_equal(
+        result.executed_weights, weights.shift(1).fillna(0.0), check_names=False
+    )

@@ -13,7 +13,6 @@ touched, and adjustment changes never leave a seam in the history.
 
 from __future__ import annotations
 
-import json
 import sys
 from collections.abc import Sequence
 from datetime import date
@@ -21,8 +20,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from skills.live_trade.runner import LiveInputs, run_live
-from skills.live_trade.scheduler import workflow_arguments
+from skills.live_trade.runner import LiveInputs
+from skills.live_trade.workflow import daily_main
 from strategies.cross_sectional.asset_class_rotation import (
     ASSET_CLASS_ETF_SYMBOLS,
     asset_class_top3_weights,
@@ -40,14 +39,6 @@ def _closes(frame: pd.DataFrame) -> pd.DataFrame:
     table = frame.assign(eob=pd.to_datetime(frame["date"].astype(str), format="%Y%m%d"))
     close = table.pivot_table(index="eob", columns="symbol", values="close", aggfunc="last")
     return close.sort_index().astype(float)
-
-
-def is_trading_day(client, day: date) -> bool:
-    stamp = day.strftime("%Y%m%d")
-    calendar = client.get_trade_cal(stamp, stamp)
-    if calendar is None or calendar.empty:
-        raise ValueError(f"PandaData has no trading calendar for {day}")
-    return bool(int(calendar["is_trade"].iloc[0]))
 
 
 def target_weights(close: pd.DataFrame) -> pd.DataFrame:
@@ -71,70 +62,8 @@ def load_inputs(client, trade_date: date, market_dir: Path | None = None) -> Liv
     return LiveInputs(weights=target_weights(adjusted), prices=raw)
 
 
-def _login_expired(exc: BaseException) -> bool:
-    while exc is not None:
-        if "init_token" in str(exc) or "登录已过期" in str(exc):
-            return True
-        exc = exc.__cause__
-    return False
-
-
-def load_with_relogin(make_client, trade_date: date, market_dir: Path | None = None) -> LiveInputs:
-    """``load_inputs`` with one retry on a fresh login when PandaData drops the session."""
-    try:
-        return load_inputs(make_client(), trade_date, market_dir)
-    except Exception as exc:
-        if not _login_expired(exc):
-            raise
-        return load_inputs(make_client(), trade_date, market_dir)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    from skills.ingest import PandaDataClient
-    from skills.store.workspace import resolve_workspace_paths
-
-    args = workflow_arguments(argv)
-    client = PandaDataClient()
-    root = resolve_workspace_paths(data_root=args.data_root).data_root
-    market_dir = root / "live" / STRATEGY_ID / "market" if args.write and not args.test else None
-    trading, calendar_error = True, None
-    if not args.test:
-        try:
-            trading = is_trading_day(client, args.date)
-        except Exception as exc:  # noqa: BLE001 - reported as a run error below
-            calendar_error = exc
-
-    def load() -> LiveInputs:
-        if calendar_error is not None:
-            raise calendar_error
-        return load_with_relogin(PandaDataClient, args.date, market_dir)
-
-    outcome = run_live(
-        STRATEGY_ID,
-        load,
-        trade_date=args.date,
-        is_trading_day=trading,
-        write=args.write,
-        final=args.final,
-        capital=args.capital,
-        lot_size=args.lot_size,
-        data_root=args.data_root,
-        test=args.test,
-    )
-    delivery = outcome.delivery
-    report = {
-        "strategy_id": outcome.strategy_id,
-        "trade_date": outcome.trade_date,
-        "status": outcome.status,
-        "detail": outcome.detail,
-        "signal_id": delivery.signal.signal_id if delivery else None,
-        "target": delivery.signal.target if delivery else None,
-        "message": f"{delivery.title}\n{delivery.body}" if delivery else None,
-        "deliveries": [vars(item) for item in delivery.results] if delivery else [],
-        "alerts": [vars(item) for item in outcome.alerts],
-    }
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    return outcome.exit_code
+    return daily_main(STRATEGY_ID, load_inputs, argv)
 
 
 if __name__ == "__main__":

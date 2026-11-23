@@ -17,7 +17,7 @@ import logging
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
@@ -411,49 +411,6 @@ def load_schedule(path: str | Path) -> ScheduleConfig:
     return ScheduleConfig.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
 
-def workflow_arguments(argv: Sequence[str] | None = None):
-    """Shared argparse options every live workflow accepts from ``run_job``."""
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--date", help="Trade date YYYY-MM-DD; default: today in Asia/Shanghai.")
-    parser.add_argument("--bar", help="Minute strategies: end time of the bar to run.")
-    parser.add_argument(
-        "--refresh", action="store_true", help="Minute strategies: pre-open reload and reconcile."
-    )
-    parser.add_argument("--now", help="Override the current time (YYYY-MM-DDTHH:MM:SS).")
-    parser.add_argument("--write", action="store_true", help="Push and log; otherwise preview.")
-    parser.add_argument("--final", action="store_true", help="Last attempt of the day.")
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Send the latest full target as a marked test message at any hour; "
-        "no trading-day check, ledger, run log, or alerts.",
-    )
-    parser.add_argument("--data-root", default=None, help="Data root for live state and data.")
-    parser.add_argument("--capital", type=float, default=None, help="Capital for target units.")
-    parser.add_argument("--lot-size", type=int, default=100, help="Board lot for non-futures.")
-    parser.add_argument(
-        "--account",
-        default=None,
-        help="Minute futures strategies: PandaAI account code or id to trade with --write; "
-        "only SimNow accounts (broker 9999) are traded.",
-    )
-    args = parser.parse_args(argv)
-    args.bar = datetime.fromisoformat(args.bar) if args.bar else None
-    args.now = (
-        datetime.fromisoformat(args.now)
-        if args.now
-        else datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).replace(tzinfo=None)
-    )
-    args.date = (
-        date.fromisoformat(args.date)
-        if args.date
-        else datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date()
-    )
-    return args
-
-
 __all__ = [
     "Attempt",
     "JobConfig",
@@ -465,5 +422,4 @@ __all__ = [
     "run_job",
     "serve",
     "tick",
-    "workflow_arguments",
 ]

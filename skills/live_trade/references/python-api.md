@@ -48,7 +48,8 @@ ledger.record(signal, results, [result.channel for result in results])
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
 | `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `deliver_signal`, `send_alert`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) |
-| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `serve`, `workflow_arguments`: APScheduler 3.x cron triggers that start workflow processes |
+| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
+| `skills.live_trade.workflow` | `daily_main`, `minute_main`, `workflow_arguments`, `is_trading_day`, `load_with_relogin`, `replay_mismatches`: the command-line entry of a strategy workflow module, and the check that a live run reproduces the backtest's rows |
 | `skills.live_trade.spec` | `LiveSpec`, `Instrument`: what a minute-level strategy trades, its bar interval, warm-up, price adjustment, and bar timing |
 | `skills.live_trade.clock` | `TradingCalendar`, `Session`, `parse_trading_hours`, `bar_ends`, `bars_per_day`, `has_night_session`, `due_bars`, `EQUITY_SESSIONS`: trading sessions and bar end times |
 | `skills.live_trade.feeds` | `MinuteFeed`, `FeedState`, `read_feed_state`, `upcoming_trading_date`, `FeedNotReady`: PandaData history plus today's AKShare (Sina) bars in the live store |
@@ -112,23 +113,32 @@ ledger.record(signal, results, [result.channel for result in results])
 ## Scheduled runs
 
 A strategy workflow module (under `strategies/<domain>/workflows/live_*.py`)
-supplies the data and the target table; `skills.live_trade` never imports it.
+supplies the data and the target table; `skills.live_trade` never imports it. The
+steps and checks of writing one are in [backtest-to-live.md](backtest-to-live.md).
 
 ```python
-from skills.live_trade.runner import LiveInputs, run_live
-from skills.live_trade.scheduler import workflow_arguments
+from skills.live_trade.runner import LiveInputs
+from skills.live_trade.workflow import daily_main
 
-args = workflow_arguments()          # --date, --write, --final, --data-root, --capital, --lot-size
-
-def load() -> LiveInputs:
-    close = ...                      # download history up to args.date
+def load_inputs(client, trade_date, market_dir=None) -> LiveInputs:
+    close = ...                      # download history up to trade_date
     return LiveInputs(weights=target_weights(close), prices=raw_close)
 
-outcome = run_live("my_strategy", load, trade_date=args.date, is_trading_day=True,
-                   write=args.write, final=args.final, capital=args.capital)
-raise SystemExit(outcome.exit_code)
+def main(argv=None) -> int:
+    return daily_main("my_strategy", load_inputs, argv)
 ```
 
+- `daily_main(strategy_id, load, argv=None)` parses `workflow_arguments(argv)`
+  (`--date`, `--write`, `--final`, `--test`, `--data-root`, `--capital`,
+  `--lot-size`), asks PandaData's calendar `is_trading_day(client, date)` (not with
+  `--test`; a calendar failure becomes the run's `error`), and passes `run_live` a
+  loader that calls `load(client, trade_date, market_dir)` through
+  `load_with_relogin(load, make_client, trade_date, market_dir)`: once more on a fresh
+  client when PandaData drops the login. `market_dir` is
+  `<data_root>/live/<strategy_id>/market` with `--write` outside `--test`, else None.
+  It prints one JSON report (`strategy_id`, `trade_date`, `status`, `detail`,
+  `signal_id`, `target`, `message`, `deliveries`, `alerts`) and returns
+  `RunOutcome.exit_code`.
 - `run_live` returns `not_trading_day` without calling `load`, and `done`
   without calling it when `RunLog` already finished the date (`write` only).
   Weights whose last row is before the date are `stale`; after it, an `error`.
@@ -161,14 +171,11 @@ raise SystemExit(outcome.exit_code)
 ## Minute-level runs
 
 A minute-level workflow declares a spec and a weight function shared with the
-backtest, then hands both to `refresh_day` or `run_bar`:
+backtest; `minute_main` hands both to `refresh_day` or `run_bar`:
 
 ```python
-from skills.ingest import PandaDataClient
-from skills.live_trade.feeds import MinuteFeed
-from skills.live_trade.minute import refresh_day, run_bar
-from skills.live_trade.scheduler import workflow_arguments
 from skills.live_trade.spec import Instrument, LiveSpec
+from skills.live_trade.workflow import minute_main
 
 SPEC = LiveSpec(
     strategy_id="rb_ma_cross_5m",
@@ -181,18 +188,26 @@ SPEC = LiveSpec(
 def target_weights(panel):           # (symbol, eob) panel -> eob x symbol weights
     ...
 
-args = workflow_arguments()          # adds --bar, --refresh, --now
-feed = MinuteFeed(SPEC, PandaDataClient(), data_root=args.data_root)
-if args.refresh:
-    outcome = refresh_day(SPEC, feed, target_weights, now=args.now, write=args.write)
-else:
-    outcome = run_bar(SPEC, feed, target_weights, bar=args.bar, now=args.now,
-                      write=args.write, capital=args.capital)
-raise SystemExit(outcome.exit_code)
+def main(argv=None) -> int:
+    return minute_main(SPEC, target_weights, argv)
 ```
 
-See `strategies/time_series/workflows/live_rb_ma_cross_5m.py` for a complete
-workflow with `--test`.
+- `minute_main(spec, compute, argv=None)` builds a `MinuteFeed` on a
+  `PandaDataClient` and runs one mode: `--refresh` (`refresh_day`; report
+  `strategy_id`, `trade_date`, `status`, `detail`, `contracts`, `bars_today`, `rows`,
+  `mismatches`, `alerts`), `--bar <end time>` (`run_bar`; report `strategy_id`, `bar`,
+  `execution`, `status`, `detail`, the delivery's `signal_id`, `target`, `message`,
+  `deliveries` when there is one, and `alerts`), or `--test` (`run_live(...,
+  test=True)` on the stored bars; no `alerts`). `--now` overrides the clock; no mode
+  exits 2. With `--account`, `run_bar` gets an `execute` that runs
+  `execution.execute_targets` on a `PandaTrader` for that account, traced as
+  `<strategy_id>-<bar %Y%m%dT%H%M>`; a missing client CLI exits with an error.
+- `replay_mismatches(compute, data, window=None, last=50, tolerance=1e-9)` recomputes
+  `compute` on the data a live run has at each of the last `last` rows of
+  `compute(data)`: everything from the first row, or the last `window` bars
+  (`LiveSpec.warmup_bars`). It returns the rows whose target differs, missing and zero
+  weights counting as equal; `[]` means live runs reproduce the backtest's rows. `data`
+  is a `(symbol, eob)` panel or an `eob`-indexed table.
 
 - `LiveSpec(strategy_id, frequency, instruments, warmup_bars, adjust="post",
   bar_delay_seconds=40, deadline_seconds=None, spare_days=2)`. `Instrument`

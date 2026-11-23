@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date
-
 import numpy as np
 import pandas as pd
 import pytest
 
+from skills.live_trade.workflow import replay_mismatches
 from strategies.cross_sectional.asset_class_rotation import ASSET_CLASS_ETF_SYMBOLS
 from strategies.cross_sectional.workflows import live_asset_class_rotation as workflow
 
 
 class FakeClient:
-    def __init__(self, days: int = 260, expire_once: bool = False):
+    def __init__(self, days: int = 260):
         self.dates = pd.bdate_range("2025-11-03", periods=days)
-        self.expire_once = expire_once
         self.calls = []
 
     def _bars(self, start, end, scale):
@@ -32,11 +30,6 @@ class FakeClient:
 
     def get_fund_daily_post(self, start, end, *, symbol):
         self.calls.append(("post", start, end))
-        if self.expire_once:
-            self.expire_once = False
-            raise RuntimeError("chunk failed") from RuntimeError(
-                "未登录或登录已过期，请调用 panda_data.init_token() 进行登录！"
-            )
         return self._bars(start, end, 3.0)
 
     def get_fund_daily(self, start, end, *, symbol):
@@ -46,12 +39,6 @@ class FakeClient:
     def get_trade_cal(self, start, end):
         day = pd.Timestamp(start)
         return pd.DataFrame({"nature_date": [int(start)], "is_trade": [int(day.weekday() < 5)]})
-
-
-def test_trading_day_comes_from_the_calendar():
-    client = FakeClient()
-    assert workflow.is_trading_day(client, date(2026, 11, 20))
-    assert not workflow.is_trading_day(client, date(2026, 11, 21))
 
 
 def test_load_inputs_stops_at_the_trade_date_and_saves_both_series(tmp_path):
@@ -71,33 +58,13 @@ def test_load_inputs_stops_at_the_trade_date_and_saves_both_series(tmp_path):
     assert {call[1] for call in client.calls} == {workflow.HISTORY_START.replace("-", "")}
 
 
-def test_load_retries_once_after_a_dropped_login():
-    clients = [FakeClient(expire_once=True), FakeClient()]
-    made = []
+def test_live_rows_replay_the_backtest_from_the_fixed_start():
+    """Each day's live run reloads from HISTORY_START, so its row is the backtest's row."""
+    client = FakeClient(days=200)
+    close = workflow._closes(client.get_fund_daily_post("20190102", "20991231", symbol=None))
 
-    def make_client():
-        made.append(clients[len(made)])
-        return made[-1]
-
-    inputs = workflow.load_with_relogin(make_client, clients[0].dates[150].date())
-
-    assert len(made) == 2 and not inputs.weights.empty
-
-
-def test_other_load_errors_are_not_retried():
-    class Broken(FakeClient):
-        def get_fund_daily_post(self, start, end, *, symbol):
-            raise ValueError("bad request")
-
-    made = []
-
-    def make_client():
-        made.append(Broken())
-        return made[-1]
-
-    with pytest.raises(ValueError, match="bad request"):
-        workflow.load_with_relogin(make_client, date(2026, 6, 1))
-    assert len(made) == 1
+    assert not workflow.target_weights(close).iloc[-60:].eq(0).all(axis=None)
+    assert replay_mismatches(workflow.target_weights, close, last=60) == []
 
 
 def test_main_previews_without_writing(tmp_path, monkeypatch, capsys):
