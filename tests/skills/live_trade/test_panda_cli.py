@@ -63,8 +63,11 @@ def fake_cli(tmp_path, responses):
         "    print(json.dumps({'ok': True, 'data': {k: os.environ.get(k) for k in keys}}))\n"
         "    sys.exit(0)\n"
         "answer = responses.get(command)\n"
-        "print(answer if isinstance(answer, str) else json.dumps(answer))\n"
-        "sys.exit(0 if isinstance(answer, dict) and answer.get('ok') else 1)\n",
+        "ok = isinstance(answer, dict) and bool(answer.get('ok'))\n"
+        "# Like the client's CLI, a failed command prints its envelope on stderr.\n"
+        "stream = sys.stderr if isinstance(answer, dict) and not ok else sys.stdout\n"
+        "print(answer if isinstance(answer, str) else json.dumps(answer), file=stream)\n"
+        "sys.exit(0 if ok else 1)\n",
         encoding="utf-8",
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)

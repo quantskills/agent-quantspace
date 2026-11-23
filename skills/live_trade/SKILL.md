@@ -163,9 +163,18 @@ whose target would have been different.
 ### Automatic orders (SimNow only)
 
 Add `--capital <amount> --account <PandaAI account code>` to a futures minute
-job's `args` (`--write` is added by `serve`). After each bar's signal, the run
-sizes the full target into whole contracts (rounded toward zero) of the actual
-contract (`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
+job's `args` (`--write` is added by `serve`), and `--max-lots <N>` to cap the
+contracts any actual contract may target. Check the account first:
+
+```bash
+uv run qs live-trade doctor --account <code> --strategy-id rb_ma_cross_5m
+```
+
+`auto_trade.ready` says whether a bar would place orders now, and `reasons`
+why not (not SimNow, CLI mode off, running asset units, counter not ready, CLI
+too old, stop file). After each bar's signal, the run sizes the full target
+into whole contracts (rounded toward zero) of the actual contract
+(`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
 `execute_targets`:
 
 1. It re-reads the account and trades only a SimNow account (broker `9999`) with
@@ -188,6 +197,13 @@ contract (`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
 | `working` | Orders still open; the next bar cancels them and re-targets. |
 | `rejected` | An order was rejected or cancelled by the counter. |
 | `pending_cancel` / `blocked` / `unknown` / `error` | Nothing new was sent; see the detail. |
+| `stopped` | The stop file exists; no order was placed. |
+| `over_limit` | The target exceeds `--max-lots`; no order was placed. |
+
+Emergency stop: create `data/live/<strategy-id>/STOP` (any content) and every
+later bar still signals but places no orders, alerting `execution_stopped`
+once per trade date; delete the file to resume. Orders already working stay
+with the counter; cancel them in the client if needed.
 
 The result is logged with the bar in `runs.json` (`execution`). Every bar that
 placed orders pushes a `trade` message with the fills and the position after;
@@ -296,7 +312,7 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | Command | What it does | Side effects |
 |---|---|---|
 | `uv run qs live-trade notify` | Diff the latest target weights against the last delivered target and push the rebalance signal to IM webhooks; previews unless --write. | network, writes-store, writes-output |
-| `uv run qs live-trade doctor` | Check IM notification channels and the PandaAI client CLI (version, capabilities, accounts); --send-test pushes a test message. | read-only, network |
+| `uv run qs live-trade doctor` | Check IM notification channels and the PandaAI client CLI (version, capabilities, accounts); --account reports whether automatic orders can run on that account now; --send-test pushes a test message. | read-only, network |
 | `uv run qs live-trade serve` | Run live strategy workflows on a schedule (APScheduler), making up missed runs; --check only lists upcoming runs. | network, writes-store |
 
 <!-- END GENERATED: qs commands -->

@@ -175,6 +175,17 @@ class DoctorInput(CLIModel):
     send_test: bool = Field(
         False, description="Also send a short test message to every configured channel."
     )
+    account: str | None = Field(
+        None,
+        description="PandaAI account code or id: also report whether minute strategies may "
+        "trade it automatically right now, and why not.",
+    )
+    strategy_id: str | None = Field(
+        None,
+        description="With --account: also check the strategy's emergency stop file "
+        "data/live/<strategy-id>/STOP.",
+    )
+    data_root: Path | None = Field(None, description=DATA_ROOT_HELP)
 
 
 class ChannelItem(BaseModel):
@@ -199,6 +210,18 @@ class AccountItem(BaseModel):
     reason: str = Field(description="Why the account is not CLI-eligible, if it is not.")
 
 
+class AutoTradeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account: str = Field(description="The --account asked about.")
+    name: str | None = Field(description="Account name and code in the client, if found.")
+    simnow: bool | None = Field(description="SimNow account (broker 9999), if found.")
+    ready: bool = Field(description="Whether a bar would place orders on this account now.")
+    reasons: list[str] = Field(description="Why it would not; empty when ready.")
+    stop_file: str | None = Field(
+        description="Emergency stop file checked for --strategy-id, if one was given."
+    )
+
+
 class PandaCliItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     found: bool = Field(description="Whether the PandaAI client CLI was located.")
@@ -221,6 +244,40 @@ class DoctorOutput(BaseModel):
     channels: list[ChannelItem] = Field(description="Channels from the QS_NOTIFY_* variables.")
     test_deliveries: list[DeliveryItem] = Field(description="Results of --send-test.")
     panda_cli: PandaCliItem = Field(description="PandaAI client CLI discovery result.")
+    auto_trade: AutoTradeItem | None = Field(
+        None, description="With --account: whether automatic orders can run on it now."
+    )
+
+
+def _auto_trade(args: DoctorInput, command: list[str] | None, cli_problems: list[str]):
+    from skills.live_trade import PandaCliError
+    from skills.live_trade.execution import PandaTrader, trading_problems
+    from skills.live_trade.minute import stop_file
+
+    reasons, name, simnow = [], None, None
+    if command is None:
+        reasons.append("PandaAI client CLI not found")
+    else:
+        try:
+            account, problems = trading_problems(PandaTrader(command, args.account))
+        except (PandaCliError, TimeoutError, OSError) as exc:
+            account, problems = None, [f"PandaAI CLI 查询失败：{exc}"]
+        if account is not None:
+            name, simnow = f"{account.name}（{account.code}）", account.is_simnow
+        reasons += problems + cli_problems
+    stop = None
+    if args.strategy_id:
+        stop = stop_file(args.strategy_id, args.data_root)
+        if stop.exists():
+            reasons.append(f"发现紧急停止文件 {stop}，删除后才会自动下单")
+    return AutoTradeItem(
+        account=args.account,
+        name=name,
+        simnow=simnow,
+        ready=not reasons,
+        reasons=reasons,
+        stop_file=str(stop) if stop else None,
+    )
 
 
 def _doctor(args: DoctorInput) -> CommandResult:
@@ -302,8 +359,19 @@ def _doctor(args: DoctorInput) -> CommandResult:
             "PandaAI client CLI not found; install the PandaAI client or set PANDA_LIVE_CLI."
         )
 
+    auto_trade = None
+    if args.account:
+        auto_trade = _auto_trade(args, command, problems + ([error] if error else []))
+        if not auto_trade.ready:
+            warnings.append(
+                f"Account {args.account} cannot trade automatically now: "
+                + "; ".join(auto_trade.reasons)
+            )
+    elif args.strategy_id:
+        raise CLIError("INVALID_INPUT", "--strategy-id needs --account")
+
     exit_code = 0
-    if not notify_ready:
+    if not notify_ready or (auto_trade and not auto_trade.ready):
         exit_code = 1
     if any(not item.ok for item in tests):
         exit_code = 4
@@ -332,6 +400,7 @@ def _doctor(args: DoctorInput) -> CommandResult:
                 for account in accounts
             ],
         ),
+        auto_trade=auto_trade,
     )
     return CommandResult(data=data, warnings=warnings, exit_code=exit_code)
 
@@ -427,7 +496,8 @@ COMMANDS = [
         DoctorOutput,
         _doctor,
         "Check IM notification channels and the PandaAI client CLI (version, capabilities, "
-        "accounts); --send-test pushes a test message.",
+        "accounts); --account reports whether automatic orders can run on that account now; "
+        "--send-test pushes a test message.",
         side_effects=("read-only", "network"),
         priority="P0",
     ),

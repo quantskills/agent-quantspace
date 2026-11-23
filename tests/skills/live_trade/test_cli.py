@@ -202,6 +202,52 @@ def test_doctor_warns_when_no_account_is_cli_eligible(capsys, tmp_path, monkeypa
     assert any("No PandaAI account" in warning for warning in result["warnings"])
 
 
+def test_doctor_reports_whether_an_account_can_trade_automatically(capsys, tmp_path, monkeypatch):
+    from tests.skills.live_trade.test_panda_cli import ACCOUNTS, CAPABILITIES, fake_cli
+
+    connected = {"connected": True, "cli_ready": True, "connection_status": "CONNECTED"}
+    cli = fake_cli(
+        tmp_path,
+        {
+            "accounts": {"ok": True, "data": ACCOUNTS},
+            "capabilities": {"ok": True, "data": CAPABILITIES},
+            "connection": {"ok": True, "data": {"connection": connected}},
+        },
+    )
+    monkeypatch.setenv("PANDA_LIVE_CLI", cli[0])
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    data_root = tmp_path / "data"
+
+    def doctor(*extra):
+        return invoke(capsys, "live-trade", "doctor", "--data-root", str(data_root), *extra)
+
+    code, result = doctor("--account", "100001", "--strategy-id", "rb_demo")
+    assert code == 0, result
+    auto = result["data"]["auto_trade"]
+    assert (auto["name"], auto["simnow"], auto["ready"], auto["reasons"]) == (
+        "simnow_demo（100001）",
+        True,
+        True,
+        [],
+    )
+
+    stop = data_root / "live" / "rb_demo" / "STOP"
+    stop.parent.mkdir(parents=True)
+    stop.write_text("", encoding="utf-8")
+    code, result = doctor("--account", "100001", "--strategy-id", "rb_demo")
+    assert code == 1 and result["data"]["auto_trade"]["ready"] is False
+    assert "紧急停止文件" in result["data"]["auto_trade"]["reasons"][0]
+
+    code, result = doctor("--account", "200002")
+    auto = result["data"]["auto_trade"]
+    assert code == 1 and (auto["simnow"], auto["ready"]) == (False, False)
+    assert "不是 SimNow 账号" in auto["reasons"][0]
+    assert any("cannot trade automatically" in warning for warning in result["warnings"])
+
+    code, result = doctor()
+    assert code == 0 and result["data"]["auto_trade"] is None
+
+
 def test_doctor_without_channels_is_not_ready(capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("PANDA_LIVE_CLI", str(tmp_path / "missing"))
     code, result = invoke(capsys, "live-trade", "doctor")

@@ -97,7 +97,10 @@ ledger.record(signal, results, [result.channel for result in results])
   (negative is short) and returns an `ExecutionResult` (`status`, `detail`,
   `account`, `wanted`, `before`, `after`, `cancelled`, `plan_id`, `legs` of
   `LegResult`); see the Skill for the steps and statuses. `check_account`
-  raises `ExecutionRefused` for anything but an eligible SimNow account.
+  raises `ExecutionRefused` for anything but an eligible SimNow account;
+  `account_problems(account)` lists why, and `trading_problems(trader)` returns
+  the account and every reason it cannot trade now, counter state included
+  (what `doctor --account` reports).
 - `list_accounts(command)` returns `PandaAccount` items; `is_simnow` means
   broker `9999` (`SIMNOW_BROKER_ID`), `cli_eligible` and `unavailable_reason`
   come from the client.
@@ -235,15 +238,18 @@ def main(argv=None) -> int:
   (`get_stock_dividend`) the published `ex_cum_factor` of `get_adj_factor`; if
   that is missing the stock is in `FeedState.halted`.
 - `run_bar(spec, feed, compute, bar=, now=, write=False, capital=None,
-  lot_size=100, data_root=None, urls=None, execute=None)` returns a `RunOutcome`
+  lot_size=100, data_root=None, urls=None, execute=None, max_lots=None)` returns a `RunOutcome`
   whose status is a delivery status or `not_ready`, `stale`, `source_error`,
   `missed`, `done`, or `error`. The weights' last row must be the bar itself.
   With `write` it logs the bar and the target it computed in `RunLog`. With
   `write` and `execute(wanted, request_id)` (futures only) it also sizes the
-  full target with `wanted_contracts(spec, snapshot, state, capital)` and
-  trades it; `RunOutcome.execution` and the run log's `execution` hold the
-  result, a bar that placed orders pushes a `trade` message, and other problems
-  alert `execution_<status>` once per trade date.
+  full target with `wanted_contracts(spec, snapshot, state, capital,
+  max_lots=)` and trades it; `RunOutcome.execution` and the run log's
+  `execution` hold the result, a bar that placed orders pushes a `trade`
+  message, and other problems alert `execution_<status>` once per trade date.
+  No order is placed while `stop_file(strategy_id, data_root)`
+  (`live/<id>/STOP`) exists (`stopped`) or when a contract would exceed
+  `max_lots` (`over_limit`, from `SizingLimitError`).
 - `refresh_day(spec, feed, compute, now=, write=False, ...)` refreshes the
   trading day after `now` (`upcoming_trading_date`: today before 15:30, else
   the next trading day), recomputes the days it replaced, and returns
