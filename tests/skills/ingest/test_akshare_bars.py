@@ -137,7 +137,9 @@ def test_a_failing_symbol_is_reported_without_stopping_the_rest():
 
 def test_a_symbol_with_only_unfinished_bars_counts_as_an_error():
     fake = FakeAkshare()
-    result = fetch_intraday_bars(["RB2701.SHF"], "5m", now=datetime(2026, 11, 20, 22, 54), akshare=fake)
+    result = fetch_intraday_bars(
+        ["RB2701.SHF"], "5m", now=datetime(2026, 11, 20, 22, 54), akshare=fake
+    )
     assert result.bars.empty and list(result.bars.columns) == COLUMNS
     assert result.errors == {"RB2701.SHF": "AKShare returned no finished bars"}
 
@@ -160,6 +162,13 @@ def fake_akshare(monkeypatch, tmp_path):
     fake = FakeAkshare()
     monkeypatch.setitem(sys.modules, "akshare", fake)
     monkeypatch.setenv("QUANTSPACE_DATA_ROOT", str(tmp_path / "data"))
+    # The CLI reads the clock; pin it so the fake pages' placeholders stay unfinished.
+    import skills.ingest.akshare_bars as module
+
+    real = module.fetch_intraday_bars
+    monkeypatch.setattr(
+        module, "fetch_intraday_bars", lambda *args, **kwargs: real(*args, now=NOW, **kwargs)
+    )
     return fake
 
 

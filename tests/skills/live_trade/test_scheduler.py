@@ -210,7 +210,7 @@ def test_minute_jobs_refresh_at_their_times_even_after_a_finished_day(tmp_path):
     command = runner.calls[0][0]
     assert job.intraday and attempt.status == "ran"
     assert "--refresh" in command and "--final" not in command
-    assert tick(job, datetime(2026, 11, 20, 21, 5, 25), data_root=tmp_path, runner=runner) == []
+    assert tick(job, datetime(2026, 11, 20, 21, 5, 45), data_root=tmp_path, runner=runner) == []
     assert len(runner.calls) == 1
 
 
@@ -219,10 +219,10 @@ def test_tick_runs_the_oldest_ready_bar(tmp_path):
 
     job, runner = _minute_job(tmp_path), FakeRunner()
 
-    early = tick(job, datetime(2026, 11, 20, 21, 5, 10), data_root=tmp_path, runner=runner)
-    first = tick(job, datetime(2026, 11, 20, 21, 5, 25), data_root=tmp_path, runner=runner)
+    early = tick(job, datetime(2026, 11, 20, 21, 5, 30), data_root=tmp_path, runner=runner)
+    first = tick(job, datetime(2026, 11, 20, 21, 5, 45), data_root=tmp_path, runner=runner)
     RunLog("rb_demo", tmp_path).record(datetime(2026, 11, 20, 21, 5), "sent")
-    second = tick(job, datetime(2026, 11, 20, 21, 10, 25), data_root=tmp_path, runner=runner)
+    second = tick(job, datetime(2026, 11, 20, 21, 10, 45), data_root=tmp_path, runner=runner)
 
     assert early == []
     assert [(item.trade_date, item.status) for item in first + second] == [
@@ -244,6 +244,12 @@ def test_tick_runs_the_oldest_ready_bar(tmp_path):
     assert kwargs["timeout"] == 300
 
 
+def test_a_bar_process_may_run_one_bar_at_most():
+    from skills.live_trade.scheduler import bar_timeout
+
+    assert [bar_timeout(freq) for freq in ("1m", "5m", "15m")] == [60, 300, 300]
+
+
 def test_tick_logs_bars_past_their_deadline_and_alerts_once(tmp_path, http, monkeypatch):
     from skills.live_trade.scheduler import tick
 
@@ -252,8 +258,8 @@ def test_tick_logs_bars_past_their_deadline_and_alerts_once(tmp_path, http, monk
     monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
     job, runner = _minute_job(tmp_path), FakeRunner()
 
-    attempts = tick(job, datetime(2026, 11, 20, 21, 20, 25), data_root=tmp_path, runner=runner)
-    again = tick(job, datetime(2026, 11, 20, 21, 20, 35), data_root=tmp_path, runner=runner)
+    attempts = tick(job, datetime(2026, 11, 20, 21, 20, 45), data_root=tmp_path, runner=runner)
+    again = tick(job, datetime(2026, 11, 20, 21, 20, 55), data_root=tmp_path, runner=runner)
 
     assert [item.status for item in attempts] == ["missed", "missed", "missed", "ran"]
     assert [item.status for item in again] == ["ran"]
@@ -272,7 +278,7 @@ def test_tick_alerts_a_crashed_bar_once(tmp_path, http, monkeypatch):
     monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
     job, runner = _minute_job(tmp_path), FakeRunner(code=2)
 
-    for second in (25, 35):
+    for second in (45, 55):
         (attempt,) = tick(
             job, datetime(2026, 11, 20, 21, 5, second), data_root=tmp_path, runner=runner
         )
@@ -285,7 +291,7 @@ def test_preview_ticks_remember_what_they_finished(tmp_path, http):
     from skills.live_trade.scheduler import tick
 
     job, runner, seen = _minute_job(tmp_path), FakeRunner(), set()
-    now = datetime(2026, 11, 20, 21, 10, 25)
+    now = datetime(2026, 11, 20, 21, 10, 45)
 
     first = tick(job, now, write=False, data_root=tmp_path, runner=runner, seen=seen)
     second = tick(job, now, write=False, data_root=tmp_path, runner=runner, seen=seen)

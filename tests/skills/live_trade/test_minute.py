@@ -118,7 +118,7 @@ def test_previews_neither_log_nor_send(tmp_path, http):
 def test_a_bar_past_its_deadline_is_missed(tmp_path, http):
     feed = _feed(tmp_path, refresh_at=datetime(2026, 11, 20, 18, 0))
 
-    outcome = _run(feed, tmp_path, now=datetime(2026, 11, 20, 21, 10), write=True)
+    outcome = _run(feed, tmp_path, now=datetime(2026, 11, 20, 21, 10, 40), write=True)
 
     assert (outcome.status, outcome.exit_code) == ("missed", 0)
     assert RunLog("rb_demo", tmp_path).is_done(BAR)

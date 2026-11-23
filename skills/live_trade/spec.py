@@ -37,7 +37,9 @@ class LiveSpec(BaseModel):
     History comes from PandaData and today's bars from AKShare (Sina). ``warmup_bars`` is
     how many bars the strategy needs to compute the newest target; the live store keeps
     that many plus ``spare_days`` trading days. A bar is used ``bar_delay_seconds`` after it
-    ends and is given up ``deadline_seconds`` after it ends (default: one bar).
+    ends, because Sina keeps revising a bar for some seconds after it closes, and is given up
+    ``deadline_seconds`` after it ends. The deadline defaults to one bar plus the delay, the
+    moment the next bar becomes ready, so a late bar never holds up the next one.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -48,7 +50,7 @@ class LiveSpec(BaseModel):
     adjust: Literal["none", "post"] = Field(
         "post", description="Price series for signals of stocks and funds; futures never adjust."
     )
-    bar_delay_seconds: int = Field(20, ge=0, le=600)
+    bar_delay_seconds: int = Field(40, ge=0, le=600)
     deadline_seconds: int | None = Field(None, gt=0)
     spare_days: int = Field(2, ge=0, le=20)
     intraday_source: Literal["akshare"] = "akshare"
@@ -72,7 +74,11 @@ class LiveSpec(BaseModel):
 
     @property
     def deadline(self) -> int:
-        return self.deadline_seconds or INTRADAY_MINUTES[self.frequency] * 60
+        return self.deadline_seconds or self.bar_seconds + self.bar_delay_seconds
+
+    @property
+    def bar_seconds(self) -> int:
+        return INTRADAY_MINUTES[self.frequency] * 60
 
     @property
     def symbols(self) -> list[str]:

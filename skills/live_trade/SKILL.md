@@ -134,8 +134,13 @@ warm-up bars, price adjustment). Each trading day runs in two parts:
    once when it starts.
 2. **Bars** during the session: every 10 seconds `serve` starts
    `python -m <module> --bar <end time> --write` for the oldest bar that is due,
-   `bar_delay_seconds` (default 20) after the bar ends and until
-   `deadline_seconds` (default one bar). The run fetches today's finished bars
+   `bar_delay_seconds` (default 40) after the bar ends and until
+   `deadline_seconds` (default one bar plus the delay, when the next bar becomes
+   due). The delay is there because Sina keeps revising a bar for 10–30 seconds
+   after it closes (up to 80 seconds for the first bars after the open, measured
+   2026-11-23); what slips through is caught by the next refresh's
+   reconciliation. A `--bar` process may run one bar at most (five minutes for
+   bars of five minutes or longer). The run fetches today's finished bars
    from Sina through AKShare, recomputes the whole target table on the stored
    window, and pushes the bar's row if it changed.
 

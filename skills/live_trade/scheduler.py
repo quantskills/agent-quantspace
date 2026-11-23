@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .clock import due_bars
+from .clock import INTRADAY_MINUTES, due_bars
 from .feeds import read_feed_state
 from .ledger import validate_strategy_id
 from .runner import DONE_STATUSES, RunLog, send_alert
@@ -41,6 +41,7 @@ MISFIRE_GRACE_SECONDS = 6 * 3600
 KNOWN_EXIT_CODES = frozenset({0, 1, 3, 4})
 # How often a minute-level job looks for a ready bar.
 TICK_SECONDS = 10
+# A --bar process may run at most this long, and never longer than one bar.
 BAR_TIMEOUT_SECONDS = 300
 _MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 _TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
@@ -184,6 +185,11 @@ def run_job(
     return Attempt(job.strategy_id, trade_date.isoformat(), final, "crashed", code, tail)
 
 
+def bar_timeout(frequency: str) -> int:
+    """Seconds a ``--bar`` process may run: one bar, at most :data:`BAR_TIMEOUT_SECONDS`."""
+    return min(BAR_TIMEOUT_SECONDS, INTRADAY_MINUTES[frequency] * 60)
+
+
 def tick(
     job: JobConfig,
     now: datetime,
@@ -243,7 +249,7 @@ def tick(
                 cwd=REPOSITORY_ROOT,
                 capture_output=True,
                 text=True,
-                timeout=BAR_TIMEOUT_SECONDS,
+                timeout=bar_timeout(state.frequency),
             )
             code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
         except (OSError, subprocess.TimeoutExpired) as exc:

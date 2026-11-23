@@ -183,11 +183,11 @@ See `strategies/time_series/workflows/live_rb_ma_cross_5m.py` for a complete
 workflow with `--test`.
 
 - `LiveSpec(strategy_id, frequency, instruments, warmup_bars, adjust="post",
-  bar_delay_seconds=20, deadline_seconds=None, spare_days=2)`. `Instrument`
+  bar_delay_seconds=40, deadline_seconds=None, spare_days=2)`. `Instrument`
   checks that the code matches its asset (`stock`, `fund`, `future`);
   `continuous` is true for codes such as `RB_DOMINANT.SHF`. One spec trades
-  either futures or stocks and funds. `deadline` defaults to one bar and must
-  exceed the delay.
+  either futures or stocks and funds. `deadline` defaults to one bar plus the
+  delay (340 seconds for `5m`, 100 for `1m`) and must exceed the delay.
 - `MinuteFeed(spec, client, data_root=None, akshare=None, pause=0.3)`:
   `refresh(trading_date, now=None)` reloads `ceil(warmup_bars / bars per day) +
   spare_days + 1` trading days from PandaData into
@@ -224,7 +224,8 @@ workflow with `--test`.
   is true after a plain weekday or a weekend only.
 - `tick(job, now, write=True, data_root=None, runner=..., seen=None)` reads
   `feed.json`, logs bars past their deadline as `missed`, and runs one
-  `--bar` process (five-minute timeout) for the oldest due bar that is not
+  `--bar` process (timeout `bar_timeout(frequency)`: one bar, at most five
+  minutes) for the oldest due bar that is not
   finished; `seen` stands in for the run log in previews. `run_job` for a
   minute job adds `--refresh` and never `--final`, and `build_scheduler` adds a
   `<id>@bars` tick every 10 seconds.

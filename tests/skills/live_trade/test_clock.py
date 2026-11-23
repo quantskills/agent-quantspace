@@ -139,8 +139,9 @@ def _spec(*instruments, **options) -> LiveSpec:
 
 def test_spec_defaults_and_checks():
     spec = _spec(Instrument(symbol="510300.SH", asset="fund"))
-    assert (spec.deadline, spec.adjust, spec.futures, spec.symbols) == (
-        300,
+    assert (spec.bar_delay_seconds, spec.deadline, spec.adjust, spec.futures, spec.symbols) == (
+        40,
+        340,
         "post",
         False,
         ["510300.SH"],
@@ -148,6 +149,8 @@ def test_spec_defaults_and_checks():
     assert (
         _spec(Instrument(symbol="RB2701.SHF", asset="future"), deadline_seconds=90).deadline == 90
     )
+    # The default deadline is the moment the next bar becomes ready.
+    assert _spec(Instrument(symbol="510300.SH", asset="fund"), frequency="1m").deadline == 100
     with pytest.raises(ValidationError, match="either futures"):
         _spec(
             Instrument(symbol="510300.SH", asset="fund"),
@@ -159,6 +162,11 @@ def test_spec_defaults_and_checks():
             Instrument(symbol="510300.SH", asset="fund"),
         )
     with pytest.raises(ValidationError, match="greater"):
-        _spec(Instrument(symbol="510300.SH", asset="fund"), frequency="1m", bar_delay_seconds=60)
+        _spec(
+            Instrument(symbol="510300.SH", asset="fund"),
+            frequency="1m",
+            bar_delay_seconds=60,
+            deadline_seconds=60,
+        )
     with pytest.raises(ValidationError):
         _spec(Instrument(symbol="510300.SH", asset="fund"), strategy_id="../x")
