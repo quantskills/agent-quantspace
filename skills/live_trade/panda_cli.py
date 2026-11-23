@@ -131,6 +131,13 @@ def version_problem(version: str) -> str | None:
     return None
 
 
+def _json(text: str | None) -> Any:
+    try:
+        return json.loads(text) if text and text.strip() else None
+    except ValueError:
+        return None
+
+
 def run_cli(
     command: list[str],
     *args: str,
@@ -153,14 +160,16 @@ def run_cli(
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError(f"{CLI_NAME} {' '.join(args)} timed out") from exc
-    try:
-        payload = json.loads(completed.stdout)
-    except ValueError:
+    # A failed command prints its ``ok: false`` envelope on stderr and exits 1.
+    payload = _json(completed.stdout)
+    if payload is None:
+        payload = _json(completed.stderr)
+    if payload is None:
         detail = (completed.stderr or completed.stdout).strip()[:200]
         raise PandaCliError(
             f"{CLI_NAME} {args[0] if args else ''} printed no JSON "
             f"(exit {completed.returncode}): {detail}"
-        ) from None
+        )
     if not isinstance(payload, dict) or not payload.get("ok"):
         error = payload.get("error") if isinstance(payload, dict) else None
         error = error if isinstance(error, dict) else {}
