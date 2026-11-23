@@ -152,6 +152,18 @@ def test_an_unready_counter_blocks_before_any_order():
     assert (result.status, result.detail) == ("blocked", "柜台未就绪（SYNCING）")
     assert client.names() == ["accounts", "connection"]
 
+    # As SimNow left it on 2026-11-23 19:48: disconnected and not reconnecting.
+    client.connection = {
+        "connected": False,
+        "cli_ready": False,
+        "connection_status": "FAILED",
+        "last_error": "reason_code=4097, reason_message=网络连接异常断开",
+    }
+    result = _trade(client, {"RB2701.SHF": 1})
+    assert (
+        result.detail == "柜台未就绪（FAILED）：reason_code=4097, reason_message=网络连接异常断开"
+    )
+
 
 def test_opening_a_target_executes_one_frozen_plan_and_reports_fills():
     client = FakeClient()

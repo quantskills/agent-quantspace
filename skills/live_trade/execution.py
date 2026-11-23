@@ -245,7 +245,10 @@ def trading_problems(trader: PandaTrader) -> tuple[PandaAccount | None, list[str
     if not problems:
         connection = trader.connection()
         if not (connection.get("connected") and connection.get("cli_ready")):
-            problems.append(f"柜台未就绪（{connection.get('connection_status') or '未知'}）")
+            reason = f"柜台未就绪（{connection.get('connection_status') or '未知'}）"
+            if connection.get("last_error"):
+                reason += f"：{connection['last_error']}"
+            problems.append(reason)
     return account, problems
 
 

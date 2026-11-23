@@ -203,6 +203,12 @@ into whole contracts (rounded toward zero) of the actual contract
 | `stopped` | The stop file exists; no order was placed. |
 | `over_limit` | The target exceeds `--max-lots`; no order was placed. |
 
+The client does not reconnect by itself when SimNow drops the counter (measured
+2026-11-23: disconnected at 19:48, `FAILED` until reconnected by hand). Every
+bar is then `blocked` with the client's `last_error`, alerted once per trade
+date; reconnect in the client (or `panda-live-trading connect --account
+<code>`) and the next bar trades again.
+
 Emergency stop: create `data/live/<strategy-id>/STOP` (any content) and every
 later bar still signals but places no orders, alerting `execution_stopped`
 once per trade date; delete the file to resume. Orders already working stay
