@@ -215,7 +215,10 @@ trade date as `execution_<status>`. The bar's own status stays the delivery
 status, so a finished bar never trades twice, and a later bar always
 re-targets from the account's actual position. Measured on SimNow on
 2026-11-23: one call takes 8–12 seconds with one order and 15–17 seconds for a
-reversal or a roll (two orders).
+reversal or a roll (two orders). The last bar of a session (10:15, 11:30, 15:00,
+23:00 for rebar) runs after the close: if its target differs from the
+position, the client refuses the plan for lack of a live quote (`error`,
+nothing sent, alerted once a day), and the next session's first bar trades.
 
 ## From a backtest to a live workflow
 
