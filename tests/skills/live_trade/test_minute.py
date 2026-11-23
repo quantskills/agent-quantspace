@@ -137,6 +137,20 @@ def test_weights_must_reach_the_bar(tmp_path):
     assert empty.status == "error" and "empty weights" in empty.detail
 
 
+def test_a_late_bar_uses_only_the_bars_up_to_itself(tmp_path):
+    # Run at 21:10:20: the 21:10 bar has ended but is not due yet, and the 21:05 bar is
+    # still before its deadline (21:10:40). Its target and prices are those of 21:05.
+    sina = FakeSina()
+    sina.add("RB2701", (BAR, 3010.0), (datetime(2026, 11, 20, 21, 10), 2990.0))
+    feed = _feed(tmp_path, sina=sina, refresh_at=datetime(2026, 11, 20, 18, 0))
+
+    outcome = _run(feed, tmp_path, now=datetime(2026, 11, 20, 21, 10, 20))
+
+    assert outcome.status == "preview", outcome.detail
+    assert outcome.delivery.signal.target == {"RB_DOMINANT.SHF": 1.0}
+    assert outcome.delivery.signal.prices["RB_DOMINANT.SHF"] == 3010.0
+
+
 def test_halted_stocks_keep_their_last_delivered_weight(tmp_path):
     client, sina = FakePandaData(), FakeSina()
     client.ex_dates["601998.SH"] = ["20261120"]

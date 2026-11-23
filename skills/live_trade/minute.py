@@ -167,7 +167,10 @@ def run_bar(
                 detail += "；" + "；".join(f"{symbol}: {text}" for symbol, text in failed.items())
                 return finish("source_error", detail)
             return finish("stale", detail)
-        weights = compute(feed.panel()).sort_index()
+        # A late run can already hold the next finished bar; compute as of ``bar`` only.
+        panel = feed.panel()
+        panel = panel[panel.index.get_level_values("eob") <= pd.Timestamp(bar)]
+        weights = compute(panel).sort_index()
         if weights.empty:
             raise ValueError("the strategy returned an empty weights table")
         last = pd.Timestamp(weights.index[-1])
