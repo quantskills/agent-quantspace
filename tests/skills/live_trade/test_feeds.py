@@ -195,3 +195,32 @@ def test_feed_is_not_ready_without_a_refresh_for_the_day(tmp_path):
         feed.update(datetime(2026, 11, 24, 9, 5, 30))
     with pytest.raises(FeedNotReady, match="not for"):
         feed.update(datetime(2026, 11, 20, 12, 0))
+
+
+def test_a_tqsdk_feed_builds_bars_from_ticks_seconds_after_they_end(tmp_path):
+    from tests.skills.ingest.test_tqsdk_bars import FakeTq
+
+    ticks = [
+        (datetime(2026, 11, 20, 14, 59, 59, 500000), 2999.0, 800000.0),  # Friday's day session
+        (datetime(2026, 11, 20, 20, 59, 0, 500000), 3000.0, 500.0),  # Monday's opening auction
+        (datetime(2026, 11, 20, 21, 0, 30), 3001.0, 900.0),
+        (datetime(2026, 11, 20, 21, 4, 59, 500000), 3003.0, 1500.0),
+        (datetime(2026, 11, 20, 21, 5, 0, 500000), 3004.0, 1600.0),
+        (datetime(2026, 11, 20, 21, 9, 59, 500000), 3006.0, 2000.0),
+    ]
+    tq = FakeTq({"RB2701.SHF": ticks})
+    feed = MinuteFeed(
+        RB_SPEC.with_source("tqsdk"), FakePandaData(), data_root=tmp_path, tqsdk=lambda: tq
+    )
+    state = feed.refresh(MONDAY, now=datetime(2026, 11, 20, 18, 0)).state
+    assert (state.delay_seconds, state.deadline_seconds) == (3, 303)
+
+    update = feed.update(datetime(2026, 11, 20, 21, 10, 4))
+
+    assert update.added == {"RB_DOMINANT.SHF": 2} and update.errors == {}
+    night = _stored(feed, "RB_DOMINANT.SHF").loc["2026-11-20 21:05":]
+    assert list(night["close"]) == [3003.0, 3006.0]
+    # The first bar counts the day's volume from zero, the opening auction included.
+    assert list(night["volume"]) == [1500.0, 500.0] and list(night["open"]) == [3000.0, 3004.0]
+    assert set(night["source"]) == {"tqsdk_tick"} and set(night["trading_date"]) == {"2026-11-23"}
+    assert tq.closed and [call[0] for call in tq.calls] == ["ticks", "klines"]

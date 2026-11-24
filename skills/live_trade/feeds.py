@@ -1,11 +1,12 @@
-"""Minute bars for a live strategy: PandaData history, today's bars from AKShare (Sina).
+"""Minute bars for a live strategy: PandaData history, today's bars from an intraday source.
 
 Each trading day starts with :meth:`MinuteFeed.refresh`, before the session opens
 (futures after 17:55, when PandaData has published the day's minute bars and the next
 trading day's dominant contracts; stocks and funds the next morning). It reloads the whole
-warm-up window from PandaData, which replaces the AKShare bars of the day before, and
+warm-up window from PandaData, which replaces the intraday bars of the day before, and
 compares the two first. During the session :meth:`MinuteFeed.update` appends today's
-finished bars from AKShare. Both write one file per symbol in the research store layout
+finished bars from the spec's ``intraday_source``: AKShare (Sina, the default) or bars
+built from TqSdk ticks (futures only). Both write one file per symbol in the research store layout
 under ``<data_root>/live/<strategy_id>/market/<frequency>/``; the ``source`` column says
 where each bar came from.
 
@@ -133,7 +134,11 @@ def _write_json(path: Path, payload: dict) -> None:
 
 @dataclass(frozen=True)
 class BarComparison:
-    """AKShare bars of one symbol and trading day against PandaData's bars for the same day."""
+    """Intraday bars of one symbol and trading day against PandaData's bars for the same day.
+
+    The ``akshare_*`` fields hold the intraday source's numbers whichever it was; ``source``
+    names it (the ``source`` column of the stored bars, such as ``akshare_sina``).
+    """
 
     symbol: str
     trading_date: str
@@ -145,6 +150,7 @@ class BarComparison:
     max_close_diff: float
     volume_akshare: float
     volume_pandadata: float
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,7 +162,7 @@ class RefreshReport:
 
 @dataclass(frozen=True)
 class UpdateReport:
-    """Today's bars appended from AKShare."""
+    """Today's bars appended from the intraday source."""
 
     as_of: str
     latest: dict[str, str | None]
@@ -175,6 +181,7 @@ class MinuteFeed:
         *,
         data_root: str | Path | None = None,
         akshare=None,
+        tqsdk=None,
         pause: float = 0.3,
     ):
         from skills.store.data_manager import DataManager
@@ -183,6 +190,7 @@ class MinuteFeed:
         self.spec = spec
         self.client = client
         self.akshare = akshare
+        self.tqsdk = tqsdk
         self.pause = pause
         self.root = (
             resolve_workspace_paths(data_root=data_root).data_root / "live" / spec.strategy_id
@@ -314,7 +322,7 @@ class MinuteFeed:
         return frame.set_index("eob").sort_index()
 
     def _compare(self, symbol: str, history: pd.DataFrame) -> list[BarComparison]:
-        """AKShare bars stored before this refresh against PandaData's bars of the same days."""
+        """Intraday bars stored before this refresh against PandaData's bars of the same days."""
         path = self.store.root / "market" / self.spec.frequency / f"{symbol}.parquet"
         if not path.exists():
             return []
@@ -339,6 +347,7 @@ class MinuteFeed:
                     max_close_diff=float(diff.max()) if len(diff) else 0.0,
                     volume_akshare=float(group["volume"].sum()),
                     volume_pandadata=float(theirs["volume"].sum()),
+                    source="+".join(sorted(set(group["source"].astype(str)))),
                 )
             )
         return results
@@ -394,7 +403,7 @@ class MinuteFeed:
                 item.isoformat()
                 for item in bar_ends(trading_date, spec.frequency, sessions, calendar)
             ],
-            delay_seconds=spec.bar_delay_seconds,
+            delay_seconds=spec.delay_seconds,
             deadline_seconds=spec.deadline,
             keep_bars=keep,
         )
@@ -411,10 +420,26 @@ class MinuteFeed:
         return RefreshReport(state=state, rows=rows, comparisons=comparisons)
 
     # ------------------------------------------------------------------ update
-    def update(self, now: datetime) -> UpdateReport:
-        """Append today's finished bars from AKShare; errors are reported per symbol."""
+    def _fetch(self, contracts: list[str], schedule: set[datetime], now: datetime):
+        """Today's finished bars of ``contracts`` from the spec's intraday source."""
+        if self.spec.intraday_source == "tqsdk":
+            from skills.ingest.tqsdk_bars import connect, fetch_tq_bars
+
+            return fetch_tq_bars(
+                contracts,
+                self.spec.frequency,
+                now=now,
+                bar_ends=sorted(schedule),
+                connector=self.tqsdk or connect,
+            )
         from skills.ingest.akshare_bars import fetch_intraday_bars
 
+        return fetch_intraday_bars(
+            contracts, self.spec.frequency, now=now, pause=self.pause, akshare=self.akshare
+        )
+
+    def update(self, now: datetime) -> UpdateReport:
+        """Append today's finished bars from the intraday source; errors are per symbol."""
         state = self.state()
         schedule = set(state.schedule)
         if not schedule or now < min(schedule) - timedelta(hours=1):
@@ -424,9 +449,7 @@ class MinuteFeed:
         if now > max(schedule) + timedelta(hours=12):
             raise FeedNotReady(f"the last refresh was for {state.trading_date}; refresh again")
         wanted = sorted(set(state.contracts.values()))
-        result = fetch_intraday_bars(
-            wanted, self.spec.frequency, now=now, pause=self.pause, akshare=self.akshare
-        )
+        result = self._fetch(wanted, schedule, now)
         latest, added, rewritten, errors = {}, {}, {}, {}
         for item in self.spec.instruments:
             contract = state.contracts[item.symbol]

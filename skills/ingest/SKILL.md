@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: Download stock, index, futures, listed-fund and ETF, HK and US bars, adjustment factors, reference data, ETF creation and redemption data, and futures ticks from PandaData with `uv run qs ingest ...`, store bars locally, and fetch today's intraday minute bars from Sina through AKShare while the market is open.
+description: Download stock, index, futures, listed-fund and ETF, HK and US bars, adjustment factors, reference data, ETF creation and redemption data, and futures ticks from PandaData with `uv run qs ingest ...`, store bars locally, and fetch today's intraday minute bars while the market is open, from Sina through AKShare or, for futures, built from TqSdk ticks.
 ---
 
 # Ingest
@@ -13,7 +13,9 @@ Use the `uv run qs ingest` commands below; data tasks do not require reading
 ## Prerequisites
 
 - Install the SDK with `uv sync --extra panda_data`. `ingest intraday` needs
-  `uv sync --extra akshare` instead (Python 3.11.5 or later) and no account.
+  `uv sync --extra akshare` instead (Python 3.11.5 or later) and no account;
+  with `--source tqsdk` it needs `uv sync --extra tqsdk` and a Shinny account in
+  `.env` (`TQ_USERNAME`, `TQ_PASSWORD`).
 - Set `PANDA_DATA_USERNAME` and `PANDA_DATA_PASSWORD` in the environment or
   `.env`. Credentials are never passed as command flags.
 
@@ -91,6 +93,13 @@ uv run qs ingest intraday --symbols 000001.SZ,510300.SH,RB2701.SHF --freq 5m \
   `RB_DOMINANT.SHF`. Sina keeps only recent bars and has no service guarantee:
   use it for the current session and PandaData for history. One failing symbol
   is a warning; the command fails only when no symbol returned bars.
+- `intraday --source tqsdk` builds futures bars from TqSdk's ticks with
+  PandaData's minute boundaries (the tick stamped exactly on the minute starts the
+  next bar; a trading day's first bar holds the opening auction). On RB2701 they
+  matched PandaData's minute closes and volumes exactly and are final a few
+  seconds after the bar ends, where Sina's 5-minute bars took about 3 minutes.
+  TqSdk keeps about 75 minutes of ticks; older minutes come from its own K lines
+  (`source` `tqsdk_kline`, closes off by a tick about a third of the time).
 - Commands that reach the network are marked `network` in the command list
   below; they fail with a hint when credentials are missing.
 
@@ -126,7 +135,7 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | Command | What it does | Side effects |
 |---|---|---|
 | `uv run qs ingest bars` | Fetch stock, index, future, fund, HK or US bars; optionally store them. | network, writes-output, writes-store |
-| `uv run qs ingest intraday` | Fetch today's finished intraday bars from Sina through AKShare (unadjusted). | network, writes-output |
+| `uv run qs ingest intraday` | Fetch today's finished intraday bars (unadjusted): Sina through AKShare, or futures built from TqSdk ticks with --source tqsdk. | network, writes-output |
 | `uv run qs ingest adj-factor` | Fetch stock adjustment-factor events; optionally store them per symbol. | network, writes-output, writes-store |
 | `uv run qs ingest ref stock-detail` | Fetch stock basic information (get_stock_detail). | network, writes-output |
 | `uv run qs ingest ref fund-detail` | Fetch fund and ETF metadata (get_fund_detail). | network, writes-output |

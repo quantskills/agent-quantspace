@@ -42,7 +42,7 @@ Compute = Callable[[pd.DataFrame], pd.DataFrame]
 
 _BAR_ALERTS = {
     "error": "这根 K 线运行出错，没有生成信号。",
-    "source_error": "AKShare 取数失败，这根 K 线还没有数据。",
+    "source_error": "盘中数据源取数失败，这根 K 线还没有数据。",
     "missed": "到截止时刻仍没有处理这根 K 线，已跳过。",
     "failed": "信号没有送达任何 IM 通道。",
     "partial": "信号只送达了部分 IM 通道。",
@@ -87,8 +87,8 @@ def run_bar(
     """Run the strategy for the bar ending at ``bar``.
 
     Statuses: ``done`` (the bar already finished), ``missed`` (past its deadline),
-    ``stale`` (some symbol has no bar at ``bar`` yet; retried), ``source_error`` (AKShare
-    failed for a lagging symbol; retried and alerted), ``not_ready`` (no refresh for the
+    ``stale`` (some symbol has no bar at ``bar`` yet; retried), ``source_error`` (the
+    intraday source failed for a lagging symbol; retried and alerted), ``not_ready`` (no refresh for the
     day), ``error``, or the delivery status. With ``write`` every attempt is logged and each
     kind of problem alerts once per trade date.
 

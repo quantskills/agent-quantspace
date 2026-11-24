@@ -177,7 +177,7 @@ def _spec(*instruments, **options) -> LiveSpec:
 
 def test_spec_defaults_and_checks():
     spec = _spec(Instrument(symbol="510300.SH", asset="fund"))
-    assert (spec.bar_delay_seconds, spec.deadline, spec.adjust, spec.futures, spec.symbols) == (
+    assert (spec.delay_seconds, spec.deadline, spec.adjust, spec.futures, spec.symbols) == (
         40,
         340,
         "post",
@@ -208,3 +208,16 @@ def test_spec_defaults_and_checks():
         )
     with pytest.raises(ValidationError):
         _spec(Instrument(symbol="510300.SH", asset="fund"), strategy_id="../x")
+
+
+def test_spec_source_sets_the_default_delay_and_covers_futures_only():
+    rebar = Instrument(symbol="RB_DOMINANT.SHF", asset="future")
+    sina, tq = _spec(rebar), _spec(rebar, intraday_source="tqsdk")
+    assert (sina.intraday_source, sina.delay_seconds, sina.deadline) == ("akshare", 40, 340)
+    assert (tq.delay_seconds, tq.deadline) == (3, 303)
+    assert _spec(rebar, intraday_source="tqsdk", bar_delay_seconds=8).delay_seconds == 8
+    assert sina.with_source("tqsdk") == tq
+    with pytest.raises(ValidationError, match="futures only"):
+        _spec(Instrument(symbol="510300.SH", asset="fund"), intraday_source="tqsdk")
+    with pytest.raises(ValidationError, match="futures only"):
+        _spec(Instrument(symbol="510300.SH", asset="fund")).with_source("tqsdk")

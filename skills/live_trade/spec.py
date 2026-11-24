@@ -11,6 +11,11 @@ from .contracts import is_futures_symbol
 from .ledger import validate_strategy_id
 
 Asset = Literal["stock", "fund", "future"]
+IntradaySource = Literal["akshare", "tqsdk"]
+INTRADAY_SOURCES: tuple[str, ...] = ("akshare", "tqsdk")
+# Seconds after a bar ends before it is used, by source: Sina keeps revising a bar for
+# tens of seconds; a TqSdk bar is built from ticks and final once the next tick is in.
+DEFAULT_BAR_DELAY = {"akshare": 40, "tqsdk": 3}
 
 
 class Instrument(BaseModel):
@@ -34,12 +39,14 @@ class Instrument(BaseModel):
 class LiveSpec(BaseModel):
     """A minute-level live strategy.
 
-    History comes from PandaData and today's bars from AKShare (Sina). ``warmup_bars`` is
-    how many bars the strategy needs to compute the newest target; the live store keeps
-    that many plus ``spare_days`` trading days. A bar is used ``bar_delay_seconds`` after it
-    ends, because Sina keeps revising a bar for some seconds after it closes, and is given up
-    ``deadline_seconds`` after it ends. The deadline defaults to one bar plus the delay, the
-    moment the next bar becomes ready, so a late bar never holds up the next one.
+    History comes from PandaData and today's bars from ``intraday_source``: ``akshare``
+    (Sina, the default) or ``tqsdk`` (bars built from TqSdk ticks; futures only, needs a
+    Shinny account). ``warmup_bars`` is how many bars the strategy needs to compute the
+    newest target; the live store keeps that many plus ``spare_days`` trading days. A bar is
+    used ``bar_delay_seconds`` after it ends (default by source,
+    :data:`DEFAULT_BAR_DELAY`: Sina keeps revising a bar for some seconds after it closes)
+    and is given up ``deadline_seconds`` after it ends. The deadline defaults to one bar plus
+    the delay, the moment the next bar becomes ready, so a late bar never holds up the next.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -50,10 +57,10 @@ class LiveSpec(BaseModel):
     adjust: Literal["none", "post"] = Field(
         "post", description="Price series for signals of stocks and funds; futures never adjust."
     )
-    bar_delay_seconds: int = Field(40, ge=0, le=600)
+    bar_delay_seconds: int | None = Field(None, ge=0, le=600)
     deadline_seconds: int | None = Field(None, gt=0)
     spare_days: int = Field(2, ge=0, le=20)
-    intraday_source: Literal["akshare"] = "akshare"
+    intraday_source: IntradaySource = "akshare"
 
     @field_validator("strategy_id")
     @classmethod
@@ -68,13 +75,26 @@ class LiveSpec(BaseModel):
         families = {item.asset == "future" for item in self.instruments}
         if len(families) > 1:
             raise ValueError("a minute strategy trades either futures or stocks and funds")
-        if self.deadline <= self.bar_delay_seconds:
+        if self.intraday_source == "tqsdk" and not self.futures:
+            raise ValueError("intraday_source tqsdk covers futures only; use akshare")
+        if self.deadline <= self.delay_seconds:
             raise ValueError("deadline_seconds must be greater than bar_delay_seconds")
         return self
 
+    def with_source(self, source: str) -> LiveSpec:
+        """This spec reading today's bars from ``source``, validated again."""
+        return LiveSpec.model_validate({**self.model_dump(), "intraday_source": source})
+
+    @property
+    def delay_seconds(self) -> int:
+        """Seconds after a bar ends before it is used."""
+        if self.bar_delay_seconds is not None:
+            return self.bar_delay_seconds
+        return DEFAULT_BAR_DELAY[self.intraday_source]
+
     @property
     def deadline(self) -> int:
-        return self.deadline_seconds or self.bar_seconds + self.bar_delay_seconds
+        return self.deadline_seconds or self.bar_seconds + self.delay_seconds
 
     @property
     def bar_seconds(self) -> int:
@@ -89,4 +109,11 @@ class LiveSpec(BaseModel):
         return self.instruments[0].asset == "future"
 
 
-__all__ = ["Asset", "Instrument", "LiveSpec"]
+__all__ = [
+    "DEFAULT_BAR_DELAY",
+    "INTRADAY_SOURCES",
+    "Asset",
+    "Instrument",
+    "IntradaySource",
+    "LiveSpec",
+]
