@@ -8,7 +8,9 @@ root and only previews: nothing is pushed to IM, written to ``data/``, or ordere
 the SimNow round trips, which run only when ``QS_LIVE_ORDERS_ACCOUNT`` names a SimNow
 account: one hot-rolled coil contract is opened and closed by the order step alone and
 once more through the daily path. Hot-rolled coil leaves a rebar strategy on the same
-account alone.
+account alone. The contract is PandaData's hot-rolled coil dominant, or
+``QS_LIVE_ORDERS_CONTRACT`` (such as ``HC2701.SHF``), which lets the client check and the
+order step run without PandaData credentials.
 """
 
 from __future__ import annotations
@@ -47,6 +49,22 @@ def _dominant(client, product: str = "RB") -> str:
     if table is None or table.empty:
         pytest.skip(f"PandaData has no {product} dominant contract for {day}")
     return str(table["symbol"].iloc[-1])
+
+
+def _order_contract(request) -> str:
+    """``QS_LIVE_ORDERS_CONTRACT``, else today's hot-rolled coil dominant from PandaData."""
+    from skills.live_trade.execution import product_of
+    from skills.live_trade.panda_cli import require_actual_contract
+
+    contract = os.environ.get("QS_LIVE_ORDERS_CONTRACT", "").strip()
+    if not contract:
+        return _dominant(request.getfixturevalue("panda_client"), "HC")
+    contract = require_actual_contract(contract)
+    if product_of(contract) != "HC":
+        pytest.fail(
+            f"QS_LIVE_ORDERS_CONTRACT must be hot-rolled coil, such as HC2701.SHF: {contract}"
+        )
+    return contract
 
 
 def _equal_weights(panel: pd.DataFrame) -> pd.DataFrame:
@@ -324,7 +342,7 @@ def test_rb_minute_workflow_refreshes_and_previews_the_due_bar(tmp_path, panda_c
 # --------------------------------------------------------------------------- PandaAI client
 
 
-def test_client_cli_is_connected_with_a_usable_simnow_account(panda_cli, panda_client):
+def test_client_cli_is_connected_with_a_usable_simnow_account(panda_cli, request):
     from skills.live_trade.execution import PandaTrader, check_account
     from skills.live_trade.panda_cli import cli_version, list_accounts, run_cli, version_problem
 
@@ -336,13 +354,14 @@ def test_client_cli_is_connected_with_a_usable_simnow_account(panda_cli, panda_c
     trader = PandaTrader(panda_cli, simnow[0].code)
     check_account(trader)
     assert trader.connection().get("cli_ready") is True
-    quote = run_cli(
-        panda_cli, "quote", "--account", simnow[0].code, "--symbol", _dominant(panda_client)
+    symbol = os.environ.get("QS_LIVE_ORDERS_CONTRACT", "").strip() or _dominant(
+        request.getfixturevalue("panda_client")
     )
+    quote = run_cli(panda_cli, "quote", "--account", simnow[0].code, "--symbol", symbol)
     assert quote["ready"] and not quote["stale"] and quote["quote"]["last"] > 0
 
 
-def test_simnow_round_trip_opens_and_closes_one_contract(panda_cli, panda_client):
+def test_simnow_round_trip_opens_and_closes_one_contract(panda_cli, request):
     """Hot-rolled coil, not rebar: closing it must not flatten a rebar strategy's position."""
     from skills.live_trade.execution import PandaTrader, execute_targets
 
@@ -350,7 +369,7 @@ def test_simnow_round_trip_opens_and_closes_one_contract(panda_cli, panda_client
     if not account:
         pytest.skip("set QS_LIVE_ORDERS_ACCOUNT to a SimNow account code to place orders")
     require_session(RB_WINDOWS, "hot-rolled coil")
-    contract = _dominant(panda_client, "HC")
+    contract = _order_contract(request)
     trader = PandaTrader(panda_cli, account, trace_id="qs-live-check")
 
     opened = execute_targets(trader, {contract: 1}, request_id="live-check:open")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
@@ -42,9 +43,14 @@ def panda_client():
     try:
         from skills.ingest import PandaDataClient
 
-        return PandaDataClient()
+        client = PandaDataClient()  # also reads .env
     except Exception as exc:  # noqa: BLE001 - any setup problem is a skip, not a failure
         pytest.skip(f"PandaData is not available: {type(exc).__name__}: {exc}")
+    # The client only logs in on its first call, so missing credentials would fail every
+    # check that uses it instead of skipping it.
+    if not (os.environ.get("PANDA_DATA_USERNAME") and os.environ.get("PANDA_DATA_PASSWORD")):
+        pytest.skip("PandaData credentials are not set (PANDA_DATA_USERNAME, PANDA_DATA_PASSWORD)")
+    return client
 
 
 @pytest.fixture(scope="session")
