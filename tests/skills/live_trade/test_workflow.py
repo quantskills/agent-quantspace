@@ -400,3 +400,17 @@ def test_weights_that_end_before_the_bar_are_a_mismatch():
         return (frame > 100).astype(float).iloc[:-1]
 
     assert len(replay_mismatches(lagging, close, last=5)) == 5
+
+
+def test_the_report_is_utf8_even_on_a_gbk_pipe(monkeypatch):
+    """A Windows pipe defaults to GBK, which cannot encode ✓ and garbles Chinese for agents."""
+    import io
+    import sys
+
+    from skills.live_trade.workflow import _emit
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="gbk"))
+    assert _emit({"detail": "已撤单 ✓"}, 3) == 3
+    sys.stdout.flush()
+    assert json.loads(raw.getvalue().decode("utf-8")) == {"detail": "已撤单 ✓"}

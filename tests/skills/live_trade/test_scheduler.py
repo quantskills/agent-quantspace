@@ -20,6 +20,7 @@ from skills.live_trade.scheduler import (
     catch_up,
     next_runs,
     run_job,
+    run_until_stopped,
 )
 
 ZONE = ZoneInfo("Asia/Shanghai")
@@ -97,7 +98,19 @@ def test_run_job_builds_the_workflow_command(tmp_path):
         "100000",
     ]
     assert kwargs["cwd"] == REPOSITORY_ROOT
+    # Workflow output is UTF-8 on every OS; a Windows pipe would otherwise be GBK.
+    assert (kwargs["encoding"], kwargs["errors"]) == ("utf-8", "replace")
+    assert kwargs["env"]["PYTHONIOENCODING"] == "utf-8"
     assert (attempt.status, attempt.exit_code) == ("ran", 0)
+
+
+def test_a_crashed_workflow_keeps_its_message_whatever_the_code_page(tmp_path):
+    job = _config(module="tests.skills.live_trade.stub_workflow").jobs[0]
+
+    attempt = run_job(job, FRIDAY, final=False, write=False, data_root=tmp_path)
+
+    assert (attempt.status, attempt.exit_code) == ("crashed", 2)
+    assert attempt.detail == "策略进程失败 ✗ --date 2026-11-20"
 
 
 def test_run_job_skips_a_finished_day(tmp_path):
@@ -318,3 +331,57 @@ def test_minute_jobs_get_a_tick_and_always_refresh_on_start(tmp_path):
     assert str(jobs["rb_demo@bars"].trigger.fields[-1]) == "*/10"
     assert jobs["rb_demo@bars"].max_instances == 1
     assert [item.status for item in attempts] == ["ran"] and "--refresh" in runner.calls[0][0]
+
+
+class FakeScheduler:
+    def __init__(self):
+        self.running, self.events = False, []
+
+    def start(self):
+        self.running = True
+        self.events.append("start")
+
+    def shutdown(self, wait=True):
+        self.running = False
+        self.events.append(f"shutdown(wait={wait})")
+
+
+def test_ctrl_c_reaches_serve_through_a_sleeping_main_thread():
+    """Windows handles Ctrl+C in time.sleep but not in the event wait of BlockingScheduler."""
+    scheduler, naps = FakeScheduler(), []
+
+    def sleep(seconds):
+        naps.append(seconds)
+        if len(naps) == 3:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_until_stopped(scheduler, sleep=sleep)
+    assert naps == [1.0, 1.0, 1.0]
+    assert scheduler.events == ["start", "shutdown(wait=False)"]
+
+
+def test_the_main_thread_returns_when_the_scheduler_stops_by_itself():
+    scheduler = FakeScheduler()
+    run_until_stopped(scheduler, sleep=lambda seconds: scheduler.shutdown())
+    assert scheduler.events == ["start", "shutdown(wait=True)"]
+
+
+def test_build_scheduler_runs_in_the_background_by_default(tmp_path):
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    assert isinstance(build_scheduler(_config(), data_root=tmp_path), BackgroundScheduler)
+
+
+def test_serve_announces_the_stop_after_ctrl_c(tmp_path, monkeypatch):
+    import skills.live_trade.scheduler as module
+
+    def interrupted(scheduler, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module, "catch_up", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "run_until_stopped", interrupted)
+    said = []
+    with pytest.raises(KeyboardInterrupt):
+        module.serve(_config(), data_root=tmp_path, announce=lambda title, body: said.append(title))
+    assert said == ["QuantSpace 实盘调度已启动", "QuantSpace 实盘调度已停止"]

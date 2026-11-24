@@ -342,6 +342,9 @@ def _delivery_fields(delivery: Delivery | None) -> dict:
 
 
 def _emit(report: dict, exit_code: int) -> int:
+    from skills.cli.io import utf8_stdout
+
+    utf8_stdout()
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return exit_code
 

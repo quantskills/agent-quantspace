@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import Field, ValidationError
 from pydantic_settings import CliSettingsSource, SettingsError
 
-from .io import json_safe, read_json
+from .io import json_safe, read_json, utf8_stdout
 from .models import CLIError, CLIModel, CommandResult
 from .registry import SKILLS, get_commands
 
@@ -353,6 +353,7 @@ def _summarize(envelope, full_path):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    utf8_stdout()
     # A command must never open plot windows; Skill code that calls plt.show() stays headless.
     os.environ.setdefault("MPLBACKEND", "Agg")
     if not argv or argv == ["--help"] or argv == ["-h"]:

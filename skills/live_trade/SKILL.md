@@ -38,6 +38,25 @@ same way on Windows, Linux, and macOS. Minute-level strategies also need
 PandaData (history, calendar, dominant contracts) and AKShare (today's bars;
 Python 3.11.5 or later).
 
+On Windows (checked on Windows 11, 2026-11-24) the setup is the same; uv brings
+Python 3.11 and the `tzdata` package that `Asia/Shanghai` needs there.
+
+- The PandaAI client's CLI is found in the folder its installer registered
+  (Settings > Apps), else `%LOCALAPPDATA%\Programs\PandaAI` or
+  `%ProgramFiles%\PandaAI`: `PandaAI.exe` runs
+  `resources\cli\bundled-launcher.mjs`, or `resources\cli\panda-live-trading.mjs`
+  in clients without the launcher. To use another one, set `PANDA_LIVE_CLI` to
+  a `.mjs` file (run with `node` from `PATH`) or to an npm-installed
+  `panda-live-trading.cmd`. Start the client and log in first: with the client
+  closed, `doctor` reports `fetch failed`.
+- `qs` and the workflows print UTF-8 JSON, also into a pipe. A console shows it
+  as is; to capture it in PowerShell, first run
+  `[Console]::OutputEncoding = [Text.Encoding]::UTF8`.
+- Stop `serve` with Ctrl+C; it stops within a second and pushes its stop
+  message. Closing the window or `taskkill /F` skips that message. To start it
+  at logon, use a Task Scheduler task that runs only while you are logged on,
+  since the PandaAI client runs on your desktop.
+
 Paste each IM bot's webhook URL into its own `.env` variable; leave unused ones
 empty. One variable may hold several groups of the same IM, separated by commas:
 
@@ -317,7 +336,8 @@ live timing, how to test that the live target is the backtest's row
   `wecom-1a2b3c4d`.
 - The PandaAI client keeps the trading account and its password. This Skill
   only calls the client's bundled CLI (its launcher on the client's own runtime;
-  `PANDA_LIVE_CLI` overrides the path); it never reads the client's files,
+  `PANDA_LIVE_CLI` overrides the path; on Windows the install folder comes from
+  the installer's uninstall entry); it never reads the client's files,
   database, or internal HTTP API, and leaves the client's update reminders on.
 - An account is usable only after you turn on its CLI mode in the client and
   stop its running asset units; `doctor` lists each account's state and reason.
