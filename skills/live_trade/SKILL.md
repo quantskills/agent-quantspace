@@ -278,7 +278,7 @@ the actual contract as they are, and `--capital` is not needed:
    If it is not ready by then, the bar is `blocked` and the next bar tries again.
 2. An order the client marks `UNKNOWN` stops trading (`unknown`) until you check
    it in the client. Working orders of the same products left from an earlier
-   bar are cancelled first; if a cancel does not finish within 15 seconds, the
+   bar are cancelled first; if a cancel does not finish within 30 seconds, the
    bar places nothing (`pending_cancel`).
 3. One `target-position` plan sets each wanted contract (and every other month
    of the same products still held, to 0); the client prices its orders at the
@@ -287,7 +287,8 @@ the actual contract as they are, and `--capital` is not needed:
    a time in target order, so closes come first (an old month before the new
    one, a reversal closes before it opens), and `plan execute --yes` is called
    on the same frozen plan again each time the earlier legs have filled. All of
-   it is followed for 15 seconds; a leg that has not filled holds back the rest.
+   it is followed for 30 seconds (a reversal took 13.9 seconds on Windows, where
+   each CLI call takes about 3); a leg that has not filled holds back the rest.
 
 | Execution status | Meaning |
 |------------------|---------|

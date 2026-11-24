@@ -35,7 +35,9 @@ WORKING = frozenset({"SUBMITTING", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"})
 UNKNOWN = "UNKNOWN"
 FILLED = "FILLED"
 # How long one call follows its orders and its cancels before handing over to the next bar.
-DEFAULT_WAIT_SECONDS = 15.0
+# A reversal is two stages; on Windows, where each CLI call takes about 3 seconds, one took
+# 13.9 seconds on 2026-11-24, so 15 left no margin.
+DEFAULT_WAIT_SECONDS = 30.0
 POLL_SECONDS = 1.0
 # How long a call waits for a dropped SimNow counter to come back after ``connect``.
 RECONNECT_SECONDS = 20.0

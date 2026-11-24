@@ -111,7 +111,7 @@ ledger.record(signal, results, [result.channel for result in results])
   the calls for one account (`accounts`, `connection`, `connect`, `positions`,
   `orders`, `operation`, `cancel`, `target-position --targets`, `plan execute
   --yes`); queries are tried twice, `connect`, cancels and plan executions once.
-  `execution.execute_targets(trader, wanted, request_id=, wait_seconds=15,
+  `execution.execute_targets(trader, wanted, request_id=, wait_seconds=30,
   reconnect_seconds=20)` brings a SimNow account to `wanted` whole contracts per
   actual contract (negative is short) and returns an `ExecutionResult`
   (`status`, `detail`, `account`, `wanted`, `before`, `after`, `cancelled`,
