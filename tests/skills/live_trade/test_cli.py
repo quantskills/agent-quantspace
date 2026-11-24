@@ -54,6 +54,25 @@ def test_preview_formats_signal_without_network_or_ledger(capsys, files, tmp_pat
     assert not (tmp_path / "data" / "live").exists()
 
 
+def test_the_envelope_is_utf8_on_a_gbk_pipe(files, tmp_path):
+    """A Windows pipe defaults to GBK; agents read stdout as UTF-8, as JSON should be."""
+    import os
+    import subprocess
+    import sys
+
+    program = "import sys; from skills.cli import main; sys.exit(main(sys.argv[1:]))"
+    completed = subprocess.run(
+        [sys.executable, "-c", program, "live-trade", "notify", "--weights", str(files["weights"])]
+        + ["--strategy-id", "demo", "--data-root", str(tmp_path / "data")],
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "gbk"},
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.decode("utf-8"))
+    assert result["data"]["title"] == "QuantSpace 调仓信号 | demo"
+
+
 def test_send_delivers_once_then_reports_unchanged(capsys, files, tmp_path, monkeypatch, http):
     monkeypatch.setenv("QS_NOTIFY_WECOM", WECOM)
     monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)

@@ -21,6 +21,19 @@ from .models import Artifact, CLIError
 MANAGED = ("market", "adj_factor", "factors", "correlation", "backtest", "models")
 
 
+def utf8_stdout() -> None:
+    """Make stdout UTF-8, as JSON on stdout must be on every OS.
+
+    A Windows pipe defaults to the ANSI code page (GBK on Chinese Windows): an agent reading
+    the output sees mojibake, and a character outside GBK fails the print after the command
+    has run. A Windows console already reports UTF-8 and is left alone.
+    """
+    stream = sys.stdout
+    encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "").replace("_", "")
+    if encoding != "utf8" and hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
+
+
 @functools.cache
 def _store_class():
     from skills.store.data_manager import DataManager
