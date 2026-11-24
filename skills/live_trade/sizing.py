@@ -1,20 +1,25 @@
 """Convert target weights into whole trading units, and describe lot targets.
 
-Percent targets are sized here (:func:`size_targets`). Lot targets are never resized: a
-futures lot is one contract and a stock or fund lot :data:`SHARES_PER_LOT` shares;
-:func:`describe_lots` only works out their value for messages.
+Percent targets are sized here (:func:`size_targets`). Automatic futures orders hold the
+lots a weight was sized to until the weight or the capital changes (:class:`SizedLots`).
+Lot targets are never resized: a futures lot is one contract and a stock or fund lot
+:data:`SHARES_PER_LOT` shares; :func:`describe_lots` only works out their value for messages.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
 from typing import Literal
 
 from skills.backtest.units import SHARES_PER_LOT
 
-from .contracts import is_futures_symbol
+from .contracts import WEIGHT_TOLERANCE, is_futures_symbol
+from .ledger import validate_strategy_id, write_json_atomic
 
 
 class SizingLimitError(ValueError):
@@ -168,4 +173,136 @@ def describe_lots(
     return described
 
 
-__all__ = ["LotsTarget", "SizedTarget", "SizingLimitError", "describe_lots", "size_targets"]
+SIZED_LOTS_FILE = "sized_lots.json"
+
+
+class SizedLots:
+    """The units each percent target was sized to, held until its weight or the sizing changes.
+
+    A percent strategy's live runs (``--write`` with ``--capital``, or automatic futures
+    orders) size a weight into whole lots only when it changes (beyond
+    :data:`~skills.live_trade.contracts.WEIGHT_TOLERANCE` from the last run), when the
+    symbol is new here, or when ``capital`` or ``lot_size`` differs from the record's;
+    otherwise they keep the units, whatever the price does since. This is how
+    :func:`skills.backtest.percent_to_lots` sizes, so the lots backtest of a percent strategy
+    is the account the messages and orders describe. A futures lot is one contract, a stock
+    or fund lot ``lot_size`` shares (100, :data:`SHARES_PER_LOT`, by default). Futures units
+    belong to the continuous symbol, so a roll carries them to the new contract unchanged.
+    They are a target, not a position: partial fills and manual trades are brought back to
+    them by the next run.
+
+    Stored in ``<data_root>/live/<strategy_id>/sized_lots.json``::
+
+        {"version": 1, "strategy_id": "...", "capital": 100000.0, "lot_size": 100,
+         "symbols": {"RB_DOMINANT.SHF": {"weight": 1.0, "lots": 3, "units": 3,
+                                         "price": 3300.0, "sized_at": "2026-11-23"},
+                     "510300.SH": {"weight": 0.5, "lots": 124, "units": 12400, ...}}}
+
+    ``units`` are contracts or shares and ``lots`` whole lots; ``weight`` is the weight of
+    the last run, ``price`` and ``sized_at`` the price and the run of the sizing. Delete the
+    file to size everything again on the next run.
+    """
+
+    def __init__(self, strategy_id: str, data_root: str | Path | None = None):
+        from skills.store.workspace import resolve_workspace_paths
+
+        self.strategy_id = validate_strategy_id(strategy_id)
+        root = resolve_workspace_paths(data_root=data_root).data_root
+        self.path = root / "live" / self.strategy_id / SIZED_LOTS_FILE
+
+    def read(self) -> dict:
+        """The record, or an empty one when there is none."""
+        if not self.path.exists():
+            return {"version": 1, "strategy_id": self.strategy_id, "capital": None, "symbols": {}}
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def hold(
+        self,
+        weights: Mapping[str, float],
+        prices: Mapping[str, float],
+        *,
+        capital: float | None,
+        multipliers: Mapping[str, float] | None = None,
+        lot_size: int = SHARES_PER_LOT,
+        as_of: date | datetime,
+    ) -> dict[str, int]:
+        """Units (contracts or shares) per symbol of ``weights``, the full target with zeros.
+
+        Changed and new symbols, and every symbol after a ``capital`` or ``lot_size`` change,
+        are sized with :func:`size_targets` at ``prices``, rounded toward zero to whole lots;
+        a zero weight is 0 units and needs no price. The others keep their units. The record
+        is written with the result; symbols missing from ``weights`` leave it. Sizing errors
+        (no ``capital``, a missing price or multiplier) raise and leave the record as it was.
+        """
+        if capital is None:
+            raise ValueError("--capital is required to size orders")
+        if not math.isfinite(capital) or capital <= 0:
+            raise ValueError("capital must be a positive finite number")
+        record = self.read()
+        held = record.get("symbols", {})
+        same_sizing = record.get("capital") == float(capital) and int(
+            record.get("lot_size", SHARES_PER_LOT)
+        ) == int(lot_size)
+        weights = {symbol: float(value) for symbol, value in weights.items()}
+        resize = [
+            symbol
+            for symbol, weight in weights.items()
+            if not same_sizing
+            or symbol not in held
+            or abs(weight - float(held[symbol]["weight"])) > WEIGHT_TOLERANCE
+        ]
+        nonzero = {s: weights[s] for s in resize if abs(weights[s]) > WEIGHT_TOLERANCE}
+        sized = {}
+        if nonzero:
+            sized = {
+                item.symbol: item
+                for item in size_targets(
+                    nonzero,
+                    capital,
+                    prices,
+                    multipliers=dict(multipliers or {}),
+                    lot_size=lot_size,
+                    rounding="down",
+                )
+            }
+        stamp = as_of.isoformat()
+        symbols = {}
+        for symbol in sorted(weights):
+            if symbol not in resize:
+                symbols[symbol] = {**held[symbol], "weight": weights[symbol]}
+                continue
+            item = sized.get(symbol)
+            price = prices.get(symbol)
+            symbols[symbol] = {
+                "weight": weights[symbol],
+                "lots": item.units // item.lot_size if item else 0,
+                "units": item.units if item else 0,
+                "price": float(price) if price is not None and math.isfinite(price) else None,
+                "sized_at": stamp,
+            }
+        write_json_atomic(
+            self.path,
+            {
+                "version": 1,
+                "strategy_id": self.strategy_id,
+                "capital": float(capital),
+                "lot_size": int(lot_size),
+                "symbols": symbols,
+            },
+        )
+        return {symbol: int(entry["units"]) for symbol, entry in symbols.items()}
+
+    def clear(self) -> None:
+        """Forget every sized unit, so the next percent run sizes everything at its prices."""
+        self.path.unlink(missing_ok=True)
+
+
+__all__ = [
+    "SIZED_LOTS_FILE",
+    "LotsTarget",
+    "SizedLots",
+    "SizedTarget",
+    "SizingLimitError",
+    "describe_lots",
+    "size_targets",
+]

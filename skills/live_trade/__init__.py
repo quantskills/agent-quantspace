@@ -40,7 +40,7 @@ from .panda_cli import (
     run_cli,
     version_problem,
 )
-from .sizing import SizedTarget, SizingLimitError, size_targets
+from .sizing import SizedLots, SizedTarget, SizingLimitError, size_targets
 
 __all__ = [
     "FUTURES_SUFFIXES",
@@ -51,6 +51,7 @@ __all__ = [
     "PandaCliError",
     "Signal",
     "SignalLedger",
+    "SizedLots",
     "SizedTarget",
     "SizingLimitError",
     "TargetSnapshot",
