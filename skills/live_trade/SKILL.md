@@ -262,11 +262,20 @@ uv run qs live-trade doctor --account <code> --strategy-id rb_ma_cross_5m
 
 `auto_trade.ready` says whether a bar would place orders now, and `reasons`
 why not (not SimNow, CLI mode off, running asset units, counter not ready, CLI
-too old, stop file). After each bar's (or day's) signal, the run sizes the full target
-into whole contracts (rounded toward zero) of the actual contract
-(`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
-`execute_targets`. A lots strategy's targets are the contracts already: they go to
-the actual contract as they are, and `--capital` is not needed:
+too old, stop file). After each bar's (or day's) signal, the run turns the full target
+into whole contracts of the actual contract (`RB_DOMINANT.SHF` maps to the day's
+dominant contract) and calls `execute_targets`. A percent weight is sized
+(`weight x capital / (price x multiplier)`, rounded toward zero) only on the bar its
+weight changes, when the symbol is new, or when `--capital` changes; after that the
+bar keeps those contracts whatever the price does, so a price crossing a rounding edge
+never trades (`data/live/<strategy-id>/sized_lots.json`, see Files). This is how the
+backtest's `percent_to_lots` sizes. The sizing happens on the bar the weight changes
+even when that bar places no order (`closed`, `stopped`), and the message's `目标 N 手`
+is the same number. The contracts belong to the continuous symbol, so a roll moves
+them to the new month unchanged; partial fills and manual trades are brought back to
+them by the next bar (to take over by hand, use the stop file). A lots strategy's
+targets are the contracts already: they go to the actual contract as they are, and
+`--capital` is not needed:
 
 1. It re-reads the account and trades only a SimNow account (broker `9999`) with
    CLI mode on, no running asset unit, and the counter connected and ready;
@@ -343,7 +352,8 @@ A strategy declares the unit of its target table once and the backtest uses the 
 value (`VectorBacktester(unit=...)`, see the backtest Skill):
 
 - `percent` (default): shares of capital, 1.0 is 100%. Units come from
-  `--capital` (`weight x capital / (price x multiplier)`, toward zero).
+  `--capital` (`weight x capital / (price x multiplier)`, toward zero), worked out
+  when the weight changes and held after that.
 - `lots`: whole lots, a futures contract or 100 shares (`SHARES_PER_LOT`) of a stock
   or fund. Declare it with `LiveSpec(unit="lots")` (minute) or
   `daily_main(STRATEGY_ID, load_inputs, argv, unit="lots")` (daily), and
@@ -370,6 +380,10 @@ percent, and percent signal ids are what they always were.
 - `data/live/<strategy-id>/runs.json` keeps each trade date's run status,
   attempts, and the alerts already sent; a minute strategy logs each bar under
   its end time with the target it computed and its trade date.
+- `data/live/<strategy-id>/sized_lots.json` (percent futures strategies with
+  automatic orders) keeps, per continuous symbol, the last weight, the contracts
+  it was sized to, and the price and run of that sizing, with the `--capital` used.
+  Delete it to size everything at the next run's prices; a lots run removes it.
 - A minute strategy keeps `data/live/<strategy-id>/feed.json` (the trading day
   the last refresh prepared: contracts, factors, sessions, bar end times,
   halted symbols), its bars in
@@ -390,7 +404,9 @@ percent, and percent signal ids are what they always were.
   sends the same signal only to the channels that failed.
 - Sizing never guesses: futures need a multiplier, every changed symbol needs a
   price, and units round toward zero to whole contracts or `--lot-size` shares.
-  Lots targets are never rounded or resized.
+  Lots targets are never rounded or resized. Automatic orders of a percent
+  strategy size a weight once, when it (or `--capital`) changes, and hold the
+  contracts until then.
 - A channel counts as delivered only when the IM accepts the message. WeCom,
   Feishu, and DingTalk answer HTTP 200 even when they reject one, so their error
   code in the response body must be 0.

@@ -44,10 +44,10 @@ ledger.record(signal, results, [result.channel for result in results])
 | Module | Purpose |
 |--------|---------|
 | `skills.live_trade.contracts` | `TargetSnapshot`, `WeightChange`, `Signal`, `DeliveryResult`, `build_signal`, `diff_weights`, `is_futures_symbol` |
-| `skills.live_trade.sizing` | `size_targets` and `SizingLimitError`: weights to contracts or board lots, with unit and notional caps that raise instead of clipping; `describe_lots` and `LotsTarget`: shares, value, and share of capital of lot targets for messages |
+| `skills.live_trade.sizing` | `size_targets` and `SizingLimitError`: weights to contracts or board lots, with unit and notional caps that raise instead of clipping; `SizedLots`: the contracts automatic orders hold for each percent weight until it changes; `describe_lots` and `LotsTarget`: shares, value, and share of capital of lot targets for messages |
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
-| `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
+| `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `hold_order_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
 | `skills.live_trade.daily` | `load_daily_bars`, `DailyBars`, `DailyNotReady`, `CUTOFF`, `RUN_TIMES`, `INTRADAY_SOURCE`: a daily strategy's bars at 14:50, PandaData to yesterday plus today's bar from 1-minute bars of Sina or (futures) TqSdk |
 | `skills.live_trade.history` | `daily_bars`, `daily_closes`, `close_table`, `adjustment_factors`, `today_factors`, `dominant_contracts`, `contract_multipliers`: PandaData daily data shared by the daily and minute feeds |
 | `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `run_until_stopped`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
@@ -78,6 +78,16 @@ ledger.record(signal, results, [result.channel for result in results])
   rounding="down", max_units=None, max_notional=None)` computes
   `weight * capital / (price * multiplier)`. Futures (PandaData suffixes `.SHF`,
   `.DCE`, `.CZC`, `.CFE`, `.INE`, `.GFE`) size in whole contracts and need a multiplier.
+- `SizedLots(strategy_id, data_root)` stores `data/live/<id>/sized_lots.json`
+  (`capital`, and per continuous symbol `weight`, `lots`, `price`, `sized_at`).
+  `hold(weights, prices, capital=, multipliers=, as_of=)` returns the lots of the
+  full target and writes the record: a symbol whose weight moved more than
+  `WEIGHT_TOLERANCE` since the last call, a new symbol, or every symbol after a
+  `capital` change is sized with `size_targets(..., rounding="down")` at `prices`
+  (a zero weight is 0 lots without a price); the others keep their lots. Errors
+  raise and leave the record alone. `read()` returns it, `clear()` deletes it. A
+  run of `hold` per bar equals `skills.backtest.percent_to_lots` on the same
+  weights and prices.
 - `SignalLedger.record(signal, results, channels)` returns whether every
   channel has the signal; only then does the signal's target become the new base
   (a lots base also keeps `unit`). `base_unit()` is the base's unit (`percent`
@@ -222,6 +232,16 @@ def main(argv=None) -> int:
   rounded toward zero; with `unit="lots"` the targets are the contracts (no
   capital, nothing rounded) and only `max_lots` is checked; it raises for anything
   but futures.
+- `hold_order_lots(strategy_id, data_root, unit, weights, prices, capital=,
+  multipliers=, as_of=)` is the sizing step of automatic orders, run before the
+  signal by `run_live` and `run_bar` (with `write` and `execute`). A futures
+  percent target goes through `SizedLots.hold` and returns `(lots, None)`; a sizing
+  error comes back as `(None, error)` so the signal still goes out and `wanted()`
+  raises it inside `trade_target` (`error`, or `over_limit`). A lots target clears
+  the record; it and non-futures targets return `(None, None)`. The held lots go to
+  `deliver_signal(..., held_lots=)` for the message and to `futures_lots(...,
+  unit="lots")` for the orders, so `--max-lots` and the contract mapping are the
+  lots path's.
 - `run_live(..., unit="percent")` and `run_bar` (from `LiveSpec.unit`) diff,
   message, and trade a lots table as lots. `deliver_signal` starts the base over
   when the ledger's base is in another unit: the whole target goes out and the
@@ -232,10 +252,12 @@ def main(argv=None) -> int:
   no ledger, run log, or alerts. `deliver_signal(..., test=True)` is the same
   delivery step.
 - `deliver_signal(snapshot, ledger, write=..., urls=None, capital=None,
-  multipliers=None, lot_size=100, notes=())` is the diff, sizing, push, and
-  ledger step shared with `qs live-trade notify`; it raises `NoChannelsError`
-  when `write` has no channels. `notes` are lines appended to the message and
-  never change the signal id.
+  multipliers=None, lot_size=100, notes=(), held_lots=None)` is the diff, sizing,
+  push, and ledger step shared with `qs live-trade notify`; it raises
+  `NoChannelsError` when `write` has no channels. `notes` are lines appended to the
+  message and never change the signal id. `held_lots` (percent) are the contracts
+  the orders hold; changed symbols in it show those instead of being sized at
+  today's price.
 - `RunLog(strategy_id, data_root)` stores `data/live/<id>/runs.json`:
   `record(when, status, detail, signal_id, target=None, trade_date=None)`,
   `get(when)`, `is_done(when)`, `bars(trade_date)`, and
@@ -344,11 +366,14 @@ def main(argv=None) -> int:
   `missed`, `done`, or `error`. It computes on the stored bars up to `bar` (a late
   run may already hold the next bar), and the weights' last row must be the bar itself.
   With `write` it logs the bar and the target it computed in `RunLog`. With
-  `write` and `execute(wanted, request_id)` (futures only) it also sizes the
-  full target with `wanted_contracts(spec, snapshot, state, capital,
-  max_lots=)` and trades it through `trade_target`, `closed` when `now` is
-  outside the day's sessions; `RunOutcome.execution` and the run log's
-  `execution` hold the result.
+  `write` and `execute(wanted, request_id)` (futures only) it also holds the
+  full target's lots with `hold_order_lots` (before the signal, on every bar that
+  gets that far, `closed` and `stopped` ones included), turns them into actual
+  contracts with `wanted_contracts(spec, snapshot, state, capital,
+  max_lots=, held=)` and trades them through `trade_target`, `closed` when `now`
+  is outside the day's sessions; `RunOutcome.execution` and the run log's
+  `execution` hold the result. `wanted_contracts` without `held` sizes the
+  snapshot itself (percent with `capital`, lots as they are).
 - `refresh_day(spec, feed, compute, now=, write=False, ...)` refreshes the
   trading day after `now` (`upcoming_trading_date`: today before 15:30, else
   the next trading day), recomputes the days it replaced, and returns

@@ -9,6 +9,7 @@ day is finished, so a scheduler may call it again after a crash, a sleep, or a r
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -23,7 +24,14 @@ from .contracts import DeliveryResult, Signal, TargetSnapshot, build_signal, is_
 from .execution import ExecutionResult
 from .ledger import SignalLedger, validate_strategy_id, write_json_atomic
 from .notify import channel_name, format_signal, load_notify_urls, send_notifications
-from .sizing import LotsTarget, SizedTarget, SizingLimitError, describe_lots, size_targets
+from .sizing import (
+    LotsTarget,
+    SizedLots,
+    SizedTarget,
+    SizingLimitError,
+    describe_lots,
+    size_targets,
+)
 
 # Run statuses that finish a trade date or a bar; the others are retried by the next run.
 DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day", "missed"})
@@ -71,6 +79,7 @@ def deliver_signal(
     lot_size: int = 100,
     test: bool = False,
     notes: Sequence[str] = (),
+    held_lots: Mapping[str, int] | None = None,
 ) -> Delivery:
     """Diff ``snapshot`` against the ledger base and, with ``write``, push it to every channel.
 
@@ -87,6 +96,10 @@ def deliver_signal(
     ``capital``, when given, only adds the share of capital to the message. When the
     ledger's base is in another unit (the strategy changed units), the base starts over:
     the whole target is signalled and the message says the baseline was reset.
+
+    ``held_lots`` (percent snapshots) are the lots the orders hold for each symbol
+    (:class:`~skills.live_trade.sizing.SizedLots`); the message shows them instead of sizing
+    the changes at today's prices, so it always names the lots that are ordered.
     """
     urls = load_notify_urls() if urls is None else list(urls)
     previous_unit = None if test else ledger.base_unit()
@@ -102,7 +115,10 @@ def deliver_signal(
             capital=capital,
         )
     elif capital is not None:
-        targets = {change.symbol: change.target for change in signal.changes}
+        held = dict(held_lots or {})
+        targets = {
+            change.symbol: change.target for change in signal.changes if change.symbol not in held
+        }
         sized = {
             item.symbol: item
             for item in size_targets(
@@ -113,6 +129,11 @@ def deliver_signal(
                 lot_size=lot_size,
             )
         }
+        sized.update(
+            _held_target(change.symbol, change.target, held[change.symbol], signal, multipliers)
+            for change in signal.changes
+            if change.symbol in held
+        )
     title, body = format_signal(signal, sized, test=test)
     if reset:
         body += f"\n单位从 {previous_unit} 改为 {snapshot.unit}，账本基线已重置，以上是完整目标。"
@@ -149,6 +170,60 @@ def deliver_signal(
         status = "partial" if any(item.ok for item in results) else "failed"
     skipped = [name for name in channels if name in done]
     return Delivery(**delivery, status=status, results=results, skipped=skipped)
+
+
+def _held_target(
+    symbol: str,
+    weight: float,
+    lots: int,
+    signal: Signal,
+    multipliers: Mapping[str, float] | None,
+) -> tuple[str, SizedTarget]:
+    """A held lot count as the message's sized target (today's price for the value)."""
+    price = float(signal.prices.get(symbol, math.nan))
+    multiplier = float((multipliers or {}).get(symbol, 1.0))
+    return symbol, SizedTarget(
+        symbol=symbol,
+        weight=float(weight),
+        price=price,
+        multiplier=multiplier,
+        lot_size=1,
+        raw_units=float(lots),
+        units=int(lots),
+        notional=abs(lots) * price * multiplier,
+    )
+
+
+def hold_order_lots(
+    strategy_id: str,
+    data_root: str | Path | None,
+    unit: str,
+    weights: Mapping[str, float],
+    prices: Mapping[str, float],
+    *,
+    capital: float | None,
+    multipliers: Mapping[str, float],
+    as_of: date | datetime,
+) -> tuple[dict[str, int] | None, Exception | None]:
+    """The lots automatic orders hold for a futures percent target, and any sizing error.
+
+    Percent futures targets go through :class:`~skills.live_trade.sizing.SizedLots`: sized
+    when their weight or ``capital`` changes, held otherwise. A sizing error is returned,
+    not raised, so the signal still goes out and the orders report it. Lots strategies
+    clear the record (a later switch back to percent sizes afresh) and, like other assets,
+    get ``(None, None)``: their orders take the targets as they are.
+    """
+    record = SizedLots(strategy_id, data_root)
+    if unit == "lots":
+        record.clear()
+        return None, None
+    if not weights or not all(is_futures_symbol(symbol) for symbol in weights):
+        return None, None
+    try:
+        held = record.hold(weights, prices, capital=capital, multipliers=multipliers, as_of=as_of)
+    except Exception as exc:  # noqa: BLE001 - reported by the orders, the signal still goes
+        return None, exc
+    return held, None
 
 
 def _run_key(when: date | datetime) -> str:
@@ -465,7 +540,10 @@ def run_live(
     With ``write`` and ``execute`` (futures only), the full target is sized with ``capital``
     into whole contracts of the traded contracts (``LiveInputs.contracts``) and traded by
     :func:`trade_target` after the signal; the run log keeps what the execution did.
-    ``closed`` (why the market takes no orders now) skips the orders: ``closed``.
+    Percent targets are sized only when their weight or ``capital`` changes and hold their
+    lots otherwise (:func:`hold_order_lots`), recorded even when no order goes out, and the
+    message names those lots. ``closed`` (why the market takes no orders now) skips the
+    orders: ``closed``.
 
     ``unit`` is the strategy's target unit: with ``lots`` the table holds whole lots, the
     signal compares lots, and orders take them as they are (``capital`` only informs the
@@ -517,6 +595,20 @@ def run_live(
         if last > day:
             raise ValueError(f"weights reach {last.date()} after the trade date {trade_date}")
         snapshot = TargetSnapshot.from_frames(weights, strategy_id, prices=inputs.prices, unit=unit)
+        # The full target: every symbol of the table, zero where the row holds nothing.
+        full = {symbol: snapshot.weights.get(symbol, 0.0) for symbol in weights.columns}
+        held, sizing_error = None, None
+        if write and execute is not None:
+            held, sizing_error = hold_order_lots(
+                strategy_id,
+                data_root,
+                unit,
+                full,
+                snapshot.prices,
+                capital=capital,
+                multipliers=inputs.multipliers,
+                as_of=trade_date,
+            )
         delivery = deliver_signal(
             snapshot,
             SignalLedger(strategy_id, data_root),
@@ -526,23 +618,24 @@ def run_live(
             multipliers=inputs.multipliers,
             lot_size=lot_size,
             notes=inputs.notes,
+            held_lots=held,
         )
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
         return finish("error", f"{type(exc).__name__}: {exc}")
     execution = None
     if write and execute is not None:
-        # The full target: every symbol of the table, zero where the row holds nothing.
-        full = {symbol: snapshot.weights.get(symbol, 0.0) for symbol in weights.columns}
 
         def wanted() -> dict[str, int]:
+            if sizing_error is not None:
+                raise sizing_error
             return futures_lots(
-                full,
+                full if held is None else held,
                 snapshot.prices,
                 contracts=inputs.contracts,
                 multipliers=inputs.multipliers,
                 capital=capital,
                 max_lots=max_lots,
-                unit=unit,
+                unit=unit if held is None else "lots",
             )
 
         execution, sent = trade_target(
@@ -597,6 +690,7 @@ __all__ = [
     "RunOutcome",
     "deliver_signal",
     "futures_lots",
+    "hold_order_lots",
     "run_live",
     "send_alert",
     "stop_file",

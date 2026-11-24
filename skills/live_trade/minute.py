@@ -12,7 +12,7 @@ target would have been different.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -32,6 +32,7 @@ from .runner import (
     RunOutcome,
     deliver_signal,
     futures_lots,
+    hold_order_lots,
     send_alert,
     stop_file,
     trade_target,
@@ -96,7 +97,10 @@ def run_bar(
 
     With ``write`` and ``execute`` (futures only), the full target is sized with ``capital``
     into whole contracts of each actual contract and handed to ``execute`` after the
-    signal; its result is logged with the bar, every bar that placed orders is pushed as a
+    signal. Percent targets are sized only on the bar their weight (or ``capital``)
+    changes, even a bar that places no order, and hold their lots after that
+    (:func:`~skills.live_trade.runner.hold_order_lots`); the message names those lots. The
+    execution result is logged with the bar, every bar that placed orders is pushed as a
     ``trade`` message, and each kind of execution problem alerts once per trade date. The
     bar's status stays the delivery status, so a finished bar never trades twice. Two safety
     switches place no order: the :func:`stop_file` (execution ``stopped``) and ``max_lots``,
@@ -177,6 +181,19 @@ def run_bar(
             weights, spec.strategy_id, as_of=bar, prices=feed.raw_closes(), unit=spec.unit
         )
         snapshot = _hold_halted(computed, state.halted, ledger.base_weights(spec.unit))
+        held, sizing_error = None, None
+        if write and execute is not None and spec.futures:
+            full = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
+            held, sizing_error = hold_order_lots(
+                spec.strategy_id,
+                data_root,
+                spec.unit,
+                full,
+                snapshot.prices,
+                capital=capital,
+                multipliers=state.multipliers,
+                as_of=bar,
+            )
         delivery = deliver_signal(
             snapshot,
             ledger,
@@ -186,6 +203,7 @@ def run_bar(
             multipliers=state.multipliers,
             lot_size=lot_size,
             notes=_notes(spec, state.contracts, state.halted),
+            held_lots=held,
         )
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
         return finish("error", f"{type(exc).__name__}: {exc}")
@@ -194,11 +212,17 @@ def run_bar(
         closed = ""
         if not in_session(now, state.schedule, state.frequency):
             closed = f"{now:%H:%M:%S} 不在交易时段，不下单；下一节第一根 K 线按当时的目标调仓"
+
+        def wanted() -> dict[str, int]:
+            if sizing_error is not None:
+                raise sizing_error
+            return wanted_contracts(spec, snapshot, state, capital, lot_size, max_lots, held=held)
+
         execution, sent = trade_target(
             spec.strategy_id,
             trade_date,
             f"K 线：{label}",
-            lambda: wanted_contracts(spec, snapshot, state, capital, lot_size, max_lots),
+            wanted,
             execute,
             request_id=f"{spec.strategy_id}:{label}",
             runs=runs,
@@ -216,25 +240,34 @@ def wanted_contracts(
     capital: float | None,
     lot_size: int = 100,
     max_lots: int | None = None,
+    *,
+    held: Mapping[str, int] | None = None,
 ) -> dict[str, int]:
     """Whole contracts per actual contract for the full target.
 
-    Percent targets are sized with ``capital`` (rounded toward zero); lot targets
+    ``held`` are lots per continuous symbol already sized (a percent target's
+    :class:`~skills.live_trade.sizing.SizedLots`) and are taken as they are; without them
+    percent targets are sized with ``capital`` (rounded toward zero) and lot targets
     (``spec.unit == "lots"``) are the contracts. Raises
     :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
     ``max_lots``.
     """
     if not spec.futures:
         raise ValueError("automatic orders are only wired for futures strategies")
-    weights = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
+    if held is not None:
+        targets = {symbol: float(held.get(symbol, 0)) for symbol in spec.symbols}
+        unit = "lots"
+    else:
+        targets = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
+        unit = spec.unit
     return futures_lots(
-        weights,
+        targets,
         snapshot.prices,
         contracts=state.contracts,
         multipliers=state.multipliers,
         capital=capital,
         max_lots=max_lots,
-        unit=spec.unit,
+        unit=unit,
     )
 
 
