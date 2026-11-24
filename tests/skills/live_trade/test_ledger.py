@@ -8,12 +8,7 @@ import time
 import pytest
 
 from skills.live_trade import DeliveryResult, SignalLedger, TargetSnapshot, build_signal
-from skills.live_trade.ledger import (
-    MAX_SIGNALS,
-    replace_file,
-    validate_strategy_id,
-    write_json_atomic,
-)
+from skills.live_trade.ledger import MAX_SIGNALS, validate_strategy_id, write_json_atomic
 
 
 # Windows drops a trailing dot from folder names and reserves device names such as NUL.
@@ -28,30 +23,6 @@ def test_strategy_id_must_be_one_safe_path_segment(bad, tmp_path):
 @pytest.mark.parametrize("good", ["rb_ma_cross_5m", "etf.v2", "console", "com10", "nul_1"])
 def test_strategy_ids_that_are_safe_everywhere_pass(good):
     assert validate_strategy_id(good) == good
-
-
-def test_replace_is_retried_while_the_target_is_in_use(tmp_path, monkeypatch):
-    import skills.live_trade.ledger as module
-
-    source, target = tmp_path / "new.json", tmp_path / "state.json"
-    source.write_text("new"), target.write_text("old")
-    real, refusals, waits = module.os.replace, [2], []
-
-    def replace(src, dst):
-        if refusals[0]:
-            refusals[0] -= 1
-            raise PermissionError(13, "The process cannot access the file")
-        real(src, dst)
-
-    monkeypatch.setattr(module.os, "replace", replace)
-    replace_file(source, target, sleep=waits.append)
-    assert (target.read_text(), waits) == ("new", [0.1, 0.1])
-
-    source.write_text("newer")
-    refusals[0] = 99
-    with pytest.raises(PermissionError):
-        replace_file(source, target, retries=3, sleep=waits.append)
-    assert target.read_text() == "new" and len(waits) == 5
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to replace an open file")

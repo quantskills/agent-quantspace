@@ -22,8 +22,6 @@ Usage:
 """
 
 import json
-import os
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from skills.store.files import write_parquet_atomic
 from skills.store.legacy_symbols import legacy_hint
 from skills.store.workspace import resolve_workspace_paths
 
@@ -274,10 +273,7 @@ class DataManager:
         Save a single symbol's OHLCV DataFrame to Parquet.
         df must have eob as index and OHLCV columns.
         """
-        out_dir = self.root / "market" / frequency
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{symbol}.parquet"
-        df.to_parquet(path)
+        write_parquet_atomic(df, self.root / "market" / frequency / f"{symbol}.parquet")
 
     def upsert_symbol(
         self,
@@ -314,14 +310,7 @@ class DataManager:
             if keep_last < 1:
                 raise ValueError("keep_last must be at least 1")
             merged = merged.iloc[-keep_last:]
-        out_dir.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=f".{symbol}.", suffix=".parquet", dir=out_dir)
-        os.close(fd)
-        try:
-            merged.to_parquet(temporary)
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_parquet_atomic(merged, path)
         return UpsertReport(
             symbol=symbol,
             frequency=frequency,
@@ -422,14 +411,7 @@ class DataManager:
             )
         merged = incoming.sort_index().rename("contract")
         merged.index.name = "date"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix=f".{symbol}.", suffix=".parquet", dir=path.parent)
-        os.close(fd)
-        try:
-            merged.to_frame().to_parquet(temporary)
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_parquet_atomic(merged.to_frame(), path)
         return merged
 
     def read_dominant(self, symbols: list[str]) -> pd.DataFrame:

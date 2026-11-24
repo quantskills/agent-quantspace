@@ -93,6 +93,13 @@ report = live.upsert_symbol("RB_DOMINANT.SHF", bars, "5m", keep_last=345)
 `DataManager(data_root, create_layout=False)` points at another root that uses
 the `market/<frequency>/` layout without creating the research directories.
 
+`save_symbol`, `upsert_symbol` and `save_dominant` write through
+`skills.store.files.write_parquet_atomic`: a temporary file next to the target,
+then `replace_file`, so a reader sees the old file or the new one, never half of
+one. `replace_file` is `os.replace` retried for about two seconds while Windows
+reports the target in use (another process reading it, an antivirus scan); the
+live_trade state files use it too.
+
 `DataManagerArtifactStore` (`skills.factor_mining.adapters.store`) persists
 factor-mining research artifacts under
 `data/factors/<namespace>/artifacts/<kind>/<artifact_id>.json` (path segments are

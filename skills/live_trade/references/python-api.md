@@ -255,8 +255,9 @@ def main(argv=None) -> int:
   sleeps one second at a time: on Windows Ctrl+C interrupts a sleep but not a
   `BlockingScheduler`'s wait for the next trigger.
 - State files (`ledger.json`, `runs.json`, `feed.json`) are written by
-  `ledger.write_json_atomic`: a temporary file, then `replace_file`, which
-  retries for about two seconds while Windows reports the target in use. A
+  `ledger.write_json_atomic`: a temporary file, then
+  `skills.store.files.replace_file`, which retries for about two seconds while
+  Windows reports the target in use. A
   strategy id is one path segment that is valid on every OS (no trailing dot,
   no Windows device name such as `con` or `nul`).
 

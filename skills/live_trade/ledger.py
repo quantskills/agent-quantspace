@@ -6,11 +6,12 @@ import json
 import os
 import re
 import tempfile
-import time
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from skills.store.files import replace_file
 
 from .contracts import DeliveryResult, Signal
 
@@ -19,10 +20,6 @@ _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _WINDOWS_DEVICE = re.compile(r"(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?", re.IGNORECASE)
 # Signals kept in the ledger; older entries are dropped oldest first.
 MAX_SIGNALS = 50
-# Windows refuses to replace a file that another process (a reader, an antivirus scan) holds
-# open; such holds last milliseconds, so a replace is retried for about two seconds.
-REPLACE_RETRIES = 20
-REPLACE_WAIT_SECONDS = 0.1
 
 
 def validate_strategy_id(strategy_id: str) -> str:
@@ -38,25 +35,6 @@ def validate_strategy_id(strategy_id: str) -> str:
             f"Invalid strategy id {strategy_id!r}: use letters, digits, '_', '-', or '.'"
         )
     return strategy_id
-
-
-def replace_file(
-    source: str | Path,
-    target: str | Path,
-    *,
-    retries: int = REPLACE_RETRIES,
-    wait: float = REPLACE_WAIT_SECONDS,
-    sleep: Callable[[float], object] = time.sleep,
-) -> None:
-    """``os.replace``, retried while Windows reports the target as in use."""
-    for attempt in range(retries + 1):
-        try:
-            os.replace(source, target)
-            return
-        except PermissionError:
-            if attempt == retries:
-                raise
-            sleep(wait)
 
 
 def write_json_atomic(path: Path, payload: Any, *, default: Callable | None = None) -> None:
@@ -152,7 +130,6 @@ class SignalLedger:
 __all__ = [
     "MAX_SIGNALS",
     "SignalLedger",
-    "replace_file",
     "validate_strategy_id",
     "write_json_atomic",
 ]
