@@ -1,6 +1,6 @@
 ---
 name: live-trade
-description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily (signal and trade at 14:50, the 14:50 price as the close) or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's prices from AKShare (Sina) during the session, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
+description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily (signal and trade at 14:50, the 14:50 price as the close) or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's prices during the session from AKShare (Sina) or, for futures, bars built from TqSdk ticks, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
 ---
 
 # Live Trade
@@ -19,7 +19,8 @@ Exact options: `uv run qs live-trade <command> --help` or
   data that never arrived (`serve`).
 - Run a minute-level strategy (1m to 60m bars of futures, stocks or listed
   funds) during the session: one signal per bar, from today's bars on Sina
-  through AKShare, reconciled against PandaData's bars after the close.
+  through AKShare (or, for futures, bars built from TqSdk ticks), reconciled
+  against PandaData's bars after the close.
 - Check that IM channels and the PandaAI client CLI are set up: CLI version,
   client capabilities, and which accounts the CLI may use.
 - Trade a minute-level futures strategy automatically on a SimNow account
@@ -31,12 +32,14 @@ Exact options: `uv run qs live-trade <command> --help` or
 ```bash
 uv sync --extra live
 uv sync --extra live --extra panda_data --extra akshare   # minute-level strategies
+uv sync --extra tqsdk                                      # futures bars from TqSdk
 ```
 
 `live` installs Apprise, requests, and APScheduler 3.x; the scheduler runs the
 same way on Windows, Linux, and macOS. Minute-level strategies also need
 PandaData (history, calendar, dominant contracts) and AKShare (today's bars;
-Python 3.11.5 or later).
+Python 3.11.5 or later). Taking futures bars from TqSdk instead needs a Shinny
+account in `.env` as `TQ_USERNAME` and `TQ_PASSWORD` (see "Today's bars" below).
 
 On Windows (checked on Windows 11, 2026-11-24) the setup is the same; uv brings
 Python 3.11 and the `tzdata` package that `Asia/Shanghai` needs there.
@@ -172,6 +175,39 @@ hands it to `run_live` (see the Python API). One run of a trade date ends as one
 | `error` | Loading or computing raised. | 1 |
 | `test_sent` / `test_partial` / `test_failed` | `--test --write`: the marked test message reached all, some, or no channels. | 0 / 4 / 4 |
 
+## Today's bars: Sina or TqSdk
+
+During the session today's bars come from one of two sources, Sina by default:
+
+| `intraday_source` | What | Covers | Bar used after its end |
+|---|---|---|---|
+| `akshare` (default) | Sina's bars through AKShare | stocks, funds, futures | 40 s (`bar_delay_seconds`) |
+| `tqsdk` | bars built from TqSdk's ticks | futures only | 3 s |
+
+Choose it per job with `--intraday-source tqsdk` in the job's `args` (refresh
+and bar runs get the same args), or in the workflow: `LiveSpec(...,
+intraday_source="tqsdk")` for a minute strategy, `load_daily_bars(...,
+source="tqsdk")` for a daily one. The flag wins over the workflow; without
+either, Sina. Stocks and funds always come from Sina, so a daily strategy that
+mixes them with futures takes only its futures from TqSdk, and a minute strategy
+of stocks or funds refuses `tqsdk`.
+
+Why TqSdk: measured on RB2701 on 2026-11-23 and 11-24, Sina's 5-minute bars first
+appeared 173 seconds after their end in the median and 323 at most, and kept
+changing for up to 813 seconds; three bars of 11-24 (11:00, 11:05, 11:30) missed
+their deadline. A bar built from TqSdk's ticks is final as soon as the next tick
+arrives, and one fetch (log in, ticks, log out) takes about 4 seconds, up to 12
+on a cold start. The ticks are cut with PandaData's boundaries: the 1-minute bar
+ending at E holds the ticks from E - 1 minute up to but not including E, and a
+trading day's first bar also holds the opening auction, with volume counted from
+zero. Such bars matched PandaData's close and volume on all 74 minutes of 11-24's
+13:47–15:00 and 72 checked live that evening. TqSdk's own K lines put the tick
+stamped exactly E:00.000 in the earlier bar and matched only 47 of those 74 closes,
+so they fill only the minutes before the ticks TqSdk keeps (8964 ticks, about 75
+minutes of rebar); such bars have `source` `tqsdk_kline`, the others
+`tqsdk_tick`. A bar with no tick after its end (a session's last bar, a quiet
+market) counts as finished 3 seconds after its end by the local clock.
+
 ## Minute-level strategies
 
 A minute-level job has `"frequency": "5m"` (or `1m`, `15m`, `30m`, `60m`) in
@@ -189,17 +225,17 @@ warm-up bars, price adjustment). Each trading day runs in two parts:
    once when it starts.
 2. **Bars** during the session: every 10 seconds `serve` starts
    `python -m <module> --bar <end time> --write` for the oldest bar that is due,
-   `bar_delay_seconds` (default 40) after the bar ends and until
+   `bar_delay_seconds` (default 40 for Sina, 3 for TqSdk) after the bar ends and until
    `deadline_seconds` (default one bar plus the delay, when the next bar becomes
    due). The delay is there because Sina keeps revising a bar for 10–30 seconds
    after it closes (up to 80 seconds for the first bars after the open, measured
    2026-11-23); what slips through is caught by the next refresh's
    reconciliation. A `--bar` process may run one bar at most (five minutes for
    bars of five minutes or longer). The run fetches today's finished bars
-   from Sina through AKShare, recomputes the whole target table on the stored
+   from the intraday source, recomputes the whole target table on the stored
    window, and pushes the bar's row if it changed.
 
-The next refresh compares the AKShare bars of the finished day with
+The next refresh compares the intraday bars of the finished day with
 PandaData's, recomputes that day's bars, and alerts `reconcile` for every bar
 whose target would have been different.
 
@@ -207,8 +243,8 @@ whose target would have been different.
 |------------|---------|------|
 | `sent` / `unchanged` / `already_sent` | The bar is finished. | 0 |
 | `preview` | No `--write`: nothing sent or logged. | 0 |
-| `stale` | Sina has no bar at that time yet; the next tick retries. | 3 |
-| `source_error` | AKShare failed for a symbol without that bar; retried. | 3 |
+| `stale` | The intraday source has no bar at that time yet; the next tick retries. | 3 |
+| `source_error` | The intraday source failed for a symbol without that bar; retried. | 3 |
 | `not_ready` | No refresh for the trading day yet. | 3 |
 | `missed` | Past the deadline; skipped. | 0 |
 | `partial` / `failed` | Some channels failed; the next tick retries only those. | 4 |
@@ -314,7 +350,8 @@ live timing, how to test that the live target is the backtest's row
   the last refresh prepared: contracts, factors, sessions, bar end times,
   halted symbols), its bars in
   `data/live/<strategy-id>/market/<frequency>/<symbol>.parquet` with a `source`
-  column (`pandadata` or `akshare_sina`), and the reconciliation of each day in
+  column (`pandadata`, `akshare_sina`, `tqsdk_tick` or `tqsdk_kline`), and the
+  reconciliation of each day in
   `data/live/<strategy-id>/reconcile/<date>.bars.json` and `.signals.json`.
 - A workflow keeps its own downloaded bars under
   `data/live/<strategy-id>/market/` and never writes the research store

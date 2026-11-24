@@ -115,6 +115,29 @@ sina_code("CF2701.CZC")   # ("future", "CF2701")
   contract) and has no service guarantee; use it for the current day only and
   PandaData for history. `source` is `akshare_sina`.
 
+For futures, `skills.ingest.tqsdk_bars` builds the same table from TqSdk's ticks
+(`uv sync --extra tqsdk`; `TQ_USERNAME` and `TQ_PASSWORD` in the environment or
+`.env`):
+
+```python
+from skills.ingest.tqsdk_bars import fetch_tq_bars, tq_code
+
+result = fetch_tq_bars(["RB2701.SHF"], "5m", bar_ends=None)   # same IntradayBars
+tq_code("CF2701.CZC")   # TqSdk's code: exchange first, Zhengzhou with three digits
+```
+
+- The 1-minute bar ending at E holds the ticks from E - 1 minute up to but not
+  including E, as PandaData's do; a trading day's first bar also holds the
+  opening auction and counts volume from zero. `bar_ends` (a trading day's bar
+  schedule) groups minutes into the schedule's bars; without it bars end on the
+  clock's multiples of the interval.
+- A bar is finished once a tick at or after its end has arrived, or 3 seconds
+  (`GRACE_SECONDS`) after its end. Minutes older than the ticks TqSdk keeps
+  (8964 ticks) come from TqSdk's own K lines, `source` `tqsdk_kline`; the rest
+  are `tqsdk_tick`. Each call logs in and out; a missing TqSdk raises
+  `IntradayDependencyError`, missing credentials `TqCredentialsMissing`, and
+  other failures are per-symbol `errors`.
+
 ## Progressive References
 
 Detailed PandaAI docs are split by task under `references/`. Open only the

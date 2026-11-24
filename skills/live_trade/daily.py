@@ -23,6 +23,7 @@ matches the high and close, but Sina's bars leave out the night session's openin
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -39,7 +40,7 @@ from .history import (
     today_factors,
 )
 from .runner import DataNotReady, LiveInputs
-from .spec import Instrument
+from .spec import INTRADAY_SOURCES, Instrument
 
 # The bar whose close stands in for the day's close, and the scheduled run times after it.
 CUTOFF = time(14, 50)
@@ -49,6 +50,15 @@ RUN_TIMES = ("14:51", "14:53", "14:55")
 ZONE = ZoneInfo("Asia/Shanghai")
 # A trading day's bars end after the previous trading day's day session, which ends by then.
 SESSION_GAP = time(15, 30)
+# The run's intraday source when a workflow does not pass one: daily_main sets it from
+# --intraday-source (``akshare`` when absent).
+INTRADAY_SOURCE: ContextVar[str] = ContextVar("intraday_source", default="akshare")
+SOURCE_NAMES = {"akshare": "新浪", "tqsdk": "天勤"}
+BAR_ORIGINS = {
+    "akshare": "新浪 1 分钟线",
+    "tqsdk": "天勤 1 分钟线",
+    "tqsdk+akshare": "1 分钟线（期货来自天勤，股票和基金来自新浪）",
+}
 
 
 def _now() -> datetime:
@@ -79,6 +89,8 @@ class DailyBars:
     multipliers: dict[str, float] = field(default_factory=dict)
     factors: dict[str, float] = field(default_factory=dict)
     suspended: tuple[str, ...] = ()
+    # Where today's 1-minute bars came from: a key of :data:`BAR_ORIGINS`.
+    source: str = "akshare"
 
     @property
     def close(self) -> pd.DataFrame:
@@ -91,7 +103,8 @@ class DailyBars:
     @property
     def notes(self) -> list[str]:
         """Message lines: where today's close came from, contracts, suspended symbols."""
-        lines = [f"- 当日收盘价取 {self.cutoff:%H:%M} 的价格，当天 K 线由新浪 1 分钟线聚合"]
+        origin = BAR_ORIGINS[self.source]
+        lines = [f"- 当日收盘价取 {self.cutoff:%H:%M} 的价格，当天 K 线由{origin}聚合"]
         lines += [
             f"- {symbol} 当前对应 {contract}"
             for symbol, contract in self.contracts.items()
@@ -190,6 +203,41 @@ def _today_bar(
     }
 
 
+def _used(items: Sequence[Instrument], source: str) -> str:
+    """The key of :data:`BAR_ORIGINS` for what ``source`` fetched for ``items``."""
+    futures = any(item.asset == "future" for item in items)
+    if source != "tqsdk" or not futures:
+        return "akshare"
+    return "tqsdk" if all(item.asset == "future" for item in items) else "tqsdk+akshare"
+
+
+def _today_minutes(items, contracts, source, now, *, pause, akshare, tqsdk):
+    """Today's 1-minute bars: futures from ``source``, stocks and funds from Sina.
+
+    TqSdk's bars before the ticks it keeps are its own K lines; where they meet the ticks
+    one tick's volume may count twice, a few contracts in a day.
+    """
+    from skills.ingest.akshare_bars import IntradayBars, fetch_intraday_bars
+
+    futures = sorted({contracts[item.symbol] for item in items if item.asset == "future"})
+    others = sorted({contracts[item.symbol] for item in items if item.asset != "future"})
+    if source != "tqsdk" or not futures:
+        wanted = sorted(set(contracts.values()))
+        return fetch_intraday_bars(wanted, "1m", now=now, pause=pause, akshare=akshare)
+    from skills.ingest.tqsdk_bars import connect, fetch_tq_bars
+
+    parts = [fetch_tq_bars(futures, "1m", now=now, connector=tqsdk or connect)]
+    if others:
+        parts.append(fetch_intraday_bars(others, "1m", now=now, pause=pause, akshare=akshare))
+    return IntradayBars(
+        bars=pd.concat([part.bars for part in parts], ignore_index=True),
+        frequency="1m",
+        as_of=parts[0].as_of,
+        codes={key: value for part in parts for key, value in part.codes.items()},
+        errors={key: value for part in parts for key, value in part.errors.items()},
+    )
+
+
 def load_daily_bars(
     client,
     instruments: Sequence[Instrument | str],
@@ -203,6 +251,8 @@ def load_daily_bars(
     akshare=None,
     pause: float = 0.2,
     quotes=None,
+    source: str | None = None,
+    tqsdk=None,
 ) -> DailyBars:
     """PandaData daily bars from ``start`` to the day before ``trade_date``, plus that day.
 
@@ -217,10 +267,16 @@ def load_daily_bars(
     :func:`~skills.live_trade.history.today_factors`), from PandaData once the day is
     published and from Sina's quote (``quotes``, default
     :func:`~skills.ingest.akshare_bars.fetch_sina_quotes`) before.
-    """
-    from skills.ingest.akshare_bars import fetch_intraday_bars
 
+    ``source`` picks where today's 1-minute bars of futures come from: ``akshare`` (Sina)
+    or ``tqsdk`` (TqSdk, ``tqsdk`` is its login for tests); stocks and funds always come
+    from Sina. None takes the run's ``--intraday-source`` (:data:`INTRADAY_SOURCE`).
+    """
     from .feeds import load_calendar
+
+    source = source or INTRADAY_SOURCE.get()
+    if source not in INTRADAY_SOURCES:
+        raise ValueError(f"source must be one of {list(INTRADAY_SOURCES)}, not {source!r}")
 
     items = _instruments(instruments, asset)
     symbols = [item.symbol for item in items]
@@ -273,8 +329,8 @@ def load_daily_bars(
     multipliers = contract_multipliers(client, futures) if futures else {}
     at = datetime.combine(trade_date, cutoff)
     when = now or _now()
-    fetched = fetch_intraday_bars(
-        sorted(set(contracts.values())), "1m", now=when, pause=pause, akshare=akshare
+    fetched = _today_minutes(
+        items, contracts, source, when, pause=pause, akshare=akshare, tqsdk=tqsdk
     )
     since = datetime.combine(previous, SESSION_GAP)
     today_rows, waiting, suspended = {}, [], []
@@ -304,7 +360,7 @@ def load_daily_bars(
     if waiting:
         shown = "；".join(waiting[:3]) + ("……" if len(waiting) > 3 else "")
         raise DailyNotReady(
-            f"新浪还没有 {at:%H:%M} 的 K 线（{len(waiting)}/{len(items)} 个）：{shown}"
+            f"{SOURCE_NAMES[source]}还没有 {at:%H:%M} 的 K 线（{len(waiting)}/{len(items)} 个）：{shown}"
         )
     day = pd.Timestamp(trade_date)
     raw_today = pd.DataFrame.from_dict(today_rows, orient="index")[BAR_FIELDS]
@@ -326,7 +382,16 @@ def load_daily_bars(
         multipliers=multipliers,
         factors=factors,
         suspended=tuple(suspended),
+        source=_used(items, source),
     )
 
 
-__all__ = ["CUTOFF", "DAY_CLOSE", "RUN_TIMES", "DailyBars", "DailyNotReady", "load_daily_bars"]
+__all__ = [
+    "CUTOFF",
+    "DAY_CLOSE",
+    "INTRADAY_SOURCE",
+    "RUN_TIMES",
+    "DailyBars",
+    "DailyNotReady",
+    "load_daily_bars",
+]

@@ -449,3 +449,54 @@ def test_todays_bar_adjusts_prices_but_not_volume():
         {"open": 22.05, "high": 26.25, "low": 19.95, "close": 23.1, "volume": 150.0}
     )
     assert list(bars.panel.columns) == ["open", "high", "low", "close", "volume"]
+
+
+def _rebar_ticks():
+    from tests.skills.ingest.test_tqsdk_bars import FakeTq
+
+    return FakeTq(
+        {
+            "RB2701.SHF": [
+                (datetime(2026, 11, 20, 14, 59, 59, 500000), 2990.0, 800000.0),  # Friday
+                (datetime(2026, 11, 20, 20, 59, 0, 500000), 2995.0, 300.0),  # Monday's auction
+                (datetime(2026, 11, 20, 21, 30), 2992.0, 900.0),
+                (datetime(2026, 11, 23, 14, 49, 59, 500000), 3010.0, 5000.0),
+                (datetime(2026, 11, 23, 14, 50, 0, 500000), 3011.0, 5100.0),  # after 14:50
+            ]
+        }
+    )
+
+
+def test_futures_can_take_todays_bars_from_tqsdk():
+    tq = _rebar_ticks()
+
+    closes = _load([RB], source="tqsdk", tqsdk=lambda: tq)
+
+    today = closes.raw_panel.xs(pd.Timestamp("2026-11-23"), level="eob").loc["RB_DOMINANT.SHF"]
+    assert today.to_dict() == {
+        "open": 2995.0,
+        "high": 3010.0,
+        "low": 2992.0,
+        "close": 3010.0,
+        "volume": 5000.0,
+    }
+    assert closes.source == "tqsdk" and "天勤 1 分钟线" in closes.notes[1]
+
+
+def test_stocks_stay_on_sina_when_futures_use_tqsdk():
+    from skills.live_trade.daily import INTRADAY_SOURCE
+
+    sina = _sina(sh601998=11.0)
+    token = INTRADAY_SOURCE.set("tqsdk")  # what daily_main sets from --intraday-source
+    try:
+        closes = _load([STOCK, RB], sina=sina, tqsdk=lambda: _rebar_ticks())
+    finally:
+        INTRADAY_SOURCE.reset(token)
+
+    assert closes.raw_close.loc["2026-11-23"].to_dict() == {
+        "601998.SH": 11.0,
+        "RB_DOMINANT.SHF": 3010.0,
+    }
+    assert closes.source == "tqsdk+akshare" and "期货来自天勤" in closes.notes[1]
+    with pytest.raises(ValueError, match="source must be"):
+        _load([RB], source="wind")

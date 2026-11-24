@@ -38,12 +38,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from .daily import CUTOFF, DAY_CLOSE
+from .daily import CUTOFF, DAY_CLOSE, INTRADAY_SOURCE
 from .feeds import MinuteFeed
 from .minute import Compute, refresh_day, run_bar
 from .runner import DataNotReady, Delivery, LiveInputs, run_live
 from .scheduler import DEFAULT_TIMEZONE
-from .spec import LiveSpec
+from .spec import INTRADAY_SOURCES, LiveSpec
 
 # ``load(client, trade_date, market_dir)`` returns a daily workflow's full target table; it
 # saves what it downloaded under ``market_dir`` when that is not None.
@@ -82,6 +82,14 @@ def workflow_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Futures strategies: most contracts any actual contract may target; "
         "a larger target places no order and alerts over_limit.",
+    )
+    parser.add_argument(
+        "--intraday-source",
+        choices=INTRADAY_SOURCES,
+        default=None,
+        help="Where today's bars of futures come from: akshare (Sina) or tqsdk (built from "
+        "TqSdk ticks; needs TQ_USERNAME and TQ_PASSWORD). Default: what the strategy "
+        "declares, else akshare. Stocks and funds always use akshare.",
     )
     args = parser.parse_args(argv)
     if args.max_lots is not None and args.max_lots < 1:
@@ -158,12 +166,21 @@ def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = N
     ``--account`` a futures strategy also trades its target on that SimNow account through
     the PandaAI client CLI, capped by ``--max-lots``, but only from the cut-off to the end
     of the trade date's day session (``--now``); at any other time the run still signals
-    and its execution is ``closed``.
+    and its execution is ``closed``. ``--intraday-source`` is the source
+    :func:`~skills.live_trade.daily.load_daily_bars` uses when ``load`` names none.
     """
+    args = workflow_arguments(argv)
+    token = INTRADAY_SOURCE.set(args.intraday_source or INTRADAY_SOURCE.get())
+    try:
+        return _daily_run(strategy_id, load, args)
+    finally:
+        INTRADAY_SOURCE.reset(token)
+
+
+def _daily_run(strategy_id: str, load: DailyLoad, args: argparse.Namespace) -> int:
     from skills.ingest import PandaDataClient
     from skills.store.workspace import resolve_workspace_paths
 
-    args = workflow_arguments(argv)
     client = PandaDataClient()
     root = resolve_workspace_paths(data_root=args.data_root).data_root
     market_dir = root / "live" / strategy_id / "market" if args.write and not args.test else None
@@ -248,6 +265,12 @@ def minute_main(spec: LiveSpec, compute: Compute, argv: Sequence[str] | None = N
     from skills.ingest import PandaDataClient
 
     args = workflow_arguments(argv)
+    if args.intraday_source:
+        try:
+            spec = spec.with_source(args.intraday_source)
+        except ValueError as exc:
+            print(f"--intraday-source {args.intraday_source}: {exc}", file=sys.stderr)
+            return 2
     feed = MinuteFeed(spec, PandaDataClient(), data_root=args.data_root)
     if args.refresh:
         refreshed = refresh_day(

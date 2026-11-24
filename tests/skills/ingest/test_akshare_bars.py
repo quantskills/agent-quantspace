@@ -205,3 +205,28 @@ def test_cli_fails_when_no_symbol_returns_bars(capsys, monkeypatch, tmp_path):
     code, response = run(capsys, "--symbols", "RB2701.SHF", "--pause", "0")
     assert code == 4 and response["error"]["code"] == "UPSTREAM_ERROR"
     assert "RB2701.SHF" in response["error"]["message"]
+
+
+def test_cli_can_take_futures_from_tqsdk(capsys, monkeypatch, tmp_path):
+    import skills.ingest.tqsdk_bars as tq_module
+
+    from .test_tqsdk_bars import AFTERNOON, FakeTq, at
+
+    tq = FakeTq({"RB2701.SHF": AFTERNOON})
+    real = tq_module.fetch_tq_bars
+    monkeypatch.setattr(
+        tq_module,
+        "fetch_tq_bars",
+        lambda *args, **kwargs: real(*args, now=at(14, 6, 5.0), connector=lambda: tq, **kwargs),
+    )
+    monkeypatch.setenv("QUANTSPACE_DATA_ROOT", str(tmp_path / "data"))
+
+    code, response = run(capsys, "--symbols", "RB2701.SHF", "--source", "tqsdk", "--freq", "1m")
+
+    assert code == 0 and response["ok"], response
+    data = response["data"]
+    assert (data["source"], data["rows"], data["as_of"]) == ("tqsdk_tick", 3, "2026-11-24T14:06:05")
+    (summary,) = data["symbols"]
+    assert summary["sina_code"] is None and summary["tq_code"] == tq_module.tq_code("RB2701.SHF")
+    code, response = run(capsys, "--symbols", "000001.SZ", "--source", "tqsdk")
+    assert code != 0 and response["error"]["code"] == "INVALID_INPUT"

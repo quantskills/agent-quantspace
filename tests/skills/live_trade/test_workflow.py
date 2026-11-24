@@ -289,6 +289,42 @@ def test_minute_test_mode_reports_without_alerts(tmp_path, sina, capsys):
     assert "alerts" not in report and not (tmp_path / "live" / "rb_demo" / "ledger.json").exists()
 
 
+def test_the_intraday_source_can_be_chosen_per_run(tmp_path, calendar, capsys):
+    from skills.live_trade.daily import INTRADAY_SOURCE
+    from skills.live_trade.workflow import workflow_arguments
+
+    seen = []
+
+    def load(client, trade_date, market_dir):
+        seen.append(INTRADAY_SOURCE.get())
+        return _daily_load([])(client, trade_date, market_dir)
+
+    argv = ["--date", "2026-11-20", "--data-root", str(tmp_path)]
+    assert daily_main("demo", load, [*argv, "--intraday-source", "tqsdk"]) == 0
+    assert daily_main("demo", load, argv) == 0
+    assert seen == ["tqsdk", "akshare"]
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        workflow_arguments(["--intraday-source", "wind"])
+
+
+def test_tqsdk_is_refused_for_a_minute_strategy_of_funds(tmp_path, sina, capsys):
+    from .fakes import EQUITY_SPEC
+
+    argv = ["--refresh", "--intraday-source", "tqsdk", "--data-root", str(tmp_path)]
+    assert minute_main(EQUITY_SPEC, _above_3000, argv) == 2
+    assert "futures only" in capsys.readouterr().err
+
+
+def test_a_minute_refresh_with_tqsdk_uses_its_shorter_delay(tmp_path, sina, capsys):
+    code, report = _minute(
+        capsys, tmp_path, "--refresh", "--now", "2026-11-20T18:00:00", "--intraday-source", "tqsdk"
+    )
+    assert code == 0, report
+    state = json.loads((tmp_path / "live" / "rb_demo" / "feed.json").read_text())
+    assert (state["delay_seconds"], state["deadline_seconds"]) == (3, 303)
+
+
 def test_a_minute_run_needs_a_mode(tmp_path, sina, capsys):
     assert minute_main(RB_SPEC, _above_3000, ["--data-root", str(tmp_path)]) == 2
     assert "--bar, --refresh or --test is required" in capsys.readouterr().err

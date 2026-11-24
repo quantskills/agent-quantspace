@@ -114,13 +114,13 @@ def main(argv=None) -> int:
 
 | Item | Backtest | Live | Where live departs |
 |------|----------|------|--------------------|
-| Signal row | row t from bar t's close | daily: day t at 14:51, the 14:50 price as day t's close; minute: `bar_delay_seconds` (default 40) after bar t ends | daily: the last ten minutes of day t are missing from its close; `stale` until the data has bar t |
+| Signal row | row t from bar t's close | daily: day t at 14:51, the 14:50 price as day t's close; minute: `bar_delay_seconds` (default 40 for Sina, 3 for TqSdk) after bar t ends | daily: the last ten minutes of day t are missing from its close; `stale` until the data has bar t |
 | Execution | `signal_lag=1`: row t is held from bar t+1 (`executed_weights = weights.shift(1)`), filled at `trade_at` | daily: traded before 15:00 of day t (by hand, or futures orders with `--account`); minute orders: best opposite quote about 50 seconds into bar t+1 | daily matches `trade_at="close", signal_lag=0`, filled about ten minutes before the close; minute lies between `"open"` (optimistic) and `"close"` (pessimistic) with `signal_lag=1`. Minute `signal_lag=0` with `trade_at="close"` fills at the close the signal used, which live cannot do |
 | Adjustment | the series you backtested | daily: whatever `load_inputs` builds (rotation: post, like `1d_adj`); minute stocks and funds `adjust="post"`; futures never | scale-free signals (returns, MA cross sign, ranks) agree under pre and post; level-based ones (price thresholds, ATR in points) need the same series. Futures on a post-adjusted dominant series can differ from live near rolls; backtest the unadjusted series for the same signals (its returns then include roll gaps) |
 | Units | fractional weights | `weight * capital / (raw close * multiplier)` rounded toward zero to whole contracts or `--lot-size` shares | under-exposure with little capital: 100000 on rebar at 3010 x 10 is 3 contracts, 90% |
 | Costs and fills | constant `commission`, `slippage_bp`; constraints only with `enforce_trade_constraints` | the spread; `working` orders are re-targeted next bar; `rejected` | real costs and partial fills |
 | Continuous futures | holds the continuous series | trades the dominant actual contract; on a roll day other months go to 0 | roll trades and their cost |
-| Data | final PandaData bars | Sina bars, revised 10–30 seconds after the close (80 for the first bars after the open) | the next refresh alerts `reconcile` for every bar whose target changed |
+| Data | final PandaData bars | Sina bars, revised 10–30 seconds after the close (80 for the first bars after the open), or for futures bars built from TqSdk ticks, which matched PandaData's minutes exactly | the next refresh alerts `reconcile` for every bar whose target changed |
 | Missing runs | none | `missed` past the deadline, `stale` days, halted stocks keep their last weight | gaps the backtest never has |
 
 ## 4. Verify

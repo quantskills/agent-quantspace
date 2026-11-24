@@ -1298,7 +1298,7 @@ def future_ticks(args: FutureTicksInput) -> CommandResult:
 
 
 # ---------------------------------------------------------------------------
-# AKShare intraday bars
+# Intraday bars: Sina through AKShare, or futures from TqSdk ticks
 # ---------------------------------------------------------------------------
 
 
@@ -1312,7 +1312,15 @@ class IntradayInput(OutputOptions):
         "5m", description="Bar interval; bars are unadjusted and labelled by end time."
     )
     pause: float = Field(
-        1.0, ge=0, le=10, description="Seconds to wait between symbols, to stay under Sina's limits."
+        1.0,
+        ge=0,
+        le=10,
+        description="Seconds to wait between symbols, to stay under Sina's limits.",
+    )
+    source: Literal["akshare", "tqsdk"] = Field(
+        "akshare",
+        description="akshare: Sina through AKShare. tqsdk: futures only, bars built from TqSdk "
+        "ticks with PandaData's minute boundaries; needs TQ_USERNAME and TQ_PASSWORD in .env.",
     )
 
 
@@ -1320,6 +1328,7 @@ class IntradaySymbol(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str = Field(description="PandaData code.")
     sina_code: str | None = Field(description="Code sent to Sina through AKShare.")
+    tq_code: str | None = Field(None, description="Code sent to TqSdk (--source tqsdk).")
     rows: int = Field(description="Finished bars returned.")
     first: str | None = Field(description="First bar end time.")
     last: str | None = Field(description="Last finished bar end time.")
@@ -1331,7 +1340,7 @@ class IntradayOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(description="Data source tag written to the source column.")
     frequency: str = Field(description="Bar interval.")
-    as_of: str = Field(description="Minute that decided which bars had finished (Asia/Shanghai).")
+    as_of: str = Field(description="Time that decided which bars had finished (Asia/Shanghai).")
     rows: int = Field(description="Rows in the combined table.")
     symbols: list[IntradaySymbol] = Field(description="Per-symbol summary.")
     output: str | None = Field(description="Table artifact path, if --output was given.")
@@ -1339,6 +1348,7 @@ class IntradayOutput(BaseModel):
 
 
 def intraday(args: IntradayInput) -> CommandResult:
+    from skills.ingest import tqsdk_bars
     from skills.ingest.akshare_bars import (
         INSTALL_HINT,
         IntradayDependencyError,
@@ -1346,20 +1356,29 @@ def intraday(args: IntradayInput) -> CommandResult:
         sina_code,
     )
 
+    tq = args.source == "tqsdk"
     symbols = _items(args.symbols)
     problems = []
     for symbol in symbols:
         try:
-            sina_code(symbol)
+            (tqsdk_bars.tq_code if tq else sina_code)(symbol)
         except ValueError as exc:
             problems.append(str(exc))
     if problems:
         raise CLIError("INVALID_INPUT", "; ".join(problems))
     _prepare_output(args)
     try:
-        result = fetch_intraday_bars(symbols, args.freq, pause=args.pause)
+        if tq:
+            result = tqsdk_bars.fetch_tq_bars(symbols, args.freq)
+        else:
+            result = fetch_intraday_bars(symbols, args.freq, pause=args.pause)
     except IntradayDependencyError as exc:
-        raise CLIError("MISSING_DEPENDENCY", str(exc), 3, hint=INSTALL_HINT) from exc
+        hint = tqsdk_bars.INSTALL_HINT if tq else INSTALL_HINT
+        raise CLIError("MISSING_DEPENDENCY", str(exc), 3, hint=hint) from exc
+    except tqsdk_bars.TqCredentialsMissing as exc:
+        raise CLIError(
+            "CONFIG_MISSING", str(exc), 3, hint="Put TQ_USERNAME and TQ_PASSWORD in .env."
+        ) from exc
     bars = result.bars
     summaries = []
     for symbol in symbols:
@@ -1367,7 +1386,8 @@ def intraday(args: IntradayInput) -> CommandResult:
         summaries.append(
             IntradaySymbol(
                 symbol=symbol,
-                sina_code=result.codes.get(symbol),
+                sina_code=None if tq else result.codes.get(symbol),
+                tq_code=result.codes.get(symbol) if tq else None,
                 rows=len(rows),
                 first=str(rows.min()) if len(rows) else None,
                 last=str(rows.max()) if len(rows) else None,
@@ -1378,7 +1398,7 @@ def intraday(args: IntradayInput) -> CommandResult:
     if bars.empty:
         raise CLIError(
             "UPSTREAM_ERROR",
-            "AKShare returned no finished bars: "
+            f"{'TqSdk' if tq else 'AKShare'} returned no finished bars: "
             + "; ".join(f"{name}: {text}" for name, text in result.errors.items()),
             4,
         )
@@ -1387,7 +1407,7 @@ def intraday(args: IntradayInput) -> CommandResult:
         data=IntradayOutput(
             source=bars["source"].iloc[0],
             frequency=args.freq,
-            as_of=result.as_of.isoformat(timespec="minutes"),
+            as_of=result.as_of.isoformat(timespec="seconds" if tq else "minutes"),
             rows=len(bars),
             symbols=summaries,
             output=artifacts[0].path if artifacts else None,
@@ -1419,7 +1439,8 @@ COMMANDS = [
         IntradayInput,
         IntradayOutput,
         intraday,
-        "Fetch today's finished intraday bars from Sina through AKShare (unadjusted).",
+        "Fetch today's finished intraday bars (unadjusted): Sina through AKShare, or "
+        "futures built from TqSdk ticks with --source tqsdk.",
         side_effects=NETWORK_OUTPUT,
     ),
     Command(

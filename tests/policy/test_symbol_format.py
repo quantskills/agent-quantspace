@@ -16,6 +16,9 @@ ALLOWED = {
     "skills/store/cli.py",
     "tests/skills/store/test_legacy_symbols.py",
     "tests/smoke/test_qs_smoke.py",
+    # TqSdk's API names contracts this way; only its adapter translates PandaData codes.
+    "skills/ingest/tqsdk_bars.py",
+    "tests/skills/ingest/test_tqsdk_bars.py",
     "tests/policy/test_symbol_format.py",
     "README.md",
     "README.en.md",

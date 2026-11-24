@@ -48,13 +48,13 @@ ledger.record(signal, results, [result.channel for result in results])
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
 | `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
-| `skills.live_trade.daily` | `load_daily_bars`, `DailyBars`, `DailyNotReady`, `CUTOFF`, `RUN_TIMES`: a daily strategy's bars at 14:50, PandaData to yesterday plus today's bar from Sina's 1-minute bars |
+| `skills.live_trade.daily` | `load_daily_bars`, `DailyBars`, `DailyNotReady`, `CUTOFF`, `RUN_TIMES`, `INTRADAY_SOURCE`: a daily strategy's bars at 14:50, PandaData to yesterday plus today's bar from 1-minute bars of Sina or (futures) TqSdk |
 | `skills.live_trade.history` | `daily_bars`, `daily_closes`, `close_table`, `adjustment_factors`, `today_factors`, `dominant_contracts`, `contract_multipliers`: PandaData daily data shared by the daily and minute feeds |
 | `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `run_until_stopped`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
 | `skills.live_trade.workflow` | `daily_main`, `minute_main`, `workflow_arguments`, `is_trading_day`, `load_with_relogin`, `replay_mismatches`: the command-line entry of a strategy workflow module, and the check that a live run reproduces the backtest's rows |
 | `skills.live_trade.spec` | `LiveSpec`, `Instrument`: what a minute-level strategy trades, its bar interval, warm-up, price adjustment, and bar timing |
 | `skills.live_trade.clock` | `TradingCalendar`, `Session`, `parse_trading_hours`, `bar_ends`, `bars_per_day`, `has_night_session`, `due_bars`, `EQUITY_SESSIONS`: trading sessions and bar end times |
-| `skills.live_trade.feeds` | `MinuteFeed`, `FeedState`, `read_feed_state`, `upcoming_trading_date`, `FeedNotReady`: PandaData history plus today's AKShare (Sina) bars in the live store |
+| `skills.live_trade.feeds` | `MinuteFeed`, `FeedState`, `read_feed_state`, `upcoming_trading_date`, `FeedNotReady`: PandaData history plus today's bars from the spec's intraday source (Sina, or TqSdk ticks for futures) in the live store |
 | `skills.live_trade.minute` | `run_bar`, `refresh_day`, `reconcile_signals`, `RefreshOutcome`, `SignalMismatch`: one bar per run, the pre-open refresh, and reconciliation |
 | `skills.live_trade.panda_cli` | The PandaAI client's bundled `panda-live-trading` CLI: `discover_cli`, `cli_version`, `run_cli`, `list_accounts` (`PandaAccount`), `capability_problems`, `version_problem`, `require_actual_contract`, `PandaCliError` |
 
@@ -153,7 +153,7 @@ def main(argv=None) -> int:
   `multipliers`, today's `factors`, `suspended`, `notes` and `inputs(weights)` (a
   `LiveInputs` with raw closes as prices, multipliers, contracts and notes).
   History is PandaData daily bars (`daily_bars`) from `start` to the previous
-  trading day; today's bar aggregates the Sina 1-minute bars of the trading day
+  trading day; today's bar aggregates the 1-minute bars of the trading day
   up to `cutoff` (first open, highest high, lowest low, the cut-off close, summed
   volume), prices times today's factor
   (`today_factors(client, items, last, trading_date, last_closes=, pre_closes=)`:
@@ -169,10 +169,14 @@ def main(argv=None) -> int:
   later bar is out or `SETTLE` (two minutes, five for futures) has passed; a stock
   or fund with no trade today keeps the previous close with no volume and is
   listed in `suspended`. `instruments` are
-  `Instrument`s, or symbols of one `asset`.
+  `Instrument`s, or symbols of one `asset`. `source` (`akshare` or `tqsdk`; None
+  takes `INTRADAY_SOURCE`, which `daily_main` sets from `--intraday-source`)
+  picks where futures' 1-minute bars come from; stocks and funds always come from
+  Sina. `DailyBars.source` records what was used (`akshare`, `tqsdk`, or
+  `tqsdk+akshare`) and the first note says it.
 - `daily_main(strategy_id, load, argv=None)` parses `workflow_arguments(argv)`
   (`--date`, `--write`, `--final`, `--test`, `--data-root`, `--capital`,
-  `--lot-size`, `--account`, `--max-lots`), asks PandaData's calendar
+  `--lot-size`, `--account`, `--max-lots`, `--intraday-source`), asks PandaData's calendar
   `is_trading_day(client, date)` (a calendar failure becomes the run's `error`),
   and passes `run_live` a loader that calls `load(client, trade_date, market_dir)`
   through `load_with_relogin(load, make_client, trade_date, market_dir)`: once
@@ -280,17 +284,25 @@ def main(argv=None) -> int:
   is a `(symbol, eob)` panel or an `eob`-indexed table.
 
 - `LiveSpec(strategy_id, frequency, instruments, warmup_bars, adjust="post",
-  bar_delay_seconds=40, deadline_seconds=None, spare_days=2)`. `Instrument`
-  checks that the code matches its asset (`stock`, `fund`, `future`);
-  `continuous` is true for codes such as `RB_DOMINANT.SHF`. One spec trades
-  either futures or stocks and funds. `deadline` defaults to one bar plus the
-  delay (340 seconds for `5m`, 100 for `1m`) and must exceed the delay.
-- `MinuteFeed(spec, client, data_root=None, akshare=None, pause=0.3)`:
+  bar_delay_seconds=None, deadline_seconds=None, spare_days=2,
+  intraday_source="akshare")`. `Instrument` checks that the code matches its
+  asset (`stock`, `fund`, `future`); `continuous` is true for codes such as
+  `RB_DOMINANT.SHF`. One spec trades either futures or stocks and funds;
+  `intraday_source="tqsdk"` (bars built from TqSdk ticks) needs futures.
+  `delay_seconds` is `bar_delay_seconds` or the source's default
+  (`DEFAULT_BAR_DELAY`: 40 for `akshare`, 3 for `tqsdk`). `deadline` defaults to
+  one bar plus the delay (340 seconds for Sina's `5m`, 100 for its `1m`, 303 for
+  TqSdk's `5m`) and must exceed the delay. `with_source(source)` is the same spec
+  on another source, validated again; `minute_main` applies `--intraday-source`
+  with it.
+- `MinuteFeed(spec, client, data_root=None, akshare=None, tqsdk=None, pause=0.3)`
+  (`tqsdk`: a function returning a logged-in TqSdk API, for tests):
   `refresh(trading_date, now=None)` reloads `ceil(warmup_bars / bars per day) +
   spare_days + 1` trading days from PandaData into
-  `data/live/<id>/market/<frequency>/`, first comparing the AKShare bars stored
+  `data/live/<id>/market/<frequency>/`, first comparing the intraday bars stored
   for those days (`RefreshReport.comparisons`, `BarComparison`), and writes
-  `feed.json` (`FeedState`). `update(now)` appends today's finished Sina bars of
+  `feed.json` (`FeedState`). `update(now)` appends today's finished bars of the
+  spec's source (`fetch_intraday_bars` or `skills.ingest.tqsdk_bars.fetch_tq_bars`) of
   the scheduled bar ends and reports `latest`, `added`, and per-symbol `errors`
   (`UpdateReport`). `panel()` is the `(symbol, eob)` panel the weight function
   gets; `closes()` the signal closes; `raw_closes()` the unadjusted closes used
