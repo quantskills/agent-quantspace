@@ -187,6 +187,10 @@ def test_listed_corrupt_file_fail_closed_via_public_get(tmp_path) -> None:
         )
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "O_DIRECTORY"),
+    reason="Windows cannot open a directory to fsync it; the next test covers that path",
+)
 def test_put_if_absent_directory_fsync_invoked_after_link(tmp_path, monkeypatch) -> None:
     store = _store(tmp_path)
     hits: list[str] = []
