@@ -48,7 +48,8 @@ Python 3.11 and the `tzdata` package that `Asia/Shanghai` needs there.
   in clients without the launcher. To use another one, set `PANDA_LIVE_CLI` to
   a `.mjs` file (run with `node` from `PATH`) or to an npm-installed
   `panda-live-trading.cmd`. Start the client and log in first: with the client
-  closed, `doctor` reports `fetch failed`.
+  closed, every CLI call fails with `fetch failed` and a hint to open the client
+  and log in; `doctor` lists it under `warnings`.
 - `qs` and the workflows print UTF-8 JSON, also into a pipe. A console shows it
   as is; to capture it in PowerShell, first run
   `[Console]::OutputEncoding = [Text.Encoding]::UTF8`.

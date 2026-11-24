@@ -96,6 +96,7 @@ def cli(tmp_path):
             "capabilities": {"ok": True, "data": CAPABILITIES},
             "connection": {"ok": False, "error": {"code": 1, "message": "该账号尚未开启 CLI 模式"}},
             "broken": "not json",
+            "positions": {"ok": False, "error": {"code": "INTERNAL", "message": "fetch failed"}},
         },
     )
 
@@ -201,6 +202,11 @@ def test_run_cli_raises_the_cli_error(cli):
     assert caught.value.code == 1
     with pytest.raises(PandaCliError, match="printed no JSON"):
         run_cli(cli, "broken")
+
+
+def test_a_closed_client_says_to_open_it(cli):
+    with pytest.raises(PandaCliError, match="^fetch failed（连不上 PandaAI 客户端：先打开客户端"):
+        run_cli(cli, "positions")
 
 
 def test_accounts_report_simnow_and_cli_eligibility(cli):

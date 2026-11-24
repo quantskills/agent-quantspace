@@ -41,6 +41,11 @@ SIMNOW_BROKER_ID = "9999"
 ACTOR_ID = "quantspace-live-trade"
 
 
+# What the CLI answers when the client is closed (it talks to the running client).
+CLIENT_UNREACHABLE = "fetch failed"
+CLIENT_DOWN_HINT = "（连不上 PandaAI 客户端：先打开客户端并登录，再重试）"
+
+
 class PandaCliError(RuntimeError):
     """The CLI answered ``ok: false`` or could not be run; ``code`` is the CLI's error code."""
 
@@ -246,7 +251,10 @@ def run_cli(
     if not isinstance(payload, dict) or not payload.get("ok"):
         error = payload.get("error") if isinstance(payload, dict) else None
         error = error if isinstance(error, dict) else {}
-        raise PandaCliError(error.get("message") or f"{CLI_NAME} failed", error.get("code"))
+        message = error.get("message") or f"{CLI_NAME} failed"
+        if CLIENT_UNREACHABLE in message.lower():
+            message += CLIENT_DOWN_HINT
+        raise PandaCliError(message, error.get("code"))
     return payload.get("data")
 
 

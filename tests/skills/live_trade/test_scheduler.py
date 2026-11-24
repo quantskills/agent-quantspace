@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from datetime import date, datetime
@@ -38,12 +39,12 @@ CONFIG = {
 
 
 class FakeRunner:
-    def __init__(self, code: int = 0):
-        self.code, self.calls = code, []
+    def __init__(self, code: int = 0, stdout: str = ""):
+        self.code, self.stdout, self.calls = code, stdout, []
 
     def __call__(self, command, **kwargs):
         self.calls.append((command, kwargs))
-        return subprocess.CompletedProcess(command, self.code, "", "Traceback: boom")
+        return subprocess.CompletedProcess(command, self.code, self.stdout, "Traceback: boom")
 
 
 def _config(**changes) -> ScheduleConfig:
@@ -255,6 +256,24 @@ def test_tick_runs_the_oldest_ready_bar(tmp_path):
         "100000",
     ]
     assert kwargs["timeout"] == 300
+
+
+def test_attempts_carry_the_workflow_status_and_detail(tmp_path):
+    from skills.live_trade.scheduler import tick
+
+    report = {"status": "stale", "detail": "新浪 21:05 K 线还没出来", "alerts": []}
+    stale = FakeRunner(3, json.dumps(report, ensure_ascii=False, indent=2))
+    job = _minute_job(tmp_path)
+
+    (attempt,) = tick(job, datetime(2026, 11, 20, 21, 5, 45), data_root=tmp_path, runner=stale)
+    daily = run_job(_config().jobs[0], FRIDAY, final=False, data_root=tmp_path, runner=stale)
+    quiet = run_job(
+        _config().jobs[0], FRIDAY, final=False, data_root=tmp_path, runner=FakeRunner(0, "x")
+    )
+
+    assert (attempt.exit_code, attempt.detail) == (3, "stale: 新浪 21:05 K 线还没出来")
+    assert daily.detail == "stale: 新浪 21:05 K 线还没出来"
+    assert (quiet.status, quiet.detail) == ("ran", "")
 
 
 def test_a_bar_process_may_run_one_bar_at_most():

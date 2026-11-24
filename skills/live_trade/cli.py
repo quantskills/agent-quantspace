@@ -346,6 +346,7 @@ def _doctor(args: DoctorInput) -> CommandResult:
             accounts = list_accounts(command)
         except (subprocess.CalledProcessError, TimeoutError, OSError, PandaCliError) as exc:
             error = str(exc)
+            warnings.append(f"PandaAI client: {error}")
         warnings += [f"PandaAI client: {problem}." for problem in problems]
         if version and not error and not any(account.cli_eligible for account in accounts):
             reasons = "; ".join(

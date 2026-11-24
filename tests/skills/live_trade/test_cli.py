@@ -221,6 +221,19 @@ def test_doctor_warns_when_no_account_is_cli_eligible(capsys, tmp_path, monkeypa
     assert any("No PandaAI account" in warning for warning in result["warnings"])
 
 
+def test_doctor_warns_when_the_client_is_closed(capsys, tmp_path, monkeypatch):
+    from tests.skills.live_trade.test_panda_cli import fake_cli
+
+    closed = {"ok": False, "error": {"code": "INTERNAL", "message": "fetch failed"}}
+    cli = fake_cli(tmp_path, {"accounts": closed, "capabilities": closed})
+    monkeypatch.setenv("PANDA_LIVE_CLI", cli[0])
+    monkeypatch.setenv("QS_NOTIFY_SLACK", SLACK)
+    code, result = invoke(capsys, "live-trade", "doctor")
+    assert code == 0, result
+    assert result["data"]["panda_cli"]["error"].startswith("fetch failed")
+    assert any("先打开客户端并登录" in warning for warning in result["warnings"])
+
+
 def test_doctor_reports_whether_an_account_can_trade_automatically(capsys, tmp_path, monkeypatch):
     from tests.skills.live_trade.test_panda_cli import ACCOUNTS, CAPABILITIES, fake_cli
 

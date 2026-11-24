@@ -13,6 +13,7 @@ refresh wrote; a bar past its deadline is logged as ``missed`` and alerted once 
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -131,6 +132,18 @@ def _day_matches(days: str, day: date, zone: ZoneInfo) -> bool:
     return fire is not None and fire.date() == day
 
 
+def _report_summary(stdout: str | None) -> str:
+    """``status: detail`` from the JSON report a workflow prints, so the serve log says why."""
+    try:
+        report = json.loads(stdout or "")
+    except ValueError:
+        return ""
+    if not isinstance(report, dict):
+        return ""
+    status, detail = str(report.get("status") or ""), str(report.get("detail") or "")
+    return (f"{status}: {detail}" if detail else status)[:300]
+
+
 def _run_workflow(runner: Callable[..., subprocess.CompletedProcess], command, timeout: int):
     """Run one workflow process; its output is UTF-8 on every OS (GBK pipes on Windows)."""
     return runner(
@@ -178,13 +191,15 @@ def run_job(
     command += ["--data-root", str(data_root)] if data_root else []
     command += job.args
     LOGGER.info("run %s for %s (final=%s)", job.strategy_id, trade_date, final)
+    summary = ""
     try:
         completed = _run_workflow(runner, command, RUN_TIMEOUT_SECONDS)
         code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
+        summary = _report_summary(completed.stdout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         code, tail = None, f"{type(exc).__name__}: {exc}"
     if code in KNOWN_EXIT_CODES:
-        return Attempt(job.strategy_id, trade_date.isoformat(), final, "ran", code)
+        return Attempt(job.strategy_id, trade_date.isoformat(), final, "ran", code, summary)
     # The workflow died before run_live could log or alert; do both here, once a day.
     LOGGER.error("%s crashed (exit %s): %s", job.strategy_id, code, tail)
     if write and runs.claim_alert(trade_date, "crash"):
@@ -255,15 +270,17 @@ def tick(
         command += ["--write"] if write else []
         command += ["--data-root", str(data_root)] if data_root else []
         command += job.args
+        summary = ""
         try:
             completed = _run_workflow(runner, command, bar_timeout(state.frequency))
             code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
+            summary = _report_summary(completed.stdout)
         except (OSError, subprocess.TimeoutExpired) as exc:
             code, tail = None, f"{type(exc).__name__}: {exc}"
         if code in KNOWN_EXIT_CODES:
             if code == 0:
                 seen.add(label)
-            attempts.append(Attempt(job.strategy_id, label, False, "ran", code))
+            attempts.append(Attempt(job.strategy_id, label, False, "ran", code, summary))
         else:
             LOGGER.error("%s %s crashed (exit %s): %s", job.strategy_id, label, code, tail)
             if write and runs.claim_alert(bar.trading_date, "crash"):
