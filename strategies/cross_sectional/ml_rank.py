@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 from skills.backtest.weighting import risk_parity
 from skills.compute.features import make_logdiff_panel_features
-from skills.ml.pca_fold import ModelKind, SUPPORTED_MODELS, fit_fold_transform, make_regressor
+from skills.ml.pca_fold import SUPPORTED_MODELS, ModelKind, fit_fold_transform, make_regressor
 from skills.ml.walk_forward import date_level_mask, expanding_purged_folds
 from skills.strategy.cross_sectional import top_n_weights
 

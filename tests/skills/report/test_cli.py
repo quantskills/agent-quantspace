@@ -383,7 +383,7 @@ def study_payload(chart, params, **overrides):
 
 def write_payload(tmp_path, payload, name="study.json"):
     path = tmp_path / name
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
 
@@ -439,7 +439,7 @@ def test_bundle_equals_write_research_bundle_and_inlines_the_chart(capsys, tmp_p
     direct_root = tmp_path / "direct"
     direct_dir = write_research_bundle(direct_report(payload), reports_root=direct_root)
     for name in body["data"]["files"]:
-        ours, theirs = (study / name).read_text(), (direct_dir / name).read_text()
+        ours, theirs = (study / name).read_text(encoding="utf-8"), (direct_dir / name).read_text(encoding="utf-8")
         # pandas Styler gives every rendered table a random id.
         assert re.sub(r"T_[0-9a-f]{5}", "T_x", ours) == re.sub(r"T_[0-9a-f]{5}", "T_x", theirs), (
             name
@@ -448,7 +448,7 @@ def test_bundle_equals_write_research_bundle_and_inlines_the_chart(capsys, tmp_p
     encoded = base64.b64encode(chart.read_bytes()).decode("ascii")
     assert f"data:image/png;base64,{encoded}" in html
     assert "robust-cell" in html and payload["question"] in html
-    params_json = json.loads((study / "params.json").read_text())
+    params_json = json.loads((study / "params.json").read_text(encoding="utf-8"))
     assert params_json["metrics"] == payload["metrics"] and params_json["visibility"] == "private"
     assert list(pd.read_csv(study / "artifacts" / "metrics.csv")["metric"]) == [
         "sharpe",
@@ -470,7 +470,7 @@ def test_bundle_flags_override_json_and_the_catalog_option_writes_the_catalog(
     assert code == 0, body
     study = root / "demo" / "renamed"
     assert body["data"]["study_dir"] == str(study.resolve())
-    meta = json.loads((study / "params.json").read_text())
+    meta = json.loads((study / "params.json").read_text(encoding="utf-8"))
     assert (meta["visibility"], meta["kind"], meta["domain"], meta["as_of"]) == (
         "public_example",
         "dashboard",
@@ -480,7 +480,7 @@ def test_bundle_flags_override_json_and_the_catalog_option_writes_the_catalog(
     assert body["data"]["catalog"] == str((root / "catalog.html").resolve())
     assert (root / "catalog.json").exists()
     assert [item["name"] for item in body["artifacts"]] == ["study", "catalog"]
-    catalog = json.loads((root / "catalog.json").read_text())
+    catalog = json.loads((root / "catalog.json").read_text(encoding="utf-8"))
     assert [(item["namespace"], item["slug"]) for item in catalog] == [("demo", "renamed")]
 
 
@@ -514,7 +514,7 @@ def test_bundle_refuses_an_existing_study_without_overwrite(capsys, tmp_path, ev
     code, body = run(capsys, *argv, "--input-json", str(changed), "--overwrite")
     assert code == 0, body
     assert (study / "index.html").read_bytes() != before["index.html"]
-    assert json.loads((study / "params.json").read_text())["title"] == "Changed title"
+    assert json.loads((study / "params.json").read_text(encoding="utf-8"))["title"] == "Changed title"
 
 
 def test_bundle_without_figures_tables_or_metrics(capsys, tmp_path):
@@ -597,7 +597,7 @@ def test_list_equals_list_research_studies(capsys, tmp_path, evidence):
     # A directory without index.html is not a study.
     stray = root / "gamma" / "draft"
     stray.mkdir(parents=True)
-    (stray / "params.json").write_text("{}")
+    (stray / "params.json").write_text("{}", encoding="utf-8")
     expected = list_research_studies(root)
     code, body = run(capsys, "list", "--reports-root", str(root))
     assert code == 0, body
@@ -664,4 +664,4 @@ def test_catalog_of_an_empty_root_writes_an_empty_catalog(capsys, tmp_path):
     code, body = run(capsys, "catalog", "--reports-root", str(root))
     assert code == 0, body
     assert body["data"]["count"] == 0
-    assert json.loads((root / "catalog.json").read_text()) == []
+    assert json.loads((root / "catalog.json").read_text(encoding="utf-8")) == []

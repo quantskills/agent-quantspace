@@ -557,7 +557,7 @@ def test_json_safe_converts_scientific_values_and_refuses_tables():
         "nat": None,
         "enum": "red",
         "point": {"x": 0.5},
-        "path": "a/b",
+        "path": str(Path("a/b")),
         "day": "2024-01-01",
         "items": [1, [2]],
         "index": [1, 2],

@@ -1183,7 +1183,8 @@ def test_adj_factor_without_destination_is_a_dry_run(capsys, sdk, tmp_path):
     code, response = run(capsys, "adj-factor", "--data-root", str(root))
     assert code == 0 and response["data"]["scope"] == "all-market"
     assert response["data"]["planned_paths"] == []
-    assert response["data"]["path_template"].endswith("/adj_factor/{symbol}.parquet")
+    template = str((root / "adj_factor" / "{symbol}.parquet").resolve())
+    assert response["data"]["path_template"] == template
     assert sdk.calls == [] and not root.exists()
 
 
