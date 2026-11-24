@@ -96,7 +96,7 @@ def _normalize_minute(raw: pd.DataFrame) -> pd.DataFrame:
     out["volume"] = frame["volume"].astype(float)
     out["amount"] = frame["amount"].astype(float) if "amount" in frame else 0.0
     out["open_interest"] = frame["open_interest"].astype(float) if "open_interest" in frame else 0.0
-    out["dominant_id"] = frame["dominant_id"] if "dominant_id" in frame else None
+    out["dominant_id"] = frame.get("dominant_id")
     return out
 
 

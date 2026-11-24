@@ -30,7 +30,7 @@ import pandas as pd  # noqa: E402
 
 from skills.backtest import VectorBacktester
 from skills.compute.features import make_logdiff_panel_features
-from skills.ml.pca_fold import ModelKind, SUPPORTED_MODELS
+from skills.ml.pca_fold import SUPPORTED_MODELS, ModelKind
 from skills.report.charts import plot_equity_comparison
 from skills.store.data_manager import DataManager
 from skills.strategy.cross_sectional import hold_weights_on_calendar
