@@ -53,13 +53,93 @@ class RunInput(PanelSource):
         description="Apply suspension and limit masks; the panel needs is_suspended, "
         "is_limit_up and is_limit_down.",
     )
+    unit: Literal["percent", "lots"] = Field(
+        default="percent",
+        description="Unit of --weights: percent (share of capital) or lots (a futures lot is "
+        "one contract, a stock or fund lot 100 shares; whole numbers).",
+    )
+    capital: float | None = Field(
+        default=None, gt=0, description="Starting capital; required with --unit lots."
+    )
+    multipliers: Path | None = Field(
+        default=None,
+        description="JSON object of contract multipliers by --weights symbol; required for "
+        "futures with --unit lots (a continuous symbol takes its product's multiplier).",
+    )
+    contracts: Path | None = Field(
+        default=None,
+        description="Lots: trading day by continuous symbol table of actual contracts. "
+        "Default: the stored dominant tables (qs ingest contracts); with --symbols the "
+        "contracts they name are loaded too.",
+    )
+    adjusted_frequency: str | None = Field(
+        default=None,
+        description="Lots: store directory with post-adjusted bars of the stocks and funds "
+        "(for example 1d_adj), so dividends count; required when --weights holds them.",
+    )
     out_dir: Path | None = Field(
         default=None,
-        description="Optional directory for result.parquet, executed_weights.parquet and metrics.json.",
+        description="Optional directory for result.parquet, executed_weights.parquet and "
+        "metrics.json (plus executed_lots.parquet with --unit lots).",
     )
     overwrite: bool = Field(
         default=False, description="Allow replacement of existing output files."
     )
+
+    @model_validator(mode="after")
+    def check_unit_options(self):
+        lots_only = [
+            name
+            for name in ("capital", "multipliers", "contracts", "adjusted_frequency")
+            if getattr(self, name) is not None
+        ]
+        if self.unit == "percent" and lots_only:
+            raise ValueError(f"{', '.join(lots_only)} only apply to --unit lots")
+        if self.unit == "lots" and self.capital is None:
+            raise ValueError("--unit lots needs --capital")
+        return self
+
+
+def _lots_inputs(args: RunInput, weights) -> dict:
+    """The panel and the lots-only options of VectorBacktester for --unit lots."""
+    import pandas as pd
+
+    from skills.backtest.units import is_continuous_future, is_futures_symbol
+    from skills.cli.io import data_manager, read_json, resolve_symbols
+
+    continuous = [str(symbol) for symbol in weights.columns if is_continuous_future(symbol)]
+    contracts = None
+    if continuous:
+        if args.contracts is not None:
+            contracts = read_frame(args.contracts)
+            if "date" in contracts.columns:
+                contracts = contracts.set_index("date")
+            contracts.index = pd.to_datetime(contracts.index)
+        else:
+            contracts = data_manager(args.data_root).read_dominant(continuous)
+    source = args.model_copy(update={"start": None, "end": None})
+    if contracts is not None and args.panel is None:
+        named = sorted({str(code) for code in contracts.stack().dropna().unique()})
+        symbols = resolve_symbols(args.symbols, args.symbols_file)
+        extra = [code for code in named if code not in symbols]
+        source = source.model_copy(update={"symbols": [*symbols, *extra], "symbols_file": None})
+    adjusted = None
+    stocks = [str(symbol) for symbol in weights.columns if not is_futures_symbol(symbol)]
+    if stocks and args.adjusted_frequency:
+        adjusted = data_manager(args.data_root).read_symbols(
+            stocks, frequency=args.adjusted_frequency
+        )
+    multipliers = read_json(args.multipliers) if args.multipliers else None
+    if multipliers is not None and not isinstance(multipliers, dict):
+        raise CLIError("INVALID_INPUT", "--multipliers must be a JSON object")
+    return {
+        "data": load_panel(source),
+        "unit": "lots",
+        "capital": args.capital,
+        "multipliers": multipliers,
+        "contracts": contracts,
+        "adjusted": adjusted,
+    }
 
 
 class RunData(BaseModel):
@@ -90,11 +170,17 @@ def run(args: RunInput) -> CommandResult:
         if args.out_dir
         else {}
     )
+    if args.out_dir and args.unit == "lots":
+        paths["executed_lots"] = args.out_dir / "executed_lots.parquet"
     for path in paths.values():
         check_output(path, overwrite=args.overwrite, data_root=args.data_root)
+    weights = read_frame(args.weights)
     # start/end bound the result frame only; execution keeps the full price history.
+    if args.unit == "lots":
+        options = _lots_inputs(args, weights)
+    else:
+        options = {"data": load_panel(args.model_copy(update={"start": None, "end": None}))}
     result = VectorBacktester(
-        data=load_panel(args.model_copy(update={"start": None, "end": None})),
         trade_at=args.trade_at,
         signal_lag=args.signal_lag,
         commission=args.commission,
@@ -102,7 +188,8 @@ def run(args: RunInput) -> CommandResult:
         start_date=args.start,
         end_date=args.end,
         enforce_trade_constraints=args.enforce_trade_constraints,
-    ).run(read_frame(args.weights))
+        **options,
+    ).run(weights)
     metrics = json_safe(result.metrics)
     annual = json_safe(annual_return_metrics(result.result_df))
     activity = json_safe(activity_metrics(result.result_df))
@@ -132,6 +219,16 @@ def run(args: RunInput) -> CommandResult:
                 name="metrics",
             ),
         ]
+        if "executed_lots" in paths:
+            artifacts.append(
+                write_frame(
+                    result.executed_lots,
+                    paths["executed_lots"],
+                    overwrite=args.overwrite,
+                    data_root=args.data_root,
+                    name="executed_lots",
+                )
+            )
     warnings = (
         ["nonfinite metrics were converted to null"]
         if any(value is None for value in [*metrics.values(), *annual.values()])

@@ -396,6 +396,65 @@ class DataManager:
         return sorted(p.stem for p in market_dir.glob("*.parquet"))
 
     # ==================================================================
+    # 1a. Futures dominant contracts (one row per trading day)
+    # ==================================================================
+
+    def dominant_path(self, symbol: str) -> Path:
+        """``market/dominant/<continuous symbol>.parquet``, e.g. ``RB_DOMINANT.SHF``."""
+        return self.root / "market" / "dominant" / f"{symbol}.parquet"
+
+    def save_dominant(self, symbol: str, contracts: pd.Series) -> pd.Series:
+        """Merge the actual contract per trading day of a continuous futures symbol.
+
+        ``contracts`` is indexed by trading date with contract codes such as
+        ``RB2701.SHF``; stored days it covers are replaced, the others kept. Returns the
+        stored series (index ``date``, name ``contract``).
+        """
+        incoming = pd.Series(contracts, dtype=object).astype(str)
+        incoming.index = pd.to_datetime(incoming.index).normalize()
+        if incoming.index.has_duplicates:
+            raise ValueError(f"{symbol}: duplicate trading dates")
+        path = self.dominant_path(symbol)
+        if path.exists():
+            stored = pd.read_parquet(path)["contract"]
+            incoming = pd.concat(
+                [stored.drop(index=stored.index.intersection(incoming.index)), incoming]
+            )
+        merged = incoming.sort_index().rename("contract")
+        merged.index.name = "date"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=f".{symbol}.", suffix=".parquet", dir=path.parent)
+        os.close(fd)
+        try:
+            merged.to_frame().to_parquet(temporary)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return merged
+
+    def read_dominant(self, symbols: list[str]) -> pd.DataFrame:
+        """Trading date by continuous symbol table of actual contracts.
+
+        This is the ``contracts`` table ``VectorBacktester(unit="lots")`` takes; days a
+        symbol has no row stay missing.
+        """
+        columns, missing = {}, []
+        for symbol in symbols:
+            path = self.dominant_path(symbol)
+            if not path.exists():
+                missing.append(symbol)
+                continue
+            columns[symbol] = pd.read_parquet(path)["contract"]
+        if missing:
+            raise FileNotFoundError(
+                f"No dominant contracts stored for {missing} under {self.root / 'market' / 'dominant'}; "
+                "fetch them with `uv run qs ingest contracts --underlyings <product> --write`."
+            )
+        table = pd.DataFrame(columns)
+        table.index.name = "date"
+        return table.sort_index()
+
+    # ==================================================================
     # 1b. Adjustment Factors (event-based, one row per ex-date)
     # ==================================================================
 

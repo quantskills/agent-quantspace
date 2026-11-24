@@ -38,6 +38,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from skills.backtest.units import check_unit
+
 from .daily import CUTOFF, DAY_CLOSE, INTRADAY_SOURCE
 from .feeds import MinuteFeed
 from .minute import Compute, refresh_day, run_bar
@@ -68,7 +70,12 @@ def workflow_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "no trading-day check, ledger, run log, or alerts.",
     )
     parser.add_argument("--data-root", default=None, help="Data root for live state and data.")
-    parser.add_argument("--capital", type=float, default=None, help="Capital for target units.")
+    parser.add_argument(
+        "--capital",
+        type=float,
+        default=None,
+        help="Capital for target units; lots strategies only show the share of capital.",
+    )
     parser.add_argument("--lot-size", type=int, default=100, help="Board lot for non-futures.")
     parser.add_argument(
         "--account",
@@ -153,7 +160,13 @@ def latest_inputs(load: DailyLoad, make_client: Callable[[], Any], day: date) ->
         return load_with_relogin(load, make_client, calendar.previous(day), None)
 
 
-def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = None) -> int:
+def daily_main(
+    strategy_id: str,
+    load: DailyLoad,
+    argv: Sequence[str] | None = None,
+    *,
+    unit: str = "percent",
+) -> int:
     """One run of a daily workflow for ``--date``; prints the report and returns the exit code.
 
     The trading day comes from PandaData's calendar; a calendar failure is reported as the
@@ -168,16 +181,21 @@ def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = N
     of the trade date's day session (``--now``); at any other time the run still signals
     and its execution is ``closed``. ``--intraday-source`` is the source
     :func:`~skills.live_trade.daily.load_daily_bars` uses when ``load`` names none.
+
+    ``unit`` is the unit of the table ``load`` returns: ``percent`` (shares of capital) or
+    ``lots`` (whole lots; orders take them as they are and ``--capital`` only adds the
+    share of capital to the message). The backtest takes the same value.
     """
+    check_unit(unit)
     args = workflow_arguments(argv)
     token = INTRADAY_SOURCE.set(args.intraday_source or INTRADAY_SOURCE.get())
     try:
-        return _daily_run(strategy_id, load, args)
+        return _daily_run(strategy_id, load, args, unit)
     finally:
         INTRADAY_SOURCE.reset(token)
 
 
-def _daily_run(strategy_id: str, load: DailyLoad, args: argparse.Namespace) -> int:
+def _daily_run(strategy_id: str, load: DailyLoad, args: argparse.Namespace, unit: str) -> int:
     from skills.ingest import PandaDataClient
     from skills.store.workspace import resolve_workspace_paths
 
@@ -218,6 +236,7 @@ def _daily_run(strategy_id: str, load: DailyLoad, args: argparse.Namespace) -> i
         execute=execute,
         max_lots=args.max_lots,
         closed=closed,
+        unit=unit,
     )
     delivery = _delivery_fields(outcome.delivery)
     report = {
@@ -312,6 +331,7 @@ def minute_main(spec: LiveSpec, compute: Compute, argv: Sequence[str] | None = N
             lot_size=args.lot_size,
             data_root=args.data_root,
             test=True,
+            unit=spec.unit,
         )
         return _emit(
             {

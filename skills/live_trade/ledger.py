@@ -95,9 +95,18 @@ class SignalLedger:
     def _write(self, state: dict) -> None:
         write_json_atomic(self.path, state)
 
-    def base_weights(self) -> dict[str, float]:
+    def base_unit(self) -> str | None:
+        """Unit of the delivered base (``percent`` for ledgers older than units), or None."""
         base = self._read()["base"]
-        return dict(base["weights"]) if base else {}
+        return base.get("unit", "percent") if base else None
+
+    def base_weights(self, unit: str | None = None) -> dict[str, float]:
+        """The delivered base; empty when there is none or, given ``unit``, it is in another
+        unit (the strategy changed units, so its baseline starts over)."""
+        base = self._read()["base"]
+        if not base or (unit is not None and base.get("unit", "percent") != unit):
+            return {}
+        return dict(base["weights"])
 
     def delivered_channels(self, signal_id: str) -> set[str]:
         entry = self._read()["signals"].get(signal_id, {})
@@ -131,6 +140,8 @@ class SignalLedger:
                 "as_of": signal.as_of,
                 "weights": signal.target,
             }
+            if signal.unit != "percent":
+                state["base"]["unit"] = signal.unit
         signals = state["signals"]
         for stale in list(signals)[: max(0, len(signals) - MAX_SIGNALS)]:
             del signals[stale]

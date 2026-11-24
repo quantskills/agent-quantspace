@@ -35,6 +35,8 @@ All of these must hold:
   offline or on a causal schedule, not on every bar.
 - [ ] Stock and fund weights are not negative; futures may be (short). The sum of
   absolute weights is the exposure of `--capital`.
+- [ ] Lots strategies (whole contracts, or 100-share stock and fund lots; see
+  "Lots strategies" below): every value a whole number.
 
 ## 2. Write the workflow
 
@@ -110,6 +112,34 @@ def main(argv=None) -> int:
                             commission=..., slippage_bp=...).run(live.target_weights(panel))
   ```
 
+### Lots strategies
+
+A strategy that says "add one contract on a breakout" returns whole lots instead of
+weights. Declare the unit once in the workflow module and pass the same constant to
+both sides:
+
+```python
+UNIT = "lots"
+SPEC = LiveSpec(..., unit=UNIT)                         # minute
+def main(argv=None):                                    # daily
+    return daily_main(STRATEGY_ID, load_inputs, argv, unit=UNIT)
+
+# backtest: book by quantity, futures on the contracts actually held
+dm = DataManager()
+contracts = dm.read_dominant(["RB_DOMINANT.SHF"])      # qs ingest contracts --write
+codes = sorted(set(contracts.stack().dropna()))
+data = dm.read_symbols(["RB_DOMINANT.SHF", *codes], frequency="5m")
+result = VectorBacktester(data, trade_at="open", signal_lag=1, commission=...,
+                          slippage_bp=..., unit=UNIT, capital=1_000_000,
+                          multipliers={"RB_DOMINANT.SHF": 10},
+                          contracts=contracts).run(target_weights(signal_panel))
+```
+
+Live, the lots go to the actual contract as they are (`--capital` only adds the share
+of capital to the message) and `--max-lots` caps them. A percent strategy can be
+backtested the way live trading holds it, sized only when its weights change, with
+`percent_to_lots` and the same lots backtest.
+
 ## 3. Backtest assumptions and live timing
 
 | Item | Backtest | Live | Where live departs |
@@ -117,9 +147,9 @@ def main(argv=None) -> int:
 | Signal row | row t from bar t's close | daily: day t at 14:51, the 14:50 price as day t's close; minute: `bar_delay_seconds` (default 40 for Sina, 3 for TqSdk) after bar t ends | daily: the last ten minutes of day t are missing from its close; `stale` until the data has bar t |
 | Execution | `signal_lag=1`: row t is held from bar t+1 (`executed_weights = weights.shift(1)`), filled at `trade_at` | daily: traded before 15:00 of day t (by hand, or futures orders with `--account`); minute orders: best opposite quote about 50 seconds into bar t+1 | daily matches `trade_at="close", signal_lag=0`, filled about ten minutes before the close; minute lies between `"open"` (optimistic) and `"close"` (pessimistic) with `signal_lag=1`. Minute `signal_lag=0` with `trade_at="close"` fills at the close the signal used, which live cannot do |
 | Adjustment | the series you backtested | daily: whatever `load_inputs` builds (rotation: post, like `1d_adj`); minute stocks and funds `adjust="post"`; futures never | scale-free signals (returns, MA cross sign, ranks) agree under pre and post; level-based ones (price thresholds, ATR in points) need the same series. Futures on a post-adjusted dominant series can differ from live near rolls; backtest the unadjusted series for the same signals (its returns then include roll gaps) |
-| Units | fractional weights | `weight * capital / (raw close * multiplier)` rounded toward zero to whole contracts or `--lot-size` shares | under-exposure with little capital: 100000 on rebar at 3010 x 10 is 3 contracts, 90% |
+| Units | percent: fractional weights; lots: whole lots booked by quantity (`unit="lots"`) | percent: `weight * capital / (raw close * multiplier)` rounded toward zero to whole contracts or `--lot-size` shares; lots: the target lots | percent: under-exposure with little capital (100000 on rebar at 3010 x 10 is 3 contracts, 90%), and the backtest returns to the weights on every bar while live holds the contracts; lots: none beyond fills |
 | Costs and fills | constant `commission`, `slippage_bp`; constraints only with `enforce_trade_constraints` | the spread; `working` orders are re-targeted next bar; `rejected` | real costs and partial fills |
-| Continuous futures | holds the continuous series | trades the dominant actual contract; on a roll day other months go to 0 | roll trades and their cost |
+| Continuous futures | percent: holds the continuous series; lots: holds the contract of PandaData's dominant table, rolled at each contract's own price on the roll bar with costs on both legs | trades the dominant actual contract (same dominant table); on a roll day other months go to 0 | percent: roll trades and their cost; lots: fills only. The continuous series' `dominant_id` can switch a day after the dominant table (RB: table 2025-08-29, series 09-01), so a signal computed on it may differ around a roll |
 | Data | final PandaData bars | Sina bars, revised 10–30 seconds after the close (80 for the first bars after the open), or for futures bars built from TqSdk ticks, which matched PandaData's minutes exactly | the next refresh alerts `reconcile` for every bar whose target changed |
 | Missing runs | none | `missed` past the deadline, `stale` days, halted stocks keep their last weight | gaps the backtest never has |
 

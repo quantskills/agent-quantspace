@@ -17,11 +17,13 @@ from typing import Any
 
 import pandas as pd
 
+from skills.backtest.units import check_lots, check_unit
+
 from .contracts import DeliveryResult, Signal, TargetSnapshot, build_signal, is_futures_symbol
 from .execution import ExecutionResult
 from .ledger import SignalLedger, validate_strategy_id, write_json_atomic
 from .notify import channel_name, format_signal, load_notify_urls, send_notifications
-from .sizing import SizedTarget, SizingLimitError, size_targets
+from .sizing import LotsTarget, SizedTarget, SizingLimitError, describe_lots, size_targets
 
 # Run statuses that finish a trade date or a bar; the others are retried by the next run.
 DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day", "missed"})
@@ -51,7 +53,7 @@ class Delivery:
     signal: Signal
     title: str
     body: str
-    sized: dict[str, SizedTarget] | None
+    sized: dict[str, SizedTarget] | dict[str, LotsTarget] | None
     channels: list[str]
     status: str
     results: list[DeliveryResult] = field(default_factory=list)
@@ -80,11 +82,26 @@ def deliver_signal(
     never reads or writes the ledger, so it can run at any time without touching live state.
     ``notes`` are extra lines appended to the message, such as the actual contract behind a
     continuous one; they never change the signal id.
+
+    A lots snapshot (``snapshot.unit == "lots"``) is diffed in lots and never resized;
+    ``capital``, when given, only adds the share of capital to the message. When the
+    ledger's base is in another unit (the strategy changed units), the base starts over:
+    the whole target is signalled and the message says the baseline was reset.
     """
     urls = load_notify_urls() if urls is None else list(urls)
-    signal = build_signal(snapshot, {} if test else ledger.base_weights())
+    previous_unit = None if test else ledger.base_unit()
+    reset = previous_unit is not None and previous_unit != snapshot.unit
+    base = {} if test or reset else ledger.base_weights()
+    signal = build_signal(snapshot, base)
     sized = None
-    if capital is not None:
+    if snapshot.unit == "lots":
+        sized = describe_lots(
+            {change.symbol: change.target for change in signal.changes},
+            signal.prices,
+            multipliers=dict(multipliers or {}),
+            capital=capital,
+        )
+    elif capital is not None:
         targets = {change.symbol: change.target for change in signal.changes}
         sized = {
             item.symbol: item
@@ -97,6 +114,8 @@ def deliver_signal(
             )
         }
     title, body = format_signal(signal, sized, test=test)
+    if reset:
+        body += f"\n单位从 {previous_unit} 改为 {snapshot.unit}，账本基线已重置，以上是完整目标。"
     if notes:
         body = body + "\n" + "\n".join(notes)
     channels = [channel_name(url) for url in urls]
@@ -271,15 +290,30 @@ def futures_lots(
     multipliers: Mapping[str, float],
     capital: float | None,
     max_lots: int | None = None,
+    unit: str = "percent",
 ) -> dict[str, int]:
-    """Whole contracts per actual contract for the full target, rounded toward zero.
+    """Whole contracts per actual contract for the full target.
 
-    Raises :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
+    Percent targets are sized with ``capital`` and rounded toward zero; lot targets are
+    the contracts themselves (whole numbers, no capital needed). Raises
+    :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
     ``max_lots``.
     """
+    check_unit(unit)
     traded = {symbol: contracts.get(symbol, symbol) for symbol in weights}
     if not traded or not all(is_futures_symbol(code) for code in traded.values()):
         raise ValueError("automatic orders are only wired for futures strategies")
+    if unit == "lots":
+        lots = check_lots(weights)
+        if max_lots is not None:
+            breaches = [
+                f"{symbol}: {abs(count)} units > max {max_lots}"
+                for symbol, count in sorted(lots.items())
+                if abs(count) > max_lots
+            ]
+            if breaches:
+                raise SizingLimitError(breaches)
+        return {traded[symbol]: count for symbol, count in lots.items()}
     if capital is None:
         raise ValueError("--capital is required to size orders")
     sized = size_targets(
@@ -413,6 +447,7 @@ def run_live(
     execute: Execute | None = None,
     max_lots: int | None = None,
     closed: str = "",
+    unit: str = "percent",
 ) -> RunOutcome:
     """Run one strategy for ``trade_date`` and report what happened.
 
@@ -431,9 +466,16 @@ def run_live(
     into whole contracts of the traded contracts (``LiveInputs.contracts``) and traded by
     :func:`trade_target` after the signal; the run log keeps what the execution did.
     ``closed`` (why the market takes no orders now) skips the orders: ``closed``.
+
+    ``unit`` is the strategy's target unit: with ``lots`` the table holds whole lots, the
+    signal compares lots, and orders take them as they are (``capital`` only informs the
+    message).
     """
+    check_unit(unit)
     if test:
-        return _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls)
+        return _run_test(
+            strategy_id, load, trade_date, write, capital, lot_size, data_root, urls, unit
+        )
     runs = RunLog(strategy_id, data_root)
     alerts: list[DeliveryResult] = []
 
@@ -474,7 +516,7 @@ def run_live(
             )
         if last > day:
             raise ValueError(f"weights reach {last.date()} after the trade date {trade_date}")
-        snapshot = TargetSnapshot.from_frames(weights, strategy_id, prices=inputs.prices)
+        snapshot = TargetSnapshot.from_frames(weights, strategy_id, prices=inputs.prices, unit=unit)
         delivery = deliver_signal(
             snapshot,
             SignalLedger(strategy_id, data_root),
@@ -500,6 +542,7 @@ def run_live(
                 multipliers=inputs.multipliers,
                 capital=capital,
                 max_lots=max_lots,
+                unit=unit,
             )
 
         execution, sent = trade_target(
@@ -517,12 +560,12 @@ def run_live(
     return finish(delivery.status, delivery=delivery, execution=execution)
 
 
-def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls):
+def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls, unit):
     label = trade_date.isoformat()
     try:
         inputs = load()
         snapshot = TargetSnapshot.from_frames(
-            inputs.weights, strategy_id, as_of=trade_date, prices=inputs.prices
+            inputs.weights, strategy_id, as_of=trade_date, prices=inputs.prices, unit=unit
         )
         delivery = deliver_signal(
             snapshot,

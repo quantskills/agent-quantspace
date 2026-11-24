@@ -45,6 +45,7 @@ directory:
 
 ```text
 data/market/<frequency>/<symbol>.parquet
+data/market/dominant/<continuous symbol>.parquet
 data/adj_factor/<symbol>.parquet
 data/factors/<namespace>/
 data/backtest/
@@ -65,6 +66,10 @@ belongs to the `live-trade` Skill and these commands never read or write it.
 | `5m_adj` | `5m` | Adjusted 5-minute bars |
 
 `read` writes a `(symbol, eob)` panel; `eob` is the timezone-naive end of bar.
+
+`market/dominant/` holds the actual contract of a continuous futures symbol per
+trading day (index `date`, column `contract`), written by `qs ingest contracts`
+and read by lots backtests (`DataManager.read_dominant`).
 
 File names are the symbol. PandaData data uses PandaData codes: `510300.SH`,
 `600000.SH`, `000300.SH`, `RB2601.SHF`, dominant continuous `RB_DOMINANT.SHF`.

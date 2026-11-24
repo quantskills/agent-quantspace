@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 
+from .units import check_unit
+
 TradeAt = Literal["open", "close"]
 
 
 @dataclass
 class BacktestResult:
-    """Result bundle returned by the vectorized backtester."""
+    """Result bundle returned by the vectorized backtester.
+
+    With ``unit="lots"`` ``executed_lots`` holds the lots held per symbol after the signal
+    lag (and T+1), and ``executed_weights`` the exposure they imply (signed value over the
+    equity before the bar).
+    """
 
     executed_weights: pd.DataFrame
     result_df: pd.DataFrame
     metrics: dict[str, float]
+    executed_lots: pd.DataFrame | None = None
 
 
 def bp_to_rate(bp: int | float) -> float:
@@ -84,6 +93,13 @@ class VectorBacktester:
         start_date: str | None = None,
         end_date: str | None = None,
         enforce_trade_constraints: bool = False,
+        *,
+        unit: str = "percent",
+        capital: float | None = None,
+        multipliers: Mapping[str, float] | None = None,
+        contracts: pd.DataFrame | None = None,
+        adjusted: pd.DataFrame | None = None,
+        margin_rates: Mapping[str, float] | None = None,
     ) -> None:
         """校验并复制行情数据，同时保存回测参数和初始化内部缓存。
 
@@ -96,6 +112,16 @@ class VectorBacktester:
             start_date: 回测结果的可选起始日期，不会裁剪 ``self.data``。
             end_date: 回测结果的可选结束日期，不会裁剪 ``self.data``。
             enforce_trade_constraints: 是否应用停牌、涨停和跌停约束。
+            unit: 目标表的单位：``percent``（占资金比例，默认）或 ``lots``（手数：期货一手
+                一张合约，股票、基金一手 100 股），见 :mod:`skills.backtest.units`。
+            capital: 手数模式的初始资金，必填。
+            multipliers: 手数模式下期货的合约乘数，按目标表的代码给（连续合约给品种乘数）。
+            contracts: 手数模式下连续合约（如 ``RB_DOMINANT.SHF``）每个交易日对应的实际合约，
+                交易日 × 连续合约代码表（``DataManager.read_dominant``）；``data`` 里要有
+                这些实际合约的不复权行情。
+            adjusted: 手数模式下股票、基金的后复权行情，``(symbol, eob)`` 面板，含
+                ``trade_at`` 列；盈亏按后复权收益 × 不复权市值计，分红送转不算亏损。
+            margin_rates: 可选，期货保证金率；只报告保证金占用，不拦截下单。
         """
         if commission is None or slippage_bp is None:
             raise ValueError("commission and slippage_bp must be explicitly provided.")
@@ -116,6 +142,29 @@ class VectorBacktester:
         self.start_date = pd.Timestamp(start_date) if start_date else None
         self.end_date = pd.Timestamp(end_date) if end_date else None
         self.enforce_trade_constraints = bool(enforce_trade_constraints)
+
+        self.unit = check_unit(unit)
+        lots_only = {
+            "capital": capital,
+            "multipliers": multipliers,
+            "contracts": contracts,
+            "adjusted": adjusted,
+            "margin_rates": margin_rates,
+        }
+        if self.unit == "percent":
+            given = [name for name, value in lots_only.items() if value is not None]
+            if given:
+                raise ValueError(f"{', '.join(given)} only apply to unit='lots'")
+        else:
+            if capital is None or not np.isfinite(capital) or capital <= 0:
+                raise ValueError("unit='lots' needs capital, a positive finite number")
+            if enforce_trade_constraints:
+                raise ValueError("enforce_trade_constraints applies to unit='percent' only")
+        self.capital = None if capital is None else float(capital)
+        self.multipliers = dict(multipliers or {})
+        self.contracts = contracts
+        self.adjusted = adjusted
+        self.margin_rates = None if margin_rates is None else dict(margin_rates)
 
         self._price_pivots: dict[str, pd.DataFrame] = {}
         self._return_cache: dict[str, pd.DataFrame] = {}
@@ -296,7 +345,10 @@ class VectorBacktester:
 
     def build_result_frame(self, executed_weights: pd.DataFrame) -> pd.DataFrame:
         """构建包含日收益、累计净值、累计收益和回撤的完整结果表。"""
-        result_df = self.compute_execution_returns(executed_weights)
+        return self._finish_result_frame(self.compute_execution_returns(executed_weights))
+
+    def _finish_result_frame(self, result_df: pd.DataFrame) -> pd.DataFrame:
+        """按起止日期裁剪逐根结果，并补上净值、累计收益和回撤列。"""
         result_df = self._apply_date_range(result_df)
         result_df = result_df.dropna(subset=["raw_return"])
         result_df["equity"] = (1.0 + result_df["return"]).cumprod()
@@ -376,6 +428,8 @@ class VectorBacktester:
         """
         if weights_df.empty:
             raise ValueError("weights_df cannot be empty.")
+        if self.unit == "lots":
+            return self._run_lots(weights_df)
         # 原始交易信号只在本次调用中使用；self.data 始终只保存行情数据。
         weights = weights_df.sort_index().astype(float)
         executed_weights = self._build_executed_weights(weights)
@@ -385,6 +439,37 @@ class VectorBacktester:
             executed_weights=executed_weights,
             result_df=result_df,
             metrics=metrics,
+        )
+
+    def _run_lots(self, lots_df: pd.DataFrame) -> BacktestResult:
+        """手数模式：按持仓数量记盈亏，见 :mod:`skills.backtest.quantity`。"""
+        from .quantity import lots_frame, lots_metrics
+
+        adjusted = None
+        if self.adjusted is not None:
+            if self.trade_at not in self.adjusted.columns:
+                raise ValueError(f"adjusted must contain the trade_at column {self.trade_at!r}.")
+            adjusted = self.adjusted[self.trade_at].unstack(level="symbol")
+        result, lots, weights = lots_frame(
+            lots_df,
+            self.execution_price_pivot,
+            signal_lag=self.signal_lag,
+            capital=self.capital,
+            commission=self.commission,
+            slippage_bp=self.slippage_bp,
+            multipliers=self.multipliers,
+            contracts=self.contracts,
+            adjusted=adjusted,
+            margin_rates=self.margin_rates,
+        )
+        result_df = self._finish_result_frame(result)
+        metrics = self.calculate_metrics(result_df)
+        metrics.update(lots_metrics(result_df))
+        return BacktestResult(
+            executed_weights=weights,
+            result_df=result_df,
+            metrics=metrics,
+            executed_lots=lots,
         )
 
 

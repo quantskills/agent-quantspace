@@ -44,7 +44,7 @@ ledger.record(signal, results, [result.channel for result in results])
 | Module | Purpose |
 |--------|---------|
 | `skills.live_trade.contracts` | `TargetSnapshot`, `WeightChange`, `Signal`, `DeliveryResult`, `build_signal`, `diff_weights`, `is_futures_symbol` |
-| `skills.live_trade.sizing` | `size_targets` and `SizingLimitError`: weights to contracts or board lots, with unit and notional caps that raise instead of clipping |
+| `skills.live_trade.sizing` | `size_targets` and `SizingLimitError`: weights to contracts or board lots, with unit and notional caps that raise instead of clipping; `describe_lots` and `LotsTarget`: shares, value, and share of capital of lot targets for messages |
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
 | `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
@@ -60,18 +60,29 @@ ledger.record(signal, results, [result.channel for result in results])
 
 ## Contracts
 
-- `TargetSnapshot.from_frames(weights, strategy_id, as_of=None, prices=None)`
-  takes the weights row at or before `as_of`, treats missing weights as zero,
-  and keeps only nonzero targets. Missing prices stay missing.
+- `TargetSnapshot.from_frames(weights, strategy_id, as_of=None, prices=None,
+  unit="percent")` takes the weights row at or before `as_of`, treats missing
+  weights as zero, and keeps only nonzero targets. Missing prices stay missing.
+  With `unit="lots"` the row holds whole lots (a futures contract, or 100 shares
+  of a stock or fund, `skills.backtest.units`); fractions and negative stocks or
+  funds raise `ValueError`. `TargetSnapshot.unit` and `Signal.unit` carry it.
 - `build_signal(snapshot, previous)` hashes strategy, time, base, and target
-  into `signal_id`, so the same inputs always give the same id. `changes`
-  includes exits to zero.
+  (and, for lots only, the unit) into `signal_id`, so the same inputs always give
+  the same id and percent ids are unchanged. `changes` includes exits to zero.
+- `describe_lots(lots, prices, multipliers=None, capital=None)` returns a
+  `LotsTarget` per symbol (`lots`, `shares` of stocks and funds, `price`,
+  `notional`, `share_of_capital`, and `units`: contracts or shares); it never
+  rounds or resizes. `format_signal` writes a lots signal as
+  `目标 3 手（原 2 手），参考价 2999，名义 89970，折合 89.97%`.
 - `size_targets(weights, capital, prices, multipliers=..., lot_size=100,
   rounding="down", max_units=None, max_notional=None)` computes
   `weight * capital / (price * multiplier)`. Futures (PandaData suffixes `.SHF`,
   `.DCE`, `.CZC`, `.CFE`, `.INE`, `.GFE`) size in whole contracts and need a multiplier.
 - `SignalLedger.record(signal, results, channels)` returns whether every
-  channel has the signal; only then does the signal's target become the new base.
+  channel has the signal; only then does the signal's target become the new base
+  (a lots base also keeps `unit`). `base_unit()` is the base's unit (`percent`
+  for a base without one) or None; `base_weights(unit=None)` is empty when the
+  base is in another unit.
 - `load_notify_urls(environ=None)` reads one variable per IM from `NOTIFY_ENV`
   (process environment, with `.env` filling unset ones); a variable may hold
   several comma-separated URLs, and a URL of another platform raises `ValueError`.
@@ -174,7 +185,7 @@ def main(argv=None) -> int:
   picks where futures' 1-minute bars come from; stocks and funds always come from
   Sina. `DailyBars.source` records what was used (`akshare`, `tqsdk`, or
   `tqsdk+akshare`) and the first note says it.
-- `daily_main(strategy_id, load, argv=None)` parses `workflow_arguments(argv)`
+- `daily_main(strategy_id, load, argv=None, *, unit="percent")` parses `workflow_arguments(argv)`
   (`--date`, `--write`, `--final`, `--test`, `--data-root`, `--capital`,
   `--lot-size`, `--account`, `--max-lots`, `--intraday-source`), asks PandaData's calendar
   `is_trading_day(client, date)` (a calendar failure becomes the run's `error`),
@@ -185,7 +196,8 @@ def main(argv=None) -> int:
   before the date whose data is ready. `market_dir` is
   `<data_root>/live/<strategy_id>/market` with `--write` outside `--test`, else
   None. With `--account` a futures strategy's target is traded at the cut-off
-  (`run_live(..., execute=, max_lots=)`). It prints one JSON report
+  (`run_live(..., execute=, max_lots=)`). `unit` is the unit of the table
+  `load` returns and goes to `run_live(..., unit=)`. It prints one JSON report
   (`strategy_id`, `trade_date`, `status`, `detail`, `execution`, `signal_id`,
   `target`, `message`, `deliveries`, `alerts`) and returns `RunOutcome.exit_code`.
 - `run_live` returns `not_trading_day` without calling `load`, and `done`
@@ -206,8 +218,14 @@ def main(argv=None) -> int:
   outside 14:50–15:00 (`daily.CUTOFF`, `daily.DAY_CLOSE`) of the trade date, and
   `run_bar` outside the day's sessions (`clock.in_session(now, bar_ends,
   frequency)`, from `clock.trading_windows`). `futures_lots(weights, prices, contracts=, multipliers=, capital=,
-  max_lots=None)` sizes a target into whole contracts per actual contract,
-  rounded toward zero; it raises for anything but futures.
+  max_lots=None, unit="percent")` sizes a target into whole contracts per actual contract,
+  rounded toward zero; with `unit="lots"` the targets are the contracts (no
+  capital, nothing rounded) and only `max_lots` is checked; it raises for anything
+  but futures.
+- `run_live(..., unit="percent")` and `run_bar` (from `LiveSpec.unit`) diff,
+  message, and trade a lots table as lots. `deliver_signal` starts the base over
+  when the ledger's base is in another unit: the whole target goes out and the
+  message says the baseline was reset.
 - `run_live(..., test=True)` is for checking the IM path outside trading
   hours: no trading-day or freshness check, the row at or before the date, the
   whole target in a message marked 测试 (`format_signal(..., test=True)`), and
@@ -285,7 +303,8 @@ def main(argv=None) -> int:
 
 - `LiveSpec(strategy_id, frequency, instruments, warmup_bars, adjust="post",
   bar_delay_seconds=None, deadline_seconds=None, spare_days=2,
-  intraday_source="akshare")`. `Instrument` checks that the code matches its
+  intraday_source="akshare", unit="percent")`. `unit="lots"` makes the
+  target table whole lots (see `TargetSnapshot`). `Instrument` checks that the code matches its
   asset (`stock`, `fund`, `future`); `continuous` is true for codes such as
   `RB_DOMINANT.SHF`. One spec trades either futures or stocks and funds;
   `intraday_source="tqsdk"` (bars built from TqSdk ticks) needs futures.

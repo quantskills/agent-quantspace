@@ -1,6 +1,6 @@
 ---
 name: live-trade
-description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily (signal and trade at 14:50, the 14:50 price as the close) or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's prices during the session from AKShare (Sina) or, for futures, bars built from TqSdk ticks, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
+description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size percent targets into contracts or board lots (lots strategies give whole lots directly), and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily (signal and trade at 14:50, the 14:50 price as the close) or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's prices during the session from AKShare (Sina) or, for futures, bars built from TqSdk ticks, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
 ---
 
 # Live Trade
@@ -265,7 +265,8 @@ why not (not SimNow, CLI mode off, running asset units, counter not ready, CLI
 too old, stop file). After each bar's (or day's) signal, the run sizes the full target
 into whole contracts (rounded toward zero) of the actual contract
 (`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
-`execute_targets`:
+`execute_targets`. A lots strategy's targets are the contracts already: they go to
+the actual contract as they are, and `--capital` is not needed:
 
 1. It re-reads the account and trades only a SimNow account (broker `9999`) with
    CLI mode on, no running asset unit, and the counter connected and ready;
@@ -335,6 +336,28 @@ go live, how the backtest's `trade_at`, `signal_lag`, adjustment, and rounding m
 live timing, how to test that the live target is the backtest's row
 (`replay_mismatches`), and how to schedule it.
 
+## Target units: percent or lots
+
+A strategy declares the unit of its target table once and the backtest uses the same
+value (`VectorBacktester(unit=...)`, see the backtest Skill):
+
+- `percent` (default): shares of capital, 1.0 is 100%. Units come from
+  `--capital` (`weight x capital / (price x multiplier)`, toward zero).
+- `lots`: whole lots, a futures contract or 100 shares (`SHARES_PER_LOT`) of a stock
+  or fund. Declare it with `LiveSpec(unit="lots")` (minute) or
+  `daily_main(STRATEGY_ID, load_inputs, argv, unit="lots")` (daily), and
+  `notify --unit lots` for a table file. Fractions, and negative stocks or funds,
+  make the run an `error` instead of being rounded.
+
+In lots mode the signal compares lots with the last delivered lots; the message reads
+`RB_DOMINANT.SHF：目标 3 手（原 2 手），参考价 2999，名义 89970` (stocks and funds add
+the shares: `目标 30 手（3000 股，原 0 手）`), and with `--capital` the share of capital
+(`，折合 89.97%`). Futures orders take the target lots per actual contract, capped by
+`--max-lots`; stocks and funds still only push signals. The ledger keeps the unit of
+its base: when a strategy changes unit, the base starts over, the whole target goes
+out once, and the message says the baseline was reset. Ledgers without a unit are
+percent, and percent signal ids are what they always were.
+
 ## Files
 
 - `--weights` and `--prices` are date by symbol tables (`eob` index or column,
@@ -366,6 +389,7 @@ live timing, how to test that the live target is the backtest's row
   sends the same signal only to the channels that failed.
 - Sizing never guesses: futures need a multiplier, every changed symbol needs a
   price, and units round toward zero to whole contracts or `--lot-size` shares.
+  Lots targets are never rounded or resized.
 - A channel counts as delivered only when the IM accepts the message. WeCom,
   Feishu, and DingTalk answer HTTP 200 even when they reject one, so their error
   code in the response body must be 0.

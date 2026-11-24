@@ -36,8 +36,16 @@ class NotifyInput(CLIModel):
         None,
         description="Optional date by symbol reference-price table; its row at or before the signal time is used.",
     )
+    unit: Literal["percent", "lots"] = Field(
+        "percent",
+        description="Unit of --weights: percent (share of capital) or lots (whole lots: a "
+        "futures contract, or 100 shares of a stock or fund).",
+    )
     capital: float | None = Field(
-        None, gt=0, description="Optional capital; with --prices adds target units per symbol."
+        None,
+        gt=0,
+        description="Optional capital; with --prices adds target units per symbol "
+        "(with --unit lots: the share of capital).",
     )
     lot_size: int = Field(
         100, ge=1, description="Board lot for non-futures symbols; futures size in whole contracts."
@@ -58,8 +66,8 @@ class NotifyInput(CLIModel):
 class ChangeItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str = Field(description="PandaData symbol, such as 510300.SH or RB2701.SHF.")
-    previous: float = Field(description="Weight in the last delivered target.")
-    target: float = Field(description="New target weight.")
+    previous: float = Field(description="Weight (or lots) in the last delivered target.")
+    target: float = Field(description="New target weight (or lots).")
     delta: float = Field(description="target - previous.")
     price: float | None = Field(description="Reference price, if supplied.")
     units: int | None = Field(description="Target units (contracts or shares), if sized.")
@@ -114,7 +122,7 @@ def _notify(args: NotifyInput) -> CommandResult:
     if args.capital is not None and prices is None:
         raise CLIError("INVALID_INPUT", "--capital needs --prices to size targets")
     snapshot = TargetSnapshot.from_frames(
-        weights, args.strategy_id, as_of=args.as_of, prices=prices
+        weights, args.strategy_id, as_of=args.as_of, prices=prices, unit=args.unit
     )
     ledger = SignalLedger(args.strategy_id, args.data_root)
     try:

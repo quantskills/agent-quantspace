@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .contracts import DeliveryResult, Signal, is_futures_symbol
-from .sizing import SizedTarget
+from .sizing import LotsTarget, SizedTarget
 
 # One environment variable per IM; each may hold several webhook URLs separated by commas.
 NOTIFY_ENV = {
@@ -118,14 +118,16 @@ def _unit_label(symbol: str) -> str:
 
 def format_signal(
     signal: Signal,
-    sized: Mapping[str, SizedTarget] | None = None,
+    sized: Mapping[str, SizedTarget] | Mapping[str, LotsTarget] | None = None,
     *,
     test: bool = False,
 ) -> tuple[str, str]:
     """Plain-text title and body that read the same in every IM.
 
     The title always contains ``QuantSpace`` so Feishu bots can use keyword security. A
-    ``test`` message says so in its title and first line, so nobody trades on it.
+    ``test`` message says so in its title and first line, so nobody trades on it. A lots
+    signal lists lots (and the shares of stocks and funds); ``sized`` then holds
+    :class:`~skills.live_trade.sizing.LotsTarget` values for the value and share of capital.
     """
     title = f"QuantSpace 调仓信号{'（测试）' if test else ''} | {signal.strategy_id}"
     lines = [f"信号时间：{signal.as_of}"]
@@ -133,6 +135,12 @@ def format_signal(
         lines.insert(
             0, f"测试消息：按 {signal.as_of} 的数据生成的完整目标，不是实盘调仓，无需执行。"
         )
+    if signal.unit == "lots":
+        lines += [_lots_line(change, signal, sized) for change in signal.changes]
+        if signal.is_empty:
+            lines.append("目标与上次已推送的一致，无调仓。")
+        lines.append(f"信号编号：{signal.signal_id}")
+        return title, "\n".join(lines)
     for change in signal.changes:
         line = (
             f"- {change.symbol}：{change.previous:.2%} → {change.target:.2%}（{change.delta:+.2%}）"
@@ -147,6 +155,28 @@ def format_signal(
         lines.append("目标与上次已推送的一致，无调仓。")
     lines.append(f"信号编号：{signal.signal_id}")
     return title, "\n".join(lines)
+
+
+def _lots(value: float) -> str:
+    return f"{int(round(value))} 手"
+
+
+def _lots_line(change, signal: Signal, described) -> str:
+    """``- RB_DOMINANT.SHF：目标 3 手（原 2 手），参考价 2999，名义 89970，折合 89.97%``.
+
+    Stocks and funds also show the shares: ``目标 30 手（3000 股，原 0 手）``.
+    """
+    item = (described or {}).get(change.symbol)
+    shares = f"{item.shares} 股，" if item is not None and item.shares is not None else ""
+    line = f"- {change.symbol}：目标 {_lots(change.target)}（{shares}原 {_lots(change.previous)}）"
+    price = signal.prices.get(change.symbol)
+    if price is not None:
+        line += f"，参考价 {price:g}"
+    if item is not None and item.notional is not None:
+        line += f"，名义 {item.notional:.0f}"
+        if item.share_of_capital is not None:
+            line += f"，折合 {item.share_of_capital:.2%}"
+    return line
 
 
 def _redacted(text: str, url: str) -> str:

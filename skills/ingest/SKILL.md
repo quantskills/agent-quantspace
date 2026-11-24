@@ -27,6 +27,8 @@ Use the `uv run qs ingest` commands below; data tasks do not require reading
 - Fetch ETF creation and redemption limits, flows, baskets, or lists.
 - Call a PandaData SDK function that has no dedicated command.
 - Download futures tick data.
+- Get every actual contract a futures product held as dominant, with the
+  dominant table, for lots backtests that roll on real contracts (`contracts`).
 - Get today's finished minute bars during the session (`intraday`), which
   PandaData only publishes after the close.
 
@@ -46,6 +48,7 @@ uv run qs ingest raw --list
 uv run qs ingest raw --method get_trade_cal --params '{"start_date": "20250101", "end_date": "20250131"}' \
   --output out/trade_cal.parquet
 uv run qs ingest future-ticks --underlying SA --start 2025-01-01 --end 2025-01-31
+uv run qs ingest contracts --underlyings RB,HC --start 2023-01-01 --freq 1d,1m --write
 uv run qs ingest intraday --symbols 000001.SZ,510300.SH,RB2701.SHF --freq 5m \
   --output out/intraday_5m.parquet
 ```
@@ -57,6 +60,13 @@ uv run qs ingest intraday --symbols 000001.SZ,510300.SH,RB2701.SHF --freq 5m \
   one table outside the store instead. Without `--write` the command only
   reports the planned paths.
 - `adj-factor --write` stores `data/adj_factor/<symbol>.parquet`.
+- `contracts --write` stores the dominant table per product as
+  `data/market/dominant/<PRODUCT>_DOMINANT.<exchange>.parquet` (index `date`,
+  column `contract`) and each contract's bars as
+  `data/market/<freq>/<contract>.parquet`, merged by `eob` with what is stored. A
+  contract is fetched from its first dominant day through the next contract's
+  first day (the roll day, when the old position is closed); minute ranges go out
+  in 20-day pieces. Without `--write` it reports the plan only.
 - Reference and ETF commands write the returned table to `--output`.
 - `future-ticks` writes under `data/export/panda_future_ticks/<underlying>/`.
 - `intraday` writes one combined table (`symbol`, `eob`, OHLCV, `amount`,
@@ -135,6 +145,7 @@ Before using a command, run it with `--help` to see its options and defaults. `u
 | Command | What it does | Side effects |
 |---|---|---|
 | `uv run qs ingest bars` | Fetch stock, index, future, fund, HK or US bars; optionally store them. | network, writes-output, writes-store |
+| `uv run qs ingest contracts` | Fetch the dominant contract table of futures products and every contract it names (daily and minute bars, through each roll day); store them with --write. | network, writes-store |
 | `uv run qs ingest intraday` | Fetch today's finished intraday bars (unadjusted): Sina through AKShare, or futures built from TqSdk ticks with --source tqsdk. | network, writes-output |
 | `uv run qs ingest adj-factor` | Fetch stock adjustment-factor events; optionally store them per symbol. | network, writes-output, writes-store |
 | `uv run qs ingest ref stock-detail` | Fetch stock basic information (get_stock_detail). | network, writes-output |

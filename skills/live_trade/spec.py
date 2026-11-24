@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from skills.backtest.units import Unit
+
 from .clock import INTRADAY_MINUTES
 from .contracts import is_futures_symbol
 from .ledger import validate_strategy_id
@@ -61,6 +63,12 @@ class LiveSpec(BaseModel):
     deadline_seconds: int | None = Field(None, gt=0)
     spare_days: int = Field(2, ge=0, le=20)
     intraday_source: IntradaySource = "akshare"
+    unit: Unit = Field(
+        "percent",
+        description="Unit of the target table: percent (share of capital) or lots (whole "
+        "lots: a futures contract, or 100 shares of a stock or fund). The backtest takes the "
+        "same value: VectorBacktester(unit=...).",
+    )
 
     @field_validator("strategy_id")
     @classmethod

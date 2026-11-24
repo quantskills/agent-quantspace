@@ -66,7 +66,9 @@ def _hold_halted(snapshot: TargetSnapshot, halted: dict[str, str], base: dict[st
         return snapshot
     weights = {k: v for k, v in snapshot.weights.items() if k not in halted}
     weights.update({k: base[k] for k in halted if k in base})
-    return TargetSnapshot(snapshot.strategy_id, snapshot.as_of, weights, snapshot.prices)
+    return TargetSnapshot(
+        snapshot.strategy_id, snapshot.as_of, weights, snapshot.prices, snapshot.unit
+    )
 
 
 def run_bar(
@@ -172,9 +174,9 @@ def run_bar(
             return finish("stale", f"最新权重时间 {last}，早于 K 线 {label}")
         ledger = SignalLedger(spec.strategy_id, data_root)
         computed = TargetSnapshot.from_frames(
-            weights, spec.strategy_id, as_of=bar, prices=feed.raw_closes()
+            weights, spec.strategy_id, as_of=bar, prices=feed.raw_closes(), unit=spec.unit
         )
-        snapshot = _hold_halted(computed, state.halted, ledger.base_weights())
+        snapshot = _hold_halted(computed, state.halted, ledger.base_weights(spec.unit))
         delivery = deliver_signal(
             snapshot,
             ledger,
@@ -215,9 +217,11 @@ def wanted_contracts(
     lot_size: int = 100,
     max_lots: int | None = None,
 ) -> dict[str, int]:
-    """Whole contracts per actual contract for the full target, rounded toward zero.
+    """Whole contracts per actual contract for the full target.
 
-    Raises :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
+    Percent targets are sized with ``capital`` (rounded toward zero); lot targets
+    (``spec.unit == "lots"``) are the contracts. Raises
+    :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
     ``max_lots``.
     """
     if not spec.futures:
@@ -230,6 +234,7 @@ def wanted_contracts(
         multipliers=state.multipliers,
         capital=capital,
         max_lots=max_lots,
+        unit=spec.unit,
     )
 
 

@@ -58,6 +58,11 @@ upstream market-data API; use `freq="1d"` there.
 Main methods:
 
 - `read_symbol`, `read_symbols`, `save_symbol`, `upsert_symbol`
+- `save_dominant(symbol, contracts)`, `read_dominant(symbols)`, `dominant_path`:
+  the actual contract per trading day of continuous futures symbols, stored
+  under `market/dominant/<symbol>.parquet`; `save_dominant` merges by date,
+  `read_dominant` returns the trading day by symbol table that
+  `VectorBacktester(unit="lots", contracts=...)` takes
 - `import_symbol_csv`, `import_combined_csv`, `list_symbols`
 - `save_factor`, `read_factor`, `factor_namespace_dir`, `factor_filename`
 - `save_factor_correlation`, `read_factor_correlation`

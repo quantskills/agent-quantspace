@@ -78,16 +78,16 @@ AI agents can turn research ideas into tested strategy code inside the project.
 
 | Skill | Import | Purpose |
 |-------|--------|---------|
-| ingest | `from skills.ingest import PandaDataClient` | PandaData data access; today's intraday minute bars from Sina through AKShare (`skills.ingest.akshare_bars`) |
+| ingest | `from skills.ingest import PandaDataClient` | PandaData data access (`qs ingest contracts` stores each product's dominant table and every contract it held); today's intraday minute bars from Sina through AKShare (`skills.ingest.akshare_bars`) |
 | store | `from skills.store.data_manager import DataManager` | Parquet data and research artifact storage |
 | compute | `from skills.compute.indicators import trend_score` | Strategy-neutral OHLCV indicators, labels, utilities, and the `Factor` wrapper |
 | strategy | `from skills.strategy import StrategyResult` | Reusable strategy contracts, selection types, and cross-sectional/time-series target-weight helpers |
 | analyze | `from skills.analyze.factor_analysis import IC_stat` | Factor diagnostics, attribution, robustness, and time-series checks |
-| backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics |
+| backtest | `from skills.backtest import VectorBacktester` | Vectorized execution, portfolio weights, filters, costs, and metrics; a lots mode books whole lots by quantity on the futures contracts actually held (`unit="lots"`) |
 | ml | `from skills.ml.ml_engine import MLEngine` | Optional ML model training, inference, ML factors, and sparse fitting |
 | report | `from skills.report import ReportRenderer, write_research_bundle` | HTML research reports and chart helpers |
 | factor_mining | `from skills.factor_mining import ResearchBrief, FactorSpec, FactorExecutionAdapter` | AI factor-mining contracts, unrestricted local Python factor generation/resolution, adapters, and cross-platform role protocol; the governed run is the `strategies/factor_mining` workflow |
-| live_trade | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Latest target weights to rebalance signals: sizing, delivery ledger, IM webhook push (WeCom, Feishu, DingTalk direct; Slack, Discord via Apprise), scheduled runs (`run_live`, APScheduler `serve`), minute-level runs (`LiveSpec`, `MinuteFeed`, `run_bar`, `refresh_day`: PandaData history, AKShare bars during the session, next-day reconciliation); workflow entries `daily_main` / `minute_main` and the backtest replay check `replay_mismatches` (`skills.live_trade.workflow`, guide in `references/backtest-to-live.md`); futures through the PandaAI client's bundled CLI |
+| live_trade | `from skills.live_trade import TargetSnapshot, build_signal, send_notifications` | Latest target weights, or whole lots (`unit="lots"`), to rebalance signals: sizing, delivery ledger, IM webhook push (WeCom, Feishu, DingTalk direct; Slack, Discord via Apprise), scheduled runs (`run_live`, APScheduler `serve`), minute-level runs (`LiveSpec`, `MinuteFeed`, `run_bar`, `refresh_day`: PandaData history, AKShare bars during the session, next-day reconciliation); workflow entries `daily_main` / `minute_main` and the backtest replay check `replay_mismatches` (`skills.live_trade.workflow`, guide in `references/backtest-to-live.md`); futures through the PandaAI client's bundled CLI |
 
 Coding-agent compatibility is declared here and in README/README.en.md
 (ChatGPT Codex, Claude Code, Cursor, CodeBuddy, Qoder, TRAE, OpenCode, OpenClaw, Kimi Code).

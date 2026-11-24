@@ -10,15 +10,10 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-# PandaData exchange suffixes whose symbols are futures, sized in whole contracts.
-FUTURES_SUFFIXES = frozenset({"SHF", "DCE", "CZC", "CFE", "INE", "GFE"})
-# Weight differences at or below this are treated as no change.
+from skills.backtest.units import FUTURES_SUFFIXES, check_lots, check_unit, is_futures_symbol
+
+# Weight (or lot) differences at or below this are treated as no change.
 WEIGHT_TOLERANCE = 1e-6
-
-
-def is_futures_symbol(symbol: str) -> bool:
-    """Whether a PandaData symbol such as ``RB2701.SHF`` names a futures contract."""
-    return symbol.rpartition(".")[2] in FUTURES_SUFFIXES
 
 
 def _time_label(value: pd.Timestamp) -> str:
@@ -55,12 +50,17 @@ def _clean_weights(row: pd.Series) -> dict[str, float]:
 
 @dataclass(frozen=True)
 class TargetSnapshot:
-    """Nonzero target weights of one strategy at one decision time."""
+    """Nonzero targets of one strategy at one decision time.
+
+    ``unit`` is ``percent`` (``weights`` are shares of capital) or ``lots`` (``weights`` are
+    whole lots: futures contracts, or 100-share lots of stocks and funds).
+    """
 
     strategy_id: str
     as_of: str
     weights: dict[str, float]
     prices: dict[str, float] = field(default_factory=dict)
+    unit: str = "percent"
 
     @classmethod
     def from_frames(
@@ -70,12 +70,16 @@ class TargetSnapshot:
         *,
         as_of: str | pd.Timestamp | None = None,
         prices: pd.DataFrame | None = None,
+        unit: str = "percent",
     ) -> TargetSnapshot:
-        """Take the weights row at or before ``as_of`` (default: the last row).
+        """Take the targets row at or before ``as_of`` (default: the last row).
 
         ``prices`` is an optional date by symbol table; its row at or before the same time
         supplies reference prices. Missing prices stay missing instead of being filled.
+        With ``unit="lots"`` every target must be a whole number of lots (stocks and funds
+        not negative); anything else raises instead of being rounded.
         """
+        check_unit(unit)
         row = _row_at(weights, as_of, "weights")
         stamp = pd.Timestamp(row.name)
         reference = {}
@@ -84,11 +88,15 @@ class TargetSnapshot:
             for symbol, value in price_row.items():
                 if pd.notna(value) and math.isfinite(float(value)) and float(value) > 0:
                     reference[str(symbol)] = float(value)
+        targets = _clean_weights(row)
+        if unit == "lots":
+            targets = {symbol: float(value) for symbol, value in check_lots(targets).items()}
         return cls(
             strategy_id=strategy_id,
             as_of=_time_label(stamp),
-            weights=_clean_weights(row),
+            weights=targets,
             prices=reference,
+            unit=unit,
         )
 
 
@@ -105,7 +113,7 @@ class WeightChange:
 
 @dataclass(frozen=True)
 class Signal:
-    """Weight changes that move the last delivered target to a new target."""
+    """Changes that move the last delivered target to a new target, in ``unit``."""
 
     signal_id: str
     strategy_id: str
@@ -113,6 +121,7 @@ class Signal:
     changes: tuple[WeightChange, ...]
     target: dict[str, float]
     prices: dict[str, float]
+    unit: str = "percent"
 
     @property
     def is_empty(self) -> bool:
@@ -148,17 +157,21 @@ def _rounded(weights: Mapping[str, float]) -> dict[str, float]:
 
 
 def build_signal(snapshot: TargetSnapshot, previous: Mapping[str, float] | None = None) -> Signal:
-    """Build a deterministic signal: the same base and target always give the same id."""
+    """Build a deterministic signal: the same base and target always give the same id.
+
+    A lots signal also hashes its unit; a percent signal hashes what it always did, so ids
+    of existing ledgers stay valid.
+    """
     base = dict(previous or {})
-    payload = json.dumps(
-        {
-            "strategy_id": snapshot.strategy_id,
-            "as_of": snapshot.as_of,
-            "base": _rounded(base),
-            "target": _rounded(snapshot.weights),
-        },
-        sort_keys=True,
-    )
+    content = {
+        "strategy_id": snapshot.strategy_id,
+        "as_of": snapshot.as_of,
+        "base": _rounded(base),
+        "target": _rounded(snapshot.weights),
+    }
+    if snapshot.unit != "percent":
+        content["unit"] = snapshot.unit
+    payload = json.dumps(content, sort_keys=True)
     return Signal(
         signal_id=hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16],
         strategy_id=snapshot.strategy_id,
@@ -166,6 +179,7 @@ def build_signal(snapshot: TargetSnapshot, previous: Mapping[str, float] | None 
         changes=diff_weights(base, snapshot.weights),
         target=dict(snapshot.weights),
         prices=dict(snapshot.prices),
+        unit=snapshot.unit,
     )
 
 

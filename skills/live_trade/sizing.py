@@ -1,4 +1,9 @@
-"""Convert target weights into whole trading units (contracts or board lots)."""
+"""Convert target weights into whole trading units, and describe lot targets.
+
+Percent targets are sized here (:func:`size_targets`). Lot targets are never resized: a
+futures lot is one contract and a stock or fund lot :data:`SHARES_PER_LOT` shares;
+:func:`describe_lots` only works out their value for messages.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,8 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
+
+from skills.backtest.units import SHARES_PER_LOT
 
 from .contracts import is_futures_symbol
 
@@ -104,4 +111,61 @@ def size_targets(
     return sized
 
 
-__all__ = ["SizedTarget", "SizingLimitError", "size_targets"]
+@dataclass(frozen=True)
+class LotsTarget:
+    """A lot target as messages show it.
+
+    ``shares`` is the shares of a stock or fund target (lots x 100), None for futures;
+    ``notional`` the absolute value at the reference price (None without a price, or a
+    futures multiplier); ``share_of_capital`` the signed value over the capital, when given.
+    """
+
+    symbol: str
+    lots: int
+    shares: int | None
+    price: float | None
+    notional: float | None
+    share_of_capital: float | None
+
+    @property
+    def units(self) -> int:
+        """Contracts of a future, shares of a stock or fund."""
+        return self.lots if self.shares is None else self.shares
+
+
+def describe_lots(
+    lots: Mapping[str, float],
+    prices: Mapping[str, float],
+    *,
+    multipliers: Mapping[str, float] | None = None,
+    capital: float | None = None,
+) -> dict[str, LotsTarget]:
+    """Shares, value and (with ``capital``) share of capital of whole-lot targets.
+
+    Nothing is rounded or checked against a cap here; the value is left out when the price
+    or a futures multiplier is missing, since it only informs the message.
+    """
+    multipliers = multipliers or {}
+    described = {}
+    for symbol in sorted(lots):
+        count = int(round(float(lots[symbol])))
+        futures = is_futures_symbol(symbol)
+        price = prices.get(symbol)
+        per_lot = multipliers.get(symbol) if futures else SHARES_PER_LOT
+        notional = share = None
+        if price is not None and per_lot is not None:
+            value = count * float(price) * float(per_lot)
+            notional = abs(value)
+            share = value / capital if capital else None
+        described[symbol] = LotsTarget(
+            symbol=symbol,
+            lots=count,
+            shares=None if futures else count * SHARES_PER_LOT,
+            price=None if price is None else float(price),
+            notional=notional,
+            share_of_capital=share,
+        )
+    return described
+
+
+__all__ = ["LotsTarget", "SizedTarget", "SizingLimitError", "describe_lots", "size_targets"]

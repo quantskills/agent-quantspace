@@ -585,6 +585,209 @@ def bars(args: BarsInput) -> CommandResult:
 
 
 # ---------------------------------------------------------------------------
+# ingest.contracts
+# ---------------------------------------------------------------------------
+
+# Calendar days per minute request of one contract; PandaData caps rows per minute request.
+MINUTE_CHUNK_DAYS = 20
+CONTRACT_FREQS = ("1d", "1m", "5m", "15m", "60m")
+
+
+class ContractsInput(CLIModel):
+    underlyings: list[str] = Field(
+        description="Futures products such as RB or HC; repeat flag or comma-separate."
+    )
+    start: Date = Field(description="First trading day: YYYY-MM-DD or YYYYMMDD.")
+    end: Date | None = Field(
+        None, description="Last trading day: YYYY-MM-DD or YYYYMMDD; defaults to today."
+    )
+    freq: list[str] = Field(
+        default_factory=lambda: ["1d"],
+        description="Bar intervals to store for every contract: 1d, 1m, 5m, 15m, 60m; "
+        "repeat flag or comma-separate. Minute ranges are requested in "
+        f"{MINUTE_CHUNK_DAYS}-day pieces.",
+    )
+    write: bool = Field(
+        False,
+        description="Store the dominant table under data/market/dominant/ and each contract's "
+        "bars under data/market/<freq>/<contract>.parquet (merged by eob with what is "
+        "stored). Without it only the dominant table is fetched and the plan reported.",
+    )
+    data_root: Path | None = Field(None, description="Data root; defaults to the workspace data.")
+
+    check_order = model_validator(mode="after")(_check_order)
+
+
+class ContractRange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    continuous: str = Field(description="Continuous symbol, such as RB_DOMINANT.SHF.")
+    contract: str = Field(description="Actual contract, such as RB2510.SHF.")
+    first: str = Field(description="First trading day it was dominant (YYYYMMDD).")
+    last: str = Field(
+        description="Last trading day fetched (YYYYMMDD): the roll day after its run, "
+        "when the position is closed at this contract's price."
+    )
+
+
+class ContractsOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    underlyings: list[str] = Field(description="Requested futures products, upper case.")
+    start: str = Field(description="First trading day requested (YYYYMMDD).")
+    end: str = Field(description="Last trading day requested (YYYYMMDD).")
+    freq: list[str] = Field(description="Bar intervals fetched for every contract.")
+    dry_run: bool = Field(description="True when nothing was stored (no --write).")
+    days: int = Field(description="Trading days in the dominant table.")
+    ranges: list[ContractRange] = Field(description="What each contract is fetched for.")
+    written_paths: list[str] = Field(description="Stored dominant and bar files.")
+    rows: dict[str, int] = Field(
+        default_factory=dict, description="Bars received per <freq>/<contract>."
+    )
+    no_data: list[str] = Field(
+        default_factory=list, description="<freq>/<contract> pieces that returned no bars."
+    )
+
+
+def contract_ranges(days: dict[str, str]) -> list[tuple[str, str, str]]:
+    """``(contract, first, last)`` per run of one product's dominant contract.
+
+    ``days`` maps trading days (YYYYMMDD) to the dominant contract. Each run is needed
+    through the next run's first day, the roll day, when the old position is closed.
+    """
+    ordered = sorted(days.items())
+    runs: list[list[str]] = []
+    for day, contract in ordered:
+        if runs and runs[-1][0] == contract:
+            runs[-1][2] = day
+        else:
+            runs.append([contract, day, day])
+    for current, following in zip(runs, runs[1:], strict=False):
+        current[2] = following[1]
+    return [tuple(run) for run in runs]
+
+
+def _minute_chunks(start: str, end: str) -> list[tuple[str, str]]:
+    first = datetime.strptime(start, "%Y%m%d").date()
+    last = datetime.strptime(end, "%Y%m%d").date()
+    chunks = []
+    while first <= last:
+        stop = min(last, first + timedelta(days=MINUTE_CHUNK_DAYS - 1))
+        chunks.append((first.strftime("%Y%m%d"), stop.strftime("%Y%m%d")))
+        first = stop + timedelta(days=1)
+    return chunks
+
+
+def _contract_bars(client, contract: str, freq: str, first: str, last: str):
+    import pandas as pd
+
+    frames = []
+    if freq == "1d":
+        for start, end in _daily_chunks(first, last):
+            frames.append(
+                _table(_call(client.fetch_market_data, contract, start, end, type="future"), "bars")
+            )
+    else:
+        for start, end in _minute_chunks(first, last):
+            frames.append(
+                _table(
+                    _call(
+                        client.fetch_market_min_data,
+                        contract,
+                        start,
+                        end,
+                        symbol_type="future",
+                        frequency=freq,
+                    ),
+                    "bars",
+                )
+            )
+    frames = [frame for frame in frames if len(frame)]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def contracts(args: ContractsInput) -> CommandResult:
+    import pandas as pd
+
+    underlyings = [item.upper() for item in _items(args.underlyings)]
+    if not underlyings:
+        raise CLIError("INVALID_INPUT", "--underlyings needs at least one product such as RB")
+    freqs = _items(args.freq)
+    unknown = [freq for freq in freqs if freq not in CONTRACT_FREQS]
+    if unknown or not freqs:
+        raise CLIError("INVALID_INPUT", f"--freq takes {', '.join(CONTRACT_FREQS)}, not {unknown}")
+    start, end = args.start, args.end or _today()
+    if start > end:
+        raise CLIError("INVALID_INPUT", "start must be on or before end")
+    client = _client()
+    table = _table(
+        _call(client.get_future_dominant, start, end, underlying_symbol=underlyings), "dominant"
+    )
+    missing = {"date", "symbol", "underlying_symbol"} - set(table.columns)
+    if missing:
+        raise CLIError("UPSTREAM_ERROR", f"Dominant table lacks columns {sorted(missing)}", 4)
+    by_product: dict[str, dict[str, str]] = {}
+    for _, row in table.iterrows():
+        product = str(row["underlying_symbol"]).upper()
+        if product in underlyings:
+            day = _yyyymmdd(str(row["date"]))
+            by_product.setdefault(product, {})[day] = _returned_symbol(str(row["symbol"]))
+    warnings = [
+        f"No dominant contracts for {product} between {start} and {end}"
+        for product in underlyings
+        if product not in by_product
+    ]
+    dominant: dict[str, dict[str, str]] = {}
+    ranges: list[ContractRange] = []
+    for product, days in sorted(by_product.items()):
+        suffix = next(iter(days.values())).rpartition(".")[2]
+        continuous = f"{product}_DOMINANT.{suffix}"
+        dominant[continuous] = days
+        ranges += [
+            ContractRange(continuous=continuous, contract=contract, first=first, last=last)
+            for contract, first, last in contract_ranges(days)
+        ]
+
+    def result(**values) -> CommandResult:
+        data = ContractsOutput(
+            underlyings=underlyings,
+            start=start,
+            end=end,
+            freq=freqs,
+            days=sum(len(days) for days in dominant.values()),
+            ranges=ranges,
+            **{"dry_run": True, "written_paths": [], **values},
+        )
+        return CommandResult(data=data, warnings=warnings)
+
+    if not args.write:
+        return result()
+    dm = data_manager(args.data_root)
+    written, rows, no_data = [], {}, []
+    for continuous, days in dominant.items():
+        series = pd.Series(days)
+        series.index = pd.to_datetime(series.index, format="%Y%m%d")
+        dm.save_dominant(continuous, series)
+        written.append(str(dm.dominant_path(continuous).resolve()))
+    for freq in freqs:
+        for item in ranges:
+            key = f"{freq}/{item.contract}"
+            frame = _contract_bars(client, item.contract, freq, item.first, item.last)
+            rows[key] = rows.get(key, 0) + len(frame)
+            if frame.empty:
+                no_data.append(key)
+                continue
+            stored, dropped = _store_bars(frame, freq)
+            if dropped:
+                warnings.append(f"{key}: dropped {dropped} duplicate timestamps (kept last).")
+            dm.upsert_symbol(item.contract, stored, frequency=freq)
+            path = str(_market_path(dm, freq, item.contract).resolve())
+            if path not in written:
+                written.append(path)
+    if no_data:
+        warnings.append(f"No bars returned for: {no_data}")
+    return result(dry_run=False, written_paths=written, rows=rows, no_data=no_data)
+
+
+# ---------------------------------------------------------------------------
 # ingest.adj-factor
 # ---------------------------------------------------------------------------
 
@@ -1433,6 +1636,15 @@ COMMANDS = [
         "Fetch stock, index, future, fund, HK or US bars; optionally store them.",
         side_effects=("network", "writes-output", "writes-store"),
         priority="P0",
+    ),
+    Command(
+        "ingest.contracts",
+        ContractsInput,
+        ContractsOutput,
+        contracts,
+        "Fetch the dominant contract table of futures products and every contract it names "
+        "(daily and minute bars, through each roll day); store them with --write.",
+        side_effects=("network", "writes-store"),
     ),
     Command(
         "ingest.intraday",
