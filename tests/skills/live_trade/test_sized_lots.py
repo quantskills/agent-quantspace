@@ -1,4 +1,8 @@
-"""D11: percent futures orders size a weight once and hold the lots until it changes."""
+"""D11: percent targets are sized once and hold their units until the weight changes.
+
+Futures orders and the messages of every asset (stocks and funds in 100-share lots) use
+the same record, which matches the backtest's ``percent_to_lots`` bar by bar.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +22,8 @@ from .conftest import FEISHU
 
 RB = "RB_DOMINANT.SHF"
 HC = "HC_DOMINANT.SHF"
+ETF = "510300.SH"
+STOCK = "601998.SH"
 MULTIPLIERS = {RB: 10.0, HC: 10.0}
 DAYS = ("2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26")
 
@@ -37,10 +43,11 @@ def test_price_drift_keeps_the_lots_a_weight_was_sized_to(tmp_path):
     # 100000 / 33400 = 2.99 would be 2 contracts; the weight did not change, so 3 stay.
     assert record.hold({RB: 1.0}, {RB: 3340.0}, **common, as_of=date(2026, 11, 24)) == {RB: 3}
     saved = json.loads(record.path.read_text(encoding="utf-8"))
-    assert saved["capital"] == 100_000
+    assert saved["capital"] == 100_000 and saved["lot_size"] == 100
     assert saved["symbols"][RB] == {
         "weight": 1.0,
         "lots": 3,
+        "units": 3,
         "price": 3300.0,
         "sized_at": "2026-11-23",
     }
@@ -131,13 +138,16 @@ def test_held_lots_match_the_backtests_percent_to_lots():
             .where(rng.random(len(index)) < 0.15)
             .ffill()
             .fillna(0.0)
-            for symbol in (RB, HC)
+            for symbol in (RB, HC, ETF, STOCK)
         }
     )
+    weights[[ETF, STOCK]] = weights[[ETF, STOCK]].abs()  # no short stocks or funds
     prices = pd.DataFrame(
         {
             RB: 3300 * np.exp(np.cumsum(rng.normal(0, 0.004, len(index)))),
             HC: 3100 * np.exp(np.cumsum(rng.normal(0, 0.004, len(index)))),
+            ETF: 4.0 * np.exp(np.cumsum(rng.normal(0, 0.004, len(index)))),
+            STOCK: 9.5 * np.exp(np.cumsum(rng.normal(0, 0.004, len(index)))),
         },
         index=index,
     )
@@ -160,10 +170,15 @@ def test_held_lots_match_the_backtests_percent_to_lots():
             ],
             index=index,
         ).astype(float)
-    pd.testing.assert_frame_equal(held[[RB, HC]], expected[[RB, HC]], check_names=False)
+    # Futures units are contracts, stock and fund units shares: 100 to the lot.
+    held[[ETF, STOCK]] = held[[ETF, STOCK]] / 100
+    columns = [RB, HC, ETF, STOCK]
+    pd.testing.assert_frame_equal(held[columns], expected[columns], check_names=False)
     # The prices did move across rounding edges: sizing every bar would differ.
-    fresh = np.trunc(weights * 250_000 / (prices * 10))
-    assert (fresh != expected).any().any()
+    per_lot = pd.Series({RB: 10.0, HC: 10.0, ETF: 100.0, STOCK: 100.0})
+    fresh = np.trunc(weights * 250_000 / prices.mul(per_lot, axis=1))
+    differs = (fresh != expected[columns]).any()
+    assert differs[[RB, HC]].any() and differs[[ETF, STOCK]].any()
 
 
 # --------------------------------------------------------------------------- daily runs
@@ -424,3 +439,186 @@ def test_a_failed_bar_push_keeps_the_lots_for_the_next_bar(tmp_path, http):
     assert failed.status == "failed" and resent.status == "sent"
     assert seen == [{"RB2701.SHF": 3}, {"RB2701.SHF": 3}]
     assert "目标 3 手" in resent.delivery.body
+
+
+# --------------------------------------------------------------------------- stocks and funds
+
+
+def test_stock_and_fund_units_are_whole_lots_held_while_the_weight_stays(tmp_path):
+    record = SizedLots("etf_daily", tmp_path)
+    common = {"capital": 100_000, "multipliers": {}}
+
+    # 100000 / 4.01 = 24937 shares -> 249 lots of 100; 0.5 x 100000 / 9.5 -> 52 lots.
+    first = record.hold({ETF: 1.0, STOCK: 0.0}, {ETF: 4.01}, **common, as_of=date(2026, 11, 23))
+    assert first == {ETF: 24_900, STOCK: 0}
+    # At 4.03 a fresh sizing gives 248 lots; the weight did not change, so 249 stay.
+    drift = record.hold({ETF: 1.0, STOCK: 0.0}, {ETF: 4.03}, **common, as_of=date(2026, 11, 24))
+    assert drift == {ETF: 24_900, STOCK: 0}
+    changed = record.hold(
+        {ETF: 0.5, STOCK: 0.5}, {ETF: 4.03, STOCK: 9.5}, **common, as_of=date(2026, 11, 25)
+    )
+    assert changed == {ETF: 12_400, STOCK: 5_200}
+    assert record.read()["symbols"][STOCK] == {
+        "weight": 0.5,
+        "lots": 52,
+        "units": 5_200,
+        "price": 9.5,
+        "sized_at": "2026-11-25",
+    }
+    # Another board lot is another sizing: everything is sized again.
+    relotted = record.hold(
+        {ETF: 0.5, STOCK: 0.5},
+        {ETF: 4.03, STOCK: 9.5},
+        **common,
+        lot_size=200,
+        as_of=date(2026, 11, 26),
+    )
+    assert relotted == {ETF: 12_400, STOCK: 5_200}
+    assert record.read()["symbols"][ETF]["lots"] == 62
+
+
+def _fund_daily(weights: list[float], prices: list[float]):
+    days = DAYS[: len(weights)]
+    index = pd.DatetimeIndex(pd.to_datetime(list(days)), name="eob")
+
+    def load() -> LiveInputs:
+        return LiveInputs(
+            weights=pd.DataFrame({ETF: weights}, index=index),
+            prices=pd.DataFrame({ETF: prices}, index=index),
+        )
+
+    return load
+
+
+def _fund_day(tmp_path, n, weights, prices, **options):
+    return run_live(
+        "etf_daily",
+        _fund_daily(weights[:n], prices[:n]),
+        trade_date=date.fromisoformat(DAYS[n - 1]),
+        is_trading_day=True,
+        data_root=tmp_path,
+        urls=[FEISHU],
+        **{"write": True, "capital": 100_000, **options},
+    )
+
+
+def test_daily_fund_messages_hold_the_shares_the_weight_was_sized_to(tmp_path, http):
+    weights, prices = [1.0, 1.0, 0.5], [4.01, 4.03, 4.03]
+    record = SizedLots("etf_daily", tmp_path)
+
+    http.failing.add("open.feishu.cn")
+    failed = _fund_day(tmp_path, 1, weights, prices)
+    http.failing.clear()
+    resent = _fund_day(tmp_path, 2, weights, prices)
+    assert record.read()["symbols"][ETF]["sized_at"] == "2026-11-23"
+    halved = _fund_day(tmp_path, 3, weights, prices)
+
+    assert failed.status == "failed" and resent.status == "sent" and halved.status == "sent"
+    assert "目标 24900 股" in failed.delivery.body
+    # The ledger never took day 1, so day 2 signals the same weight again: with the shares
+    # sized on day 1 (24800 at 4.03 would be a fresh sizing).
+    assert "目标 24900 股" in resent.delivery.body
+    # The weight halves on day 3 and is sized at its price: 50000 / 4.03 -> 124 lots.
+    assert "目标 12400 股" in halved.delivery.body
+    assert record.read()["symbols"][ETF] == {
+        "weight": 0.5,
+        "lots": 124,
+        "units": 12_400,
+        "price": 4.03,
+        "sized_at": "2026-11-25",
+    }
+
+
+def test_fund_previews_tests_runs_without_capital_and_lots_keep_no_record(tmp_path, http):
+    weights, prices = [1.0, 1.0], [4.01, 4.03]
+    record = SizedLots("etf_daily", tmp_path)
+
+    preview = _fund_day(tmp_path, 1, weights, prices, write=False)
+    assert "目标 24900 股" in preview.delivery.body
+    _fund_day(tmp_path, 1, weights, prices, test=True)
+    _fund_day(tmp_path, 1, weights, prices, capital=None)
+    assert not record.path.exists()
+
+    _fund_day(tmp_path / "lots", 1, weights, prices)
+    assert SizedLots("etf_daily", tmp_path / "lots").path.exists()
+    lots = run_live(
+        "etf_daily",
+        lambda: LiveInputs(
+            weights=pd.DataFrame(
+                {ETF: [3.0, 3.0]}, index=pd.DatetimeIndex(pd.to_datetime(DAYS[:2]), name="eob")
+            ),
+            prices=pd.DataFrame(
+                {ETF: prices}, index=pd.DatetimeIndex(pd.to_datetime(DAYS[:2]), name="eob")
+            ),
+        ),
+        trade_date=date(2026, 11, 24),
+        is_trading_day=True,
+        write=True,
+        data_root=tmp_path / "lots",
+        urls=[FEISHU],
+        unit="lots",
+    )
+    assert lots.status == "sent" and "目标 3 手（300 股" in lots.delivery.body
+    assert not SizedLots("etf_daily", tmp_path / "lots").path.exists()
+
+
+def test_a_broken_record_still_signals_at_todays_prices_with_a_note(tmp_path, http):
+    record = SizedLots("etf_daily", tmp_path)
+    record.path.parent.mkdir(parents=True)
+    record.path.write_text("{not json", encoding="utf-8")
+
+    outcome = _fund_day(tmp_path, 1, [1.0], [4.01])
+
+    assert outcome.status == "sent" and "目标 24900 股" in outcome.delivery.body
+    assert "数量没有按记录换算（JSONDecodeError" in outcome.delivery.body
+    assert record.path.read_text(encoding="utf-8") == "{not json"
+
+
+def test_minute_stock_and_fund_bars_hold_their_shares(tmp_path, http):
+    from skills.live_trade.feeds import MinuteFeed
+    from skills.live_trade.minute import refresh_day, run_bar
+
+    from .fakes import EQUITY_SPEC, FakePandaData, FakeSina
+
+    def equal(panel: pd.DataFrame) -> pd.DataFrame:
+        close = panel["close"].unstack("symbol").sort_index()
+        return close.notna().astype(float) / close.shape[1]
+
+    first, second = datetime(2026, 11, 20, 9, 35), datetime(2026, 11, 20, 9, 40)
+    sina = FakeSina()
+    sina.add("sh601998", (first, 9.5))
+    sina.add("sh510300", (first, 4.0))
+    feed = MinuteFeed(EQUITY_SPEC, FakePandaData(), data_root=tmp_path, akshare=sina, pause=0)
+    refresh_day(EQUITY_SPEC, feed, equal, now=datetime(2026, 11, 20, 8, 30), data_root=tmp_path)
+
+    def bar(when, now):
+        return run_bar(
+            EQUITY_SPEC,
+            feed,
+            equal,
+            bar=when,
+            now=now,
+            write=True,
+            capital=100_000,
+            data_root=tmp_path,
+            urls=[FEISHU],
+        )
+
+    http.failing.add("open.feishu.cn")
+    one = bar(first, datetime(2026, 11, 20, 9, 35, 30))
+    http.failing.clear()
+    sina.add("sh601998", (second, 9.7))
+    sina.add("sh510300", (second, 4.03))
+    two = bar(second, datetime(2026, 11, 20, 9, 40, 30))
+
+    # 50000 / 9.5 -> 52 lots, 50000 / 4.0 -> 125 lots. At 9.7 and 4.03 a fresh sizing gives
+    # 51 and 124 lots; the weights did not change, so the shares stay.
+    assert one.status == "failed" and two.status == "sent"
+    for outcome in (one, two):
+        assert "601998.SH：0.00% → 50.00%" in outcome.delivery.body
+        assert "目标 5200 股" in outcome.delivery.body and "目标 12500 股" in outcome.delivery.body
+    saved = SizedLots("eq_demo", tmp_path).read()["symbols"]
+    assert {symbol: entry["units"] for symbol, entry in saved.items()} == {
+        "510300.SH": 12_500,
+        "601998.SH": 5_200,
+    }

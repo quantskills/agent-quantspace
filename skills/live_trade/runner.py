@@ -97,9 +97,10 @@ def deliver_signal(
     ledger's base is in another unit (the strategy changed units), the base starts over:
     the whole target is signalled and the message says the baseline was reset.
 
-    ``held_lots`` (percent snapshots) are the lots the orders hold for each symbol
-    (:class:`~skills.live_trade.sizing.SizedLots`); the message shows them instead of sizing
-    the changes at today's prices, so it always names the lots that are ordered.
+    ``held_lots`` (percent snapshots) are the units a live run holds for each symbol,
+    contracts or shares (:class:`~skills.live_trade.sizing.SizedLots`); the message shows
+    them instead of sizing the changes at today's prices, so it names the units the
+    backtest's ``percent_to_lots`` and the orders hold.
     """
     urls = load_notify_urls() if urls is None else list(urls)
     previous_unit = None if test else ledger.base_unit()
@@ -130,7 +131,9 @@ def deliver_signal(
             )
         }
         sized.update(
-            _held_target(change.symbol, change.target, held[change.symbol], signal, multipliers)
+            _held_target(
+                change.symbol, change.target, held[change.symbol], signal, multipliers, lot_size
+            )
             for change in signal.changes
             if change.symbol in held
         )
@@ -178,23 +181,25 @@ def _held_target(
     lots: int,
     signal: Signal,
     multipliers: Mapping[str, float] | None,
+    lot_size: int,
 ) -> tuple[str, SizedTarget]:
-    """A held lot count as the message's sized target (today's price for the value)."""
+    """Held units as the message's sized target (today's price for the value)."""
     price = float(signal.prices.get(symbol, math.nan))
-    multiplier = float((multipliers or {}).get(symbol, 1.0))
+    futures = is_futures_symbol(symbol)
+    multiplier = float((multipliers or {}).get(symbol, 1.0)) if futures else 1.0
     return symbol, SizedTarget(
         symbol=symbol,
         weight=float(weight),
         price=price,
         multiplier=multiplier,
-        lot_size=1,
+        lot_size=1 if futures else lot_size,
         raw_units=float(lots),
         units=int(lots),
         notional=abs(lots) * price * multiplier,
     )
 
 
-def hold_order_lots(
+def hold_sized_units(
     strategy_id: str,
     data_root: str | Path | None,
     unit: str,
@@ -203,27 +208,46 @@ def hold_order_lots(
     *,
     capital: float | None,
     multipliers: Mapping[str, float],
+    lot_size: int = 100,
     as_of: date | datetime,
+    orders: bool = False,
 ) -> tuple[dict[str, int] | None, Exception | None]:
-    """The lots automatic orders hold for a futures percent target, and any sizing error.
+    """The units a live run holds for a percent target, and any sizing error.
 
-    Percent futures targets go through :class:`~skills.live_trade.sizing.SizedLots`: sized
-    when their weight or ``capital`` changes, held otherwise. A sizing error is returned,
-    not raised, so the signal still goes out and the orders report it. Lots strategies
-    clear the record (a later switch back to percent sizes afresh) and, like other assets,
-    get ``(None, None)``: their orders take the targets as they are.
+    Called by ``write`` runs before the signal. A percent target goes through
+    :class:`~skills.live_trade.sizing.SizedLots`, sized when its weight, ``capital`` or
+    ``lot_size`` changes and held otherwise, when the run sizes anything: it has
+    ``capital``, or it places ``orders`` (automatic futures orders, which need it). A
+    sizing error is returned, not raised, so the signal still goes out (sized at today's
+    prices, with a note) and the orders report it. A lots target clears the record (a later
+    switch back to percent sizes afresh) and gets ``(None, None)``, as does a run that sizes
+    nothing.
     """
     record = SizedLots(strategy_id, data_root)
     if unit == "lots":
         record.clear()
         return None, None
-    if not weights or not all(is_futures_symbol(symbol) for symbol in weights):
+    if not weights or (capital is None and not orders):
         return None, None
     try:
-        held = record.hold(weights, prices, capital=capital, multipliers=multipliers, as_of=as_of)
-    except Exception as exc:  # noqa: BLE001 - reported by the orders, the signal still goes
+        held = record.hold(
+            weights,
+            prices,
+            capital=capital,
+            multipliers=multipliers,
+            lot_size=lot_size,
+            as_of=as_of,
+        )
+    except Exception as exc:  # noqa: BLE001 - noted in the message and reported by the orders
         return None, exc
     return held, None
+
+
+def sizing_note(error: Exception | None, capital: float | None) -> list[str]:
+    """The message line for a run whose units could not be held (only when it sizes)."""
+    if error is None or capital is None:
+        return []
+    return [f"数量没有按记录换算（{type(error).__name__}: {error}），以上按当根价格。"]
 
 
 def _run_key(when: date | datetime) -> str:
@@ -537,12 +561,14 @@ def run_live(
     alerts; its statuses are ``preview``, ``test_sent``, ``test_partial``, ``test_failed``,
     or ``error``.
 
-    With ``write`` and ``execute`` (futures only), the full target is sized with ``capital``
-    into whole contracts of the traded contracts (``LiveInputs.contracts``) and traded by
-    :func:`trade_target` after the signal; the run log keeps what the execution did.
-    Percent targets are sized only when their weight or ``capital`` changes and hold their
-    lots otherwise (:func:`hold_order_lots`), recorded even when no order goes out, and the
-    message names those lots. ``closed`` (why the market takes no orders now) skips the
+    A ``write`` run of a percent target with ``capital`` sizes each weight into whole lots
+    only when it (or ``capital``, ``lot_size``) changes and holds the units otherwise
+    (:func:`hold_sized_units`, ``sized_lots.json``); the message names those units.
+
+    With ``write`` and ``execute`` (futures only), the full target's held contracts go to
+    the traded contracts (``LiveInputs.contracts``) and are traded by :func:`trade_target`
+    after the signal; the run log keeps what the execution did. The units are held even
+    when no order goes out. ``closed`` (why the market takes no orders now) skips the
     orders: ``closed``.
 
     ``unit`` is the strategy's target unit: with ``lots`` the table holds whole lots, the
@@ -598,8 +624,8 @@ def run_live(
         # The full target: every symbol of the table, zero where the row holds nothing.
         full = {symbol: snapshot.weights.get(symbol, 0.0) for symbol in weights.columns}
         held, sizing_error = None, None
-        if write and execute is not None:
-            held, sizing_error = hold_order_lots(
+        if write:
+            held, sizing_error = hold_sized_units(
                 strategy_id,
                 data_root,
                 unit,
@@ -607,7 +633,9 @@ def run_live(
                 snapshot.prices,
                 capital=capital,
                 multipliers=inputs.multipliers,
+                lot_size=lot_size,
                 as_of=trade_date,
+                orders=execute is not None,
             )
         delivery = deliver_signal(
             snapshot,
@@ -617,7 +645,7 @@ def run_live(
             capital=capital,
             multipliers=inputs.multipliers,
             lot_size=lot_size,
-            notes=inputs.notes,
+            notes=[*inputs.notes, *sizing_note(sizing_error, capital)],
             held_lots=held,
         )
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
@@ -690,7 +718,7 @@ __all__ = [
     "RunOutcome",
     "deliver_signal",
     "futures_lots",
-    "hold_order_lots",
+    "hold_sized_units",
     "run_live",
     "send_alert",
     "stop_file",
