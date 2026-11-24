@@ -50,7 +50,7 @@ ledger.record(signal, results, [result.channel for result in results])
 | `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
 | `skills.live_trade.daily` | `load_daily_bars`, `DailyBars`, `DailyNotReady`, `CUTOFF`, `RUN_TIMES`: a daily strategy's bars at 14:50, PandaData to yesterday plus today's bar from Sina's 1-minute bars |
 | `skills.live_trade.history` | `daily_bars`, `daily_closes`, `close_table`, `adjustment_factors`, `today_factors`, `dominant_contracts`, `contract_multipliers`: PandaData daily data shared by the daily and minute feeds |
-| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
+| `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `run_until_stopped`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
 | `skills.live_trade.workflow` | `daily_main`, `minute_main`, `workflow_arguments`, `is_trading_day`, `load_with_relogin`, `replay_mismatches`: the command-line entry of a strategy workflow module, and the check that a live run reproduces the backtest's rows |
 | `skills.live_trade.spec` | `LiveSpec`, `Instrument`: what a minute-level strategy trades, its bar interval, warm-up, price adjustment, and bar timing |
 | `skills.live_trade.clock` | `TradingCalendar`, `Session`, `parse_trading_hours`, `bar_ends`, `bars_per_day`, `has_night_session`, `due_bars`, `EQUITY_SESSIONS`: trading sessions and bar end times |
@@ -81,10 +81,16 @@ ledger.record(signal, results, [result.channel for result in results])
   error code in the body, so they are posted directly with `requests` and count
   as delivered only when that code is 0. Slack and Discord go through Apprise.
   Install both with `uv sync --extra live`.
-- `discover_cli()` checks `PANDA_LIVE_CLI`, then the macOS client's launcher
-  (`CLIENT_RUNTIME` `/Applications/PandaAI.app/Contents/MacOS/PandaAI` running
-  `BUNDLED_CLI` `.../Contents/Resources/cli/bundled-launcher.mjs`, the entry the
-  client's AI guide gives), then `panda-live-trading` on `PATH`.
+- `discover_cli()` checks `PANDA_LIVE_CLI`, then the client's bundled CLI from
+  `client_bundles()`, then `panda-live-trading` on `PATH`. On macOS that is the
+  launcher (`CLIENT_RUNTIME` `/Applications/PandaAI.app/Contents/MacOS/PandaAI`
+  running `BUNDLED_CLI` `.../Contents/Resources/cli/bundled-launcher.mjs`, the
+  entry the client's AI guide gives). On Windows it is `PandaAI.exe` in the
+  folder of the client's uninstall entry (`InstallLocation`, else the folder of
+  `DisplayIcon`), then `%LOCALAPPDATA%\Programs\PandaAI` and
+  `%ProgramFiles%\PandaAI`, running `resources\cli\bundled-launcher.mjs` or, in
+  clients without it, `resources\cli\panda-live-trading.mjs`. CLI output is read
+  as UTF-8 on every OS.
 - `run_cli(command, *args, env=None)` returns the CLI's `data` and raises
   `PandaCliError` (with the CLI's error `code`) on `ok: false` or output that is
   not JSON. Every call sets `ELECTRON_RUN_AS_NODE=1`, `PANDA_LIVE_ACTOR=AI` and
@@ -218,10 +224,19 @@ def main(argv=None) -> int:
   and `missed`.
 - `run_job(job, date, final=...)` runs `python -m <module> --date ... --write`
   from the repository root, skips finished dates, and alerts once when the
-  process exits with a code other than 0, 1, 3, or 4. `catch_up(config, now)`
-  runs each job whose first time today has passed. `build_scheduler` adds one
-  coalesced cron job per run time with a six-hour misfire grace, so a run missed
-  during sleep still happens once.
+  process exits with a code other than 0, 1, 3, or 4. The process prints UTF-8
+  (`PYTHONIOENCODING=utf-8`) and its output is read as UTF-8 on every OS.
+  `catch_up(config, now)` runs each job whose first time today has passed.
+  `build_scheduler` returns a `BackgroundScheduler` with one coalesced cron job
+  per run time and a six-hour misfire grace, so a run missed during sleep still
+  happens once. `serve` runs it through `run_until_stopped`, whose thread
+  sleeps one second at a time: on Windows Ctrl+C interrupts a sleep but not a
+  `BlockingScheduler`'s wait for the next trigger.
+- State files (`ledger.json`, `runs.json`, `feed.json`) are written by
+  `ledger.write_json_atomic`: a temporary file, then `replace_file`, which
+  retries for about two seconds while Windows reports the target in use. A
+  strategy id is one path segment that is valid on every OS (no trailing dot,
+  no Windows device name such as `con` or `nul`).
 
 ## Minute-level runs
 
