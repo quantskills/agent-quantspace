@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
-import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -39,6 +37,7 @@ from .clock import (
 from .history import adjustment_factors, daily_closes, dominant_contracts, today_factors
 from .history import as_day as _day
 from .history import yyyymmdd as _yyyymmdd
+from .ledger import write_json_atomic
 from .spec import Instrument, LiveSpec
 
 PANDADATA = "pandadata"
@@ -129,15 +128,7 @@ def read_feed_state(strategy_id: str, data_root: str | Path | None = None) -> Fe
 
 
 def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=str) + "\n"
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}.", suffix=".json", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(text)
-        os.replace(temporary, path)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+    write_json_atomic(path, payload, default=str)
 
 
 @dataclass(frozen=True)

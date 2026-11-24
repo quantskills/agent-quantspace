@@ -6,10 +6,12 @@ calls that CLI and never reads the client's files, database, or internal HTTP AP
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +26,13 @@ CLI_NAME = "panda-live-trading"
 CLIENT_APP = Path("/Applications/PandaAI.app")
 CLIENT_RUNTIME = CLIENT_APP / "Contents/MacOS/PandaAI"
 BUNDLED_CLI = CLIENT_APP / "Contents/Resources/cli/bundled-launcher.mjs"
+# The Windows client runs the same way from its install folder: ``PandaAI.exe`` and, under
+# ``resources\cli``, the launcher, or in clients without one (seen 2026-11-24, CLI 0.1.11)
+# the CLI itself. The folder is the one the installer registered, else a default one.
+WINDOWS_RUNTIME = "PandaAI.exe"
+WINDOWS_ENTRIES = ("resources/cli/bundled-launcher.mjs", "resources/cli/panda-live-trading.mjs")
+WINDOWS_DEFAULT_DIRS = (("LOCALAPPDATA", "Programs/PandaAI"), ("ProgramFiles", "PandaAI"))
+_UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
 # Oldest CLI whose commands and JSON fields this Skill was checked against.
 MIN_CLI_VERSION = (0, 1, 11)
 # SimNow accounts use broker 9999; only they may ever run without a human confirming.
@@ -92,13 +101,74 @@ def _command_for(path: str | Path) -> list[str] | None:
     return [str(path)] if path.is_file() else None
 
 
+def _registered_windows_dirs() -> list[Path]:
+    """Install folders the PandaAI installer registered in the Windows uninstall list."""
+    import winreg
+
+    def value(entry, name: str) -> str:
+        try:
+            return str(winreg.QueryValueEx(entry, name)[0]).strip()
+        except OSError:
+            return ""
+
+    keys = [
+        (winreg.HKEY_CURRENT_USER, _UNINSTALL_KEY),
+        (winreg.HKEY_LOCAL_MACHINE, _UNINSTALL_KEY),
+        (winreg.HKEY_LOCAL_MACHINE, _UNINSTALL_KEY.replace("Software", r"Software\WOW6432Node")),
+    ]
+    found = []
+    for hive, path in keys:
+        try:
+            root = winreg.OpenKey(hive, path)
+        except OSError:
+            continue
+        with root:
+            for index in itertools.count():
+                try:
+                    name = winreg.EnumKey(root, index)
+                except OSError:
+                    break
+                try:
+                    entry = winreg.OpenKey(root, name)
+                except OSError:
+                    continue
+                with entry:
+                    if value(entry, "DisplayName").lower() != "pandaai":
+                        continue
+                    location = value(entry, "InstallLocation").strip('"')
+                    # ``DisplayIcon`` is "<folder>\PandaAI.exe" or "<folder>\PandaAI.exe",0.
+                    icon = value(entry, "DisplayIcon").split(",")[0].strip('"')
+                    if location or icon:
+                        found.append(Path(location) if location else Path(icon).parent)
+    return found
+
+
+def client_bundles(
+    platform: str | None = None, environ: Mapping[str, str] | None = None
+) -> list[tuple[Path, Path]]:
+    """``(runtime, CLI entry)`` pairs where the PandaAI client may keep its CLI, best first."""
+    if (platform or sys.platform) != "win32":
+        return [(CLIENT_RUNTIME, BUNDLED_CLI)]
+    environ = os.environ if environ is None else environ
+    folders = _registered_windows_dirs()
+    folders += [
+        Path(environ[name]) / sub for name, sub in WINDOWS_DEFAULT_DIRS if environ.get(name)
+    ]
+    return [
+        (folder / WINDOWS_RUNTIME, folder / entry)
+        for folder in dict.fromkeys(folders)
+        for entry in WINDOWS_ENTRIES
+    ]
+
+
 def discover_cli() -> list[str] | None:
     """Command prefix for the CLI: ``PANDA_LIVE_CLI``, the client bundle, then ``PATH``."""
     configured = os.environ.get(CLI_ENV)
     if configured:
         return _command_for(configured)
-    if CLIENT_RUNTIME.is_file() and BUNDLED_CLI.is_file():
-        return [str(CLIENT_RUNTIME), str(BUNDLED_CLI)]
+    for runtime, entry in client_bundles():
+        if runtime.is_file() and entry.is_file():
+            return [str(runtime), str(entry)]
     found = shutil.which(CLI_NAME)
     return [found] if found else None
 
@@ -109,7 +179,9 @@ def cli_version(command: list[str], timeout: float = 15.0) -> str:
         completed = subprocess.run(
             [*command, "--version"],
             capture_output=True,
-            text=True,
+            # The CLI prints UTF-8 everywhere; Windows would otherwise decode it as GBK.
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             check=True,
             env=_cli_env(),
@@ -154,7 +226,8 @@ def run_cli(
         completed = subprocess.run(
             [*command, *args],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             env={**_cli_env(), **(env or {})},
         )
@@ -218,6 +291,7 @@ __all__ = [
     "PandaCliError",
     "capability_problems",
     "cli_version",
+    "client_bundles",
     "discover_cli",
     "list_accounts",
     "require_actual_contract",

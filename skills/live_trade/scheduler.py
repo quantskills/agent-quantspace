@@ -14,9 +14,11 @@ refresh wrote; a bar past its deadline is logged as ``missed`` and alerted once 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 import sys
+import time as clock_time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -43,6 +45,9 @@ KNOWN_EXIT_CODES = frozenset({0, 1, 3, 4})
 TICK_SECONDS = 10
 # A --bar process may run at most this long, and never longer than one bar.
 BAR_TIMEOUT_SECONDS = 300
+# How often serve's main thread wakes up. It sleeps rather than waits on the scheduler:
+# on Windows Ctrl+C interrupts time.sleep but not a wait on a lock or event.
+POLL_SECONDS = 1.0
 _MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 _TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
@@ -126,6 +131,19 @@ def _day_matches(days: str, day: date, zone: ZoneInfo) -> bool:
     return fire is not None and fire.date() == day
 
 
+def _run_workflow(runner: Callable[..., subprocess.CompletedProcess], command, timeout: int):
+    """Run one workflow process; its output is UTF-8 on every OS (GBK pipes on Windows)."""
+    return runner(
+        command,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=timeout,
+    )
+
+
 @dataclass(frozen=True)
 class Attempt:
     strategy_id: str
@@ -161,13 +179,7 @@ def run_job(
     command += job.args
     LOGGER.info("run %s for %s (final=%s)", job.strategy_id, trade_date, final)
     try:
-        completed = runner(
-            command,
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=RUN_TIMEOUT_SECONDS,
-        )
+        completed = _run_workflow(runner, command, RUN_TIMEOUT_SECONDS)
         code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
     except (OSError, subprocess.TimeoutExpired) as exc:
         code, tail = None, f"{type(exc).__name__}: {exc}"
@@ -244,13 +256,7 @@ def tick(
         command += ["--data-root", str(data_root)] if data_root else []
         command += job.args
         try:
-            completed = runner(
-                command,
-                cwd=REPOSITORY_ROOT,
-                capture_output=True,
-                text=True,
-                timeout=bar_timeout(state.frequency),
-            )
+            completed = _run_workflow(runner, command, bar_timeout(state.frequency))
             code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
         except (OSError, subprocess.TimeoutExpired) as exc:
             code, tail = None, f"{type(exc).__name__}: {exc}"
@@ -307,12 +313,13 @@ def build_scheduler(
     data_root: str | Path | None = None,
     scheduler_class=None,
 ):
-    """An APScheduler scheduler with one cron trigger per job and run time."""
-    from apscheduler.schedulers.blocking import BlockingScheduler
+    """An APScheduler scheduler with one cron trigger per job and run time; it runs its
+    triggers in a background thread once started."""
+    from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
 
     zone = ZoneInfo(config.timezone)
-    scheduler = (scheduler_class or BlockingScheduler)(timezone=zone)
+    scheduler = (scheduler_class or BackgroundScheduler)(timezone=zone)
 
     def fire(job: JobConfig, final: bool) -> None:
         attempt = run_job(
@@ -382,6 +389,26 @@ def next_runs(config: ScheduleConfig, now: datetime, count: int = 3) -> dict[str
     return plan
 
 
+def run_until_stopped(
+    scheduler,
+    *,
+    poll_seconds: float = POLL_SECONDS,
+    sleep: Callable[[float], object] = clock_time.sleep,
+) -> None:
+    """Start a background ``scheduler`` and sleep in this thread until it stops or Ctrl+C.
+
+    A ``BlockingScheduler`` would wait on an event until the next trigger, and on Windows
+    Ctrl+C is only handled when that wait ends, which can be hours away.
+    """
+    scheduler.start()
+    try:
+        while scheduler.running:
+            sleep(poll_seconds)
+    finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+
+
 def serve(
     config: ScheduleConfig,
     *,
@@ -401,7 +428,7 @@ def serve(
     try:
         for attempt in catch_up(config, datetime.now(zone), write=write, data_root=data_root):
             LOGGER.info("catch-up %s", attempt)
-        build_scheduler(config, write=write, data_root=data_root).start()
+        run_until_stopped(build_scheduler(config, write=write, data_root=data_root))
     finally:
         if announce:
             announce("QuantSpace 实盘调度已停止", f"任务：{names}。停止期间不会生成信号。")
@@ -420,6 +447,7 @@ __all__ = [
     "load_schedule",
     "next_runs",
     "run_job",
+    "run_until_stopped",
     "serve",
     "tick",
 ]

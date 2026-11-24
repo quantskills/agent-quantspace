@@ -9,8 +9,6 @@ day is finished, so a scheduler may call it again after a crash, a sleep, or a r
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -21,7 +19,7 @@ import pandas as pd
 
 from .contracts import DeliveryResult, Signal, TargetSnapshot, build_signal, is_futures_symbol
 from .execution import ExecutionResult
-from .ledger import SignalLedger, validate_strategy_id
+from .ledger import SignalLedger, validate_strategy_id, write_json_atomic
 from .notify import channel_name, format_signal, load_notify_urls, send_notifications
 from .sizing import SizedTarget, SizingLimitError, size_targets
 
@@ -166,15 +164,7 @@ class RunLog:
         kept = set(days[-MAX_RUN_DAYS:])
         for stale in [key for key in runs if key[:10] not in kept]:
             del runs[stale]
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-        fd, temporary = tempfile.mkstemp(prefix=".runs.", suffix=".json", dir=self.path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                stream.write(payload)
-            os.replace(temporary, self.path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_json_atomic(self.path, state)
 
     def get(self, when: date | datetime) -> dict | None:
         return self._read()["runs"].get(_run_key(when))

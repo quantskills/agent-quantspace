@@ -6,28 +6,70 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .contracts import DeliveryResult, Signal
 
 _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+# Names Windows reserves for devices, with or without an extension.
+_WINDOWS_DEVICE = re.compile(r"(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?", re.IGNORECASE)
 # Signals kept in the ledger; older entries are dropped oldest first.
 MAX_SIGNALS = 50
+# Windows refuses to replace a file that another process (a reader, an antivirus scan) holds
+# open; such holds last milliseconds, so a replace is retried for about two seconds.
+REPLACE_RETRIES = 20
+REPLACE_WAIT_SECONDS = 0.1
 
 
 def validate_strategy_id(strategy_id: str) -> str:
-    """Strategy ids name a ledger folder, so they must be one safe path segment."""
+    """Strategy ids name a ledger folder, so they must be one safe path segment on every OS."""
     if (
         not isinstance(strategy_id, str)
         or not _SEGMENT.fullmatch(strategy_id)
         or ".." in strategy_id
+        or strategy_id.endswith(".")
+        or _WINDOWS_DEVICE.fullmatch(strategy_id)
     ):
         raise ValueError(
             f"Invalid strategy id {strategy_id!r}: use letters, digits, '_', '-', or '.'"
         )
     return strategy_id
+
+
+def replace_file(
+    source: str | Path,
+    target: str | Path,
+    *,
+    retries: int = REPLACE_RETRIES,
+    wait: float = REPLACE_WAIT_SECONDS,
+    sleep: Callable[[float], object] = time.sleep,
+) -> None:
+    """``os.replace``, retried while Windows reports the target as in use."""
+    for attempt in range(retries + 1):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == retries:
+                raise
+            sleep(wait)
+
+
+def write_json_atomic(path: Path, payload: Any, *, default: Callable | None = None) -> None:
+    """Write ``payload`` as UTF-8 JSON through a temporary file, so readers never see half."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=default)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}.", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text + "\n")
+        replace_file(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 class SignalLedger:
@@ -51,15 +93,7 @@ class SignalLedger:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def _write(self, state: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-        fd, temporary = tempfile.mkstemp(prefix=".ledger.", suffix=".json", dir=self.path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                stream.write(payload)
-            os.replace(temporary, self.path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_json_atomic(self.path, state)
 
     def base_weights(self) -> dict[str, float]:
         base = self._read()["base"]
@@ -104,4 +138,10 @@ class SignalLedger:
         return complete
 
 
-__all__ = ["MAX_SIGNALS", "SignalLedger", "validate_strategy_id"]
+__all__ = [
+    "MAX_SIGNALS",
+    "SignalLedger",
+    "replace_file",
+    "validate_strategy_id",
+    "write_json_atomic",
+]
