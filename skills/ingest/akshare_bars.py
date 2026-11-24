@@ -205,6 +205,81 @@ def fetch_intraday_bars(
     )
 
 
+@dataclass(frozen=True)
+class SinaQuote:
+    """Sina's real-time quote of a stock or fund: the exchange's previous close and today."""
+
+    symbol: str
+    pre_close: float
+    open: float
+    last: float
+    date: str  # YYYY-MM-DD of the quote
+    time: str  # HH:MM:SS
+
+
+SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
+SINA_HEADERS = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"}
+
+
+def fetch_sina_quotes(
+    symbols: Iterable[str], *, get: Callable[..., Any] | None = None, timeout: float = 10
+) -> tuple[dict[str, SinaQuote], dict[str, str]]:
+    """Real-time quotes of stocks and funds in one request; ``(quotes, errors)`` by symbol.
+
+    On an ex-date the exchange's previous close (``pre_close``) is the ex-dividend
+    reference price, not yesterday's close, so it tells today's adjustment before PandaData
+    publishes it.
+    """
+    import requests
+
+    wanted = {}
+    errors: dict[str, str] = {}
+    for symbol in dict.fromkeys(symbols):
+        try:
+            kind, code = sina_code(symbol)
+        except ValueError as exc:
+            errors[symbol] = str(exc)
+            continue
+        if kind != "stock":
+            errors[symbol] = "Sina quotes here cover stocks and funds only"
+            continue
+        wanted[code] = symbol
+    if not wanted:
+        return {}, errors
+    try:
+        response = (get or requests.get)(
+            SINA_QUOTE_URL + ",".join(wanted), headers=SINA_HEADERS, timeout=timeout
+        )
+        response.raise_for_status()
+        text = response.content.decode("gb18030")
+    except Exception as exc:  # noqa: BLE001 - reported per symbol
+        message = f"{type(exc).__name__}: {str(exc)[:300]}"
+        return {}, {**errors, **dict.fromkeys(wanted.values(), message)}
+    quotes = {}
+    for line in text.splitlines():
+        name, _, body = line.partition("=")
+        code = name.strip().removeprefix("var hq_str_")
+        fields = body.strip().strip(";").strip('"').split(",")
+        if code not in wanted:
+            continue
+        symbol = wanted[code]
+        try:
+            quotes[symbol] = SinaQuote(
+                symbol=symbol,
+                pre_close=float(fields[2]),
+                open=float(fields[1]),
+                last=float(fields[3]),
+                date=fields[30],
+                time=fields[31],
+            )
+        except (IndexError, ValueError):
+            errors[symbol] = f"Sina returned no quote for {code}"
+    for symbol in wanted.values():
+        if symbol not in quotes and symbol not in errors:
+            errors[symbol] = "Sina returned no quote"
+    return quotes, errors
+
+
 __all__ = [
     "COLUMNS",
     "FREQUENCIES",
@@ -212,6 +287,8 @@ __all__ = [
     "SOURCE",
     "IntradayBars",
     "IntradayDependencyError",
+    "SinaQuote",
     "fetch_intraday_bars",
+    "fetch_sina_quotes",
     "sina_code",
 ]

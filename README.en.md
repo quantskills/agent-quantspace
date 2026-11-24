@@ -148,6 +148,7 @@ uv sync --extra ml          # optional ML helpers (scikit-learn, XGBoost)
 uv sync --extra query       # optional DuckDB querying
 uv sync --extra report      # Jinja2 and report charts
 uv sync --extra live        # Apprise, requests, and APScheduler for IM push and scheduled runs
+uv sync --extra tqsdk       # TqSdk free real-time futures quotes and K lines (needs a Shinny account)
 ```
 
 ## PandaData Setup

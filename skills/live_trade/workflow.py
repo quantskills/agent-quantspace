@@ -38,9 +38,10 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from .daily import CUTOFF, DAY_CLOSE
 from .feeds import MinuteFeed
 from .minute import Compute, refresh_day, run_bar
-from .runner import Delivery, LiveInputs, run_live
+from .runner import DataNotReady, Delivery, LiveInputs, run_live
 from .scheduler import DEFAULT_TIMEZONE
 from .spec import LiveSpec
 
@@ -72,14 +73,14 @@ def workflow_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--account",
         default=None,
-        help="Minute futures strategies: PandaAI account code or id to trade with --write; "
+        help="Futures strategies: PandaAI account code or id to trade with --write; "
         "only SimNow accounts (broker 9999) are traded.",
     )
     parser.add_argument(
         "--max-lots",
         type=int,
         default=None,
-        help="Minute futures strategies: most contracts any actual contract may target; "
+        help="Futures strategies: most contracts any actual contract may target; "
         "a larger target places no order and alerts over_limit.",
     )
     args = parser.parse_args(argv)
@@ -126,13 +127,38 @@ def load_with_relogin(
         return load(make_client(), trade_date, market_dir)
 
 
+def latest_inputs(load: DailyLoad, make_client: Callable[[], Any], day: date) -> LiveInputs:
+    """The inputs of the newest trading day at or before ``day`` whose data is ready.
+
+    For ``--test`` at any hour: a weekend falls back to the last trading day, and a trading
+    day before its cut-off (:class:`~skills.live_trade.runner.DataNotReady`) to the one
+    before it.
+    """
+    from .feeds import load_calendar
+
+    calendar = load_calendar(make_client(), day)
+    if not calendar.is_trading_day(day):
+        day = calendar.previous(day)
+    try:
+        return load_with_relogin(load, make_client, day, None)
+    except DataNotReady:
+        return load_with_relogin(load, make_client, calendar.previous(day), None)
+
+
 def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = None) -> int:
     """One run of a daily workflow for ``--date``; prints the report and returns the exit code.
 
-    The trading day comes from PandaData's calendar (skipped by ``--test``); a calendar
-    failure is reported as the run's ``error``. ``load`` gets a PandaData client, the trade
-    date, and ``<data_root>/live/<strategy_id>/market`` to keep its download with ``--write``
-    (None for previews and tests). The rest is :func:`~skills.live_trade.runner.run_live`.
+    The trading day comes from PandaData's calendar; a calendar failure is reported as the
+    run's ``error``. ``--test`` runs the newest ready trading day at or before ``--date``
+    (:func:`latest_inputs`). ``load`` gets a PandaData client, the trade date, and
+    ``<data_root>/live/<strategy_id>/market`` to keep its download with ``--write`` (None
+    for previews and tests); it raises :class:`~skills.live_trade.runner.DataNotReady`
+    while the day's data is not there, which makes the run ``stale``. The rest is
+    :func:`~skills.live_trade.runner.run_live`. With ``--write``, ``--capital`` and
+    ``--account`` a futures strategy also trades its target on that SimNow account through
+    the PandaAI client CLI, capped by ``--max-lots``, but only from the cut-off to the end
+    of the trade date's day session (``--now``); at any other time the run still signals
+    and its execution is ``closed``.
     """
     from skills.ingest import PandaDataClient
     from skills.store.workspace import resolve_workspace_paths
@@ -151,8 +177,16 @@ def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = N
     def inputs() -> LiveInputs:
         if calendar_error is not None:
             raise calendar_error
+        if args.test:
+            return latest_inputs(load, PandaDataClient, args.date)
         return load_with_relogin(load, PandaDataClient, args.date, market_dir)
 
+    execute, closed = None, ""
+    if args.account and not args.test:
+        execute = _panda_executor(strategy_id, args.account, datetime.combine(args.date, CUTOFF))
+        start, end = (datetime.combine(args.date, moment) for moment in (CUTOFF, DAY_CLOSE))
+        if not start <= args.now < end:
+            closed = f"{args.now:%Y-%m-%d %H:%M} 不在 {start:%Y-%m-%d %H:%M}–{end:%H:%M} 内，不下单"
     outcome = run_live(
         strategy_id,
         inputs,
@@ -164,6 +198,9 @@ def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = N
         lot_size=args.lot_size,
         data_root=args.data_root,
         test=args.test,
+        execute=execute,
+        max_lots=args.max_lots,
+        closed=closed,
     )
     delivery = _delivery_fields(outcome.delivery)
     report = {
@@ -171,6 +208,7 @@ def daily_main(strategy_id: str, load: DailyLoad, argv: Sequence[str] | None = N
         "trade_date": outcome.trade_date,
         "status": outcome.status,
         "detail": outcome.detail,
+        "execution": outcome.execution.to_dict() if outcome.execution else None,
         "signal_id": delivery.get("signal_id"),
         "target": delivery.get("target"),
         "message": delivery.get("message"),

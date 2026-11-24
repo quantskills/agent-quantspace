@@ -3,8 +3,10 @@
 Read this when turning a strategy backtested in this repository into a live workflow.
 The rule: the live workflow and the backtest call the same `target_weights` function,
 so a live run's target is the backtest's row for that day or bar. Complete examples:
-`strategies/cross_sectional/workflows/live_asset_class_rotation.py` (daily) and
-`strategies/time_series/workflows/live_rb_ma_cross_5m.py` (5-minute futures).
+`strategies/cross_sectional/workflows/live_asset_class_rotation.py` (daily ETFs),
+`live_stock_ma_gap_1d.py` (daily stocks) next to it,
+`strategies/time_series/workflows/live_rb_ma_atr_1d.py` (daily futures, on OHLC) and
+`live_rb_ma_cross_5m.py` (5-minute futures).
 
 ## 1. Can it go live?
 
@@ -43,21 +45,24 @@ report, returns the exit code, and wires `--account`.
 Daily:
 
 ```python
+from skills.live_trade.daily import load_daily_bars
 from skills.live_trade.runner import LiveInputs
 from skills.live_trade.workflow import daily_main
 
 STRATEGY_ID = "my_rotation"          # = data/live/<id>/ and the schedule's strategy_id
 HISTORY_START = "2019-01-02"         # fixed; anchors everything counted from row one
+SYMBOLS = ["510300.SH", "518880.SH"] # or Instrument(...) to mix stocks, funds, futures
 
 def target_weights(close):           # the backtest calls this too
     return my_rule_weights(close, rebalance_start=HISTORY_START)
 
 def load_inputs(client, trade_date, market_dir=None) -> LiveInputs:
-    adjusted = ...                   # PandaData from HISTORY_START to trade_date
-    raw = ...                        # unadjusted closes, for sizing
+    # PandaData to yesterday + today's bar from Sina's 1-minute bars up to 14:50
+    bars = load_daily_bars(client, SYMBOLS, HISTORY_START, trade_date, asset="fund")
     if market_dir is not None:       # --write only; never write data/market/
-        ...
-    return LiveInputs(weights=target_weights(adjusted), prices=raw)
+        bars.panel.to_parquet(market_dir / "bars_post.parquet")
+    return bars.inputs(target_weights(bars.close))   # raw prices size the units
+                                     # OHLCV rules: target_weights(bars.panel)
 
 def main(argv=None) -> int:
     return daily_main(STRATEGY_ID, load_inputs, argv)
@@ -109,8 +114,8 @@ def main(argv=None) -> int:
 
 | Item | Backtest | Live | Where live departs |
 |------|----------|------|--------------------|
-| Signal row | row t from bar t's close | daily: after the close at the schedule's times; minute: `bar_delay_seconds` (default 40) after bar t ends | none; `stale` until the data has bar t |
-| Execution | `signal_lag=1`: row t is held from bar t+1 (`executed_weights = weights.shift(1)`), filled at `trade_at` | daily: pushed in the evening, filled by hand next session; minute orders: best opposite quote about 50 seconds into bar t+1 | daily matches `trade_at="open"` (or `"close"` if you trade the close); minute lies between `"open"` (optimistic) and `"close"` (pessimistic). `signal_lag=0` with `trade_at="close"` fills at the close the signal used, which live cannot do |
+| Signal row | row t from bar t's close | daily: day t at 14:51, the 14:50 price as day t's close; minute: `bar_delay_seconds` (default 40) after bar t ends | daily: the last ten minutes of day t are missing from its close; `stale` until the data has bar t |
+| Execution | `signal_lag=1`: row t is held from bar t+1 (`executed_weights = weights.shift(1)`), filled at `trade_at` | daily: traded before 15:00 of day t (by hand, or futures orders with `--account`); minute orders: best opposite quote about 50 seconds into bar t+1 | daily matches `trade_at="close", signal_lag=0`, filled about ten minutes before the close; minute lies between `"open"` (optimistic) and `"close"` (pessimistic) with `signal_lag=1`. Minute `signal_lag=0` with `trade_at="close"` fills at the close the signal used, which live cannot do |
 | Adjustment | the series you backtested | daily: whatever `load_inputs` builds (rotation: post, like `1d_adj`); minute stocks and funds `adjust="post"`; futures never | scale-free signals (returns, MA cross sign, ranks) agree under pre and post; level-based ones (price thresholds, ATR in points) need the same series. Futures on a post-adjusted dominant series can differ from live near rolls; backtest the unadjusted series for the same signals (its returns then include roll gaps) |
 | Units | fractional weights | `weight * capital / (raw close * multiplier)` rounded toward zero to whole contracts or `--lot-size` shares | under-exposure with little capital: 100000 on rebar at 3010 x 10 is 3 contracts, 90% |
 | Costs and fills | constant `commission`, `slippage_bp`; constraints only with `enforce_trade_constraints` | the spread; `working` orders are re-targeted next bar; `rejected` | real costs and partial fills |
@@ -134,7 +139,9 @@ Offline tests in `tests/strategies/<domain>/test_live_<name>.py`, with the fakes
   `skills.ingest.akshare_bars._load_akshare` with `FakeSina`), run
   `main(["--refresh", "--now", ...])` then `main(["--bar", ..., "--now", ...])`, and
   check the report's `target` is the backtest's row. Daily: a fake client with
-  `get_trade_cal` and the download calls.
+  `get_trade_cal` and the download calls (with `pre_close`), and `FakeSina`
+  serving each day's 14:50 bar, as in
+  `tests/strategies/cross_sectional/test_live_asset_class_rotation.py`.
 - [ ] By hand, previews only: `--bar <end> --now <end + 45 s>` on a bar of the current
   trading day; `--test`, then `--test --write` for the IM path.
 - [ ] Live: `reconcile` alerts and `data/live/<id>/reconcile/<date>.signals.json`.
@@ -143,9 +150,9 @@ Offline tests in `tests/strategies/<domain>/test_live_<name>.py`, with the fakes
 
 Add a job to the schedule file (see [schedule.example.json](schedule.example.json)):
 
-- Daily: `strategy_id`, `module`, `days`, `times` after PandaData has the day (ETFs
-  `17:30`, then retries), `args` such as `["--capital", "100000"]`. The last time runs
-  with `--final` and alerts stale data.
+- Daily: `strategy_id`, `module`, `days`, `times` `["14:51", "14:53", "14:55"]` (the
+  14:50 bar settles within a minute; later times retry), `args` such as
+  `["--capital", "100000"]`. The last time runs with `--final` and alerts stale data.
 - Minute: add `"frequency": "5m"`; `times` are the refreshes (futures `18:00` and
   `20:00`, stocks and funds `08:30`); bars are ticked every 10 seconds.
 - `strategy_id` equals the workflow's. Then
@@ -154,8 +161,9 @@ Add a job to the schedule file (see [schedule.example.json](schedule.example.jso
 
 ## 6. Automatic futures orders: SimNow only
 
-- Minute futures only: add `--capital <amount> --account <PandaAI account code>` to
-  the job's `args`; `serve` adds `--write`. Daily workflows only push signals.
+- Futures, minute or daily: add `--capital <amount> --account <PandaAI account code>`
+  (and `--max-lots <N>`) to the job's `args`; `serve` adds `--write`. Stocks and funds
+  only push signals.
 - Each bar trades only a SimNow account (broker `9999`) with CLI mode on and the
   counter ready; anything else is `blocked`. A real account never trades
   automatically; this is fixed in code, not configuration.

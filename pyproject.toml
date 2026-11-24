@@ -36,6 +36,8 @@ panda_data = ["panda_data>=1.0.7", "requests>=2.32.0"]
 # AKShare (Sina) intraday bars; AKShare itself requires Python 3.11.5 or later.
 akshare = ["akshare>=1.20.65; python_full_version >= '3.11.5'"]
 live = ["apprise>=2.2", "requests>=2.32.0", "apscheduler>=3.11,<4"]
+# TqSdk (Shinny) free real-time futures quotes and K lines; needs a Shinny (快期) account.
+tqsdk = ["tqsdk>=3.10.4"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -97,6 +99,7 @@ markers = [
     "policy: repository and test-layout policy tests",
     "smoke: opt-in checks that drive the installed qs script on real local market data — run with -m smoke",
     "research: slow course and research reproduction scripts inside the smoke suite — skip them with -m \"smoke and not research\"",
+    "live: opt-in live_trade checks against Sina, PandaData and the PandaAI client during trading hours — run with -m live",
 ]
 
 [dependency-groups]

@@ -16,6 +16,7 @@ tests/regression/      确定性行为回归测试
 tests/docs/            文档示例 smoke test
 tests/policy/          测试目录和工作区规则测试
 tests/smoke/           基于本地真实数据的 qs 冒烟测试（可选，见“冒烟测试”）
+tests/live/            交易时段的 live_trade 实测（可选，见“实盘实测”）
 tests/fixtures/        确定性 fixture builder
 ```
 
@@ -75,6 +76,20 @@ uv run python -m pytest -m "smoke and not research" -rs -q # 只跑 qs 命令，
   该步骤才跳过。
 - 测试在解释器旁查找 `qs` 脚本（Windows 上是 `qs.exe`），并让子进程以 UTF-8 输出
   （`PYTHONUTF8=1`），见 `tests/fixtures/console.py`。
+
+## 实盘实测
+
+`tests/live/` 在交易时段用真实数据源测 `live_trade`：新浪 K 线、PandaData、14:50 日级别取数、
+分钟线取数与工作流、PandaAI 客户端 CLI。和冒烟测试一样，只有 `-m` 表达式包含 `live` 才会运行：
+
+```bash
+uv run python -m pytest -m live -rs -q        # 约 2 分钟
+```
+
+每项检查在各自时段外跳过（股票和基金 09:36–11:30、13:06–15:00，螺纹钢另有 21:06–23:00，
+当天 ETF 轮动 14:51–15:00），没有 PandaData 账号或客户端时也跳过。全部在临时数据目录里预览，
+不推送 IM，不写 `data/`。只有设置 `QS_LIVE_ORDERS_ACCOUNT=<SimNow 账号代码>` 才下单：
+热卷开平 1 手两次（下单步骤本身一次，日级别链路一次），不碰同一账号上螺纹钢策略的持仓。
 
 ## 范围
 

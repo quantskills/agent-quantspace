@@ -1,6 +1,6 @@
 ---
 name: live-trade
-description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's minute bars from AKShare (Sina) during the session, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
+description: Take a strategy's latest target weights live or to paper trading. Diff them against the last delivered target, size them into contracts or board lots, and push the rebalance signal to IM webhooks (WeCom, Feishu, Slack, Discord, DingTalk) with `uv run qs live-trade ...`; run daily (signal and trade at 14:50, the 14:50 price as the close) or minute-level (1m-60m) strategy workflows on a cross-platform schedule that refreshes PandaData, takes today's prices from AKShare (Sina) during the session, reconciles them against PandaData the next day, and alerts on failures. Futures go to the PandaAI live-trading client through its bundled `panda-live-trading` CLI.
 ---
 
 # Live Trade
@@ -70,10 +70,14 @@ uv run qs live-trade serve --config live_schedule.json
 uv run qs live-trade serve --config live_schedule.json --write
 ```
 
-One strategy run by hand (preview; add `--write` to push and log it):
+One daily strategy run by hand (preview; add `--write` to push and log it). The
+examples: 18 ETFs, six stocks, and rebar's dominant contract (`--account` trades it
+on a SimNow account):
 
 ```bash
 uv run python -m strategies.cross_sectional.workflows.live_asset_class_rotation --date 2026-11-20
+uv run python -m strategies.cross_sectional.workflows.live_stock_ma_gap_1d --capital 1000000
+uv run python -m strategies.time_series.workflows.live_rb_ma_atr_1d --capital 100000
 ```
 
 Test the IM path at any hour, weekends and nights included. `--test` sends the
@@ -105,6 +109,36 @@ day); without `serve --write` the runs only preview and nothing is sent. On star
 when it starts and when it stops. It does not start itself after a reboot; use
 your system's login items, systemd user service, or Task Scheduler for that.
 
+### Daily strategies trade at 14:50
+
+A daily strategy (stocks, funds or futures) signals and trades at 14:50 of the
+trading day, not after the close: the night session moves prices before the next
+morning. The 14:50 price stands in for the day's close. `load_daily_bars`
+(`skills.live_trade.daily`) takes PandaData's daily bars (open, high, low, close,
+volume) up to the previous trading day and adds today's bar from the Sina 1-minute
+bars of the trading day up to 14:50: the first open, the highest high, the lowest
+low, the 14:50 close and the summed volume; prices times today's
+backward-adjustment factor for stocks and funds, the dominant contract's bars for a
+futures continuous symbol (the night session before belongs to the day). On
+2026-11-20 the 1-minute bars of 510300.SH and 000001.SZ added up to PandaData's day
+exactly; rebar's matched the high and close but Sina leaves out the night
+session's opening auction and 15% of the volume. Today's factor is
+yesterday's unless the exchange's previous close for today (Sina's quote) differs
+from yesterday's close, which happens on an ex-date: then it grows by their ratio
+(PandaData's `ex_cum_factor` when a stock's is already published). PandaData
+publishes no fund dividends, so this is how an ETF's ex-date is caught; it matched
+PandaData's factor within 1.3e-5 on all seven ex-dates of the rotation ETFs since
+2023. Schedule the job at `["14:51", "14:53", "14:55"]`: until every symbol's 14:50
+bar and today's previous close are there the run is `stale` and the next time
+retries, and the last time alerts. Sina has no bar for a minute without trades
+(510170.SH had 82 such minutes on 2026-11-23, 14:50 among them), so the close is the
+last trade at or before 14:50 once a later bar is out or two minutes have passed
+(five for futures). A stock or fund with no trade today keeps the previous close
+with no volume, as PandaData's bar of such a day does, and the message lists it. The matching backtest trades
+at the signal day's close (`trade_at="close", signal_lag=0`). With
+`--capital --account` a futures daily job also trades its target, the same way
+as a minute bar (below).
+
 A workflow loads its data and computes the full target table, and `daily_main`
 hands it to `run_live` (see the Python API). One run of a trade date ends as one of:
 
@@ -113,7 +147,7 @@ hands it to `run_live` (see the Python API). One run of a trade date ends as one
 | `not_trading_day` | PandaData's calendar says the date is closed; nothing is fetched. | 0 |
 | `unchanged` / `sent` / `already_sent` | The day is finished; later runs skip it (`done`). | 0 |
 | `preview` | No `--write`: nothing sent or logged. | 0 |
-| `stale` | Weights do not reach the date yet; the next time retries. | 3 |
+| `stale` | Today's 14:50 bars, or weights for the date, are not there yet; the next time retries. | 3 |
 | `partial` / `failed` | Some channels failed; the next time retries only those. | 4 |
 | `error` | Loading or computing raised. | 1 |
 | `test_sent` / `test_partial` / `test_failed` | `--test --write`: the marked test message reached all, some, or no channels. | 0 / 4 / 4 |
@@ -162,9 +196,9 @@ whose target would have been different.
 
 ### Automatic orders (SimNow only)
 
-Add `--capital <amount> --account <PandaAI account code>` to a futures minute
-job's `args` (`--write` is added by `serve`), and `--max-lots <N>` to cap the
-contracts any actual contract may target. Check the account first:
+Add `--capital <amount> --account <PandaAI account code>` to a futures job's
+`args`, minute or daily (`--write` is added by `serve`), and `--max-lots <N>` to
+cap the contracts any actual contract may target. Check the account first:
 
 ```bash
 uv run qs live-trade doctor --account <code> --strategy-id rb_ma_cross_5m
@@ -172,7 +206,7 @@ uv run qs live-trade doctor --account <code> --strategy-id rb_ma_cross_5m
 
 `auto_trade.ready` says whether a bar would place orders now, and `reasons`
 why not (not SimNow, CLI mode off, running asset units, counter not ready, CLI
-too old, stop file). After each bar's signal, the run sizes the full target
+too old, stop file). After each bar's (or day's) signal, the run sizes the full target
 into whole contracts (rounded toward zero) of the actual contract
 (`RB_DOMINANT.SHF` maps to the day's dominant contract) and calls
 `execute_targets`:
@@ -180,6 +214,11 @@ into whole contracts (rounded toward zero) of the actual contract
 1. It re-reads the account and trades only a SimNow account (broker `9999`) with
    CLI mode on, no running asset unit, and the counter connected and ready;
    anything else is `blocked`. A real account is never traded automatically.
+   SimNow drops the counter now and then and the client does not reconnect by
+   itself (2026-11-23: `FAILED` from 19:48 until reconnected by hand at 21:24),
+   so a disconnected counter gets one `connect` and up to 20 seconds to be ready
+   (it took about a second); one still connecting or syncing is only waited for.
+   If it is not ready by then, the bar is `blocked` and the next bar tries again.
 2. An order the client marks `UNKNOWN` stops trading (`unknown`) until you check
    it in the client. Working orders of the same products left from an earlier
    bar are cancelled first; if a cancel does not finish within 15 seconds, the
@@ -202,12 +241,15 @@ into whole contracts (rounded toward zero) of the actual contract
 | `pending_cancel` / `blocked` / `unknown` / `error` | Nothing new was sent; see the detail. |
 | `stopped` | The stop file exists; no order was placed. |
 | `over_limit` | The target exceeds `--max-lots`; no order was placed. |
+| `closed` | The run is outside the trading session; no order was placed and nothing is alerted. |
 
-The client does not reconnect by itself when SimNow drops the counter (measured
-2026-11-23: disconnected at 19:48, `FAILED` until reconnected by hand). Every
-bar is then `blocked` with the client's `last_error`, alerted once per trade
-date; reconnect in the client (or `panda-live-trading connect --account
-<code>`) and the next bar trades again.
+A minute bar orders only while the market trades: a session's last bar (10:15,
+11:30, 15:00 and 23:00 for rebar) runs after its session ends, when the client
+refuses plans for lack of a live quote, so it signals but is `closed`; the next
+session's first bar re-targets from the account's position. A daily futures run
+orders only from 14:50 to 15:00 of its trade date (`--now` for a replay); a run
+made up later, such as by `serve` started after the close, signals and is
+`closed`.
 
 Emergency stop: create `data/live/<strategy-id>/STOP` (any content) and every
 later bar still signals but places no orders, alerting `execution_stopped`
@@ -216,15 +258,13 @@ with the counter; cancel them in the client if needed.
 
 The result is logged with the bar in `runs.json` (`execution`). Every bar that
 placed orders pushes a `trade` message with the fills and the position after;
-each other status except `in_position`, `filled`, and `working` alerts once per
-trade date as `execution_<status>`. The bar's own status stays the delivery
-status, so a finished bar never trades twice, and a later bar always
-re-targets from the account's actual position. Measured on SimNow on
-2026-11-23: one call takes 8–12 seconds with one order and 15–17 seconds for a
-reversal or a roll (two orders). The last bar of a session (10:15, 11:30, 15:00,
-23:00 for rebar) runs after the close: if its target differs from the
-position, the client refuses the plan for lack of a live quote (`error`,
-nothing sent, alerted once a day), and the next session's first bar trades.
+each other status except `in_position`, `filled`, `working`, and `closed` alerts
+once per trade date as `execution_<status>`, and a counter that had to be
+reconnected first alerts `execution_reconnected` with the client's reason. The
+bar's own status stays the delivery status, so a finished bar never trades
+twice, and a later bar always re-targets from the account's actual position.
+Measured on SimNow on 2026-11-23: one call takes 8–12 seconds with one order and
+15–17 seconds for a reversal or a roll (two orders).
 
 ## From a backtest to a live workflow
 
@@ -307,6 +347,13 @@ live timing, how to test that the live target is the backtest's row
 - Sina is a free source without a service guarantee; the `reconcile` alert is
   how differences from PandaData show up. Keep the live store separate from the
   research store: minute strategies never write `data/market/`.
+- Sina's futures bars are late now and then and count volume differently. On
+  2026-11-23 most rebar 5-minute bars were there 46–54 seconds after their end,
+  but the 14:10 bar 2.5 minutes and the 15:00 bar 4.5 minutes after; the day's
+  closes matched PandaData's on all but 2 of 69 bars (at most 1 yuan apart), while
+  its volume added up to 61% of PandaData's. A futures rule on volume or open
+  interest gets different inputs live than in the backtest; check it with
+  `replay_mismatches` before relying on it.
 
 ## References
 

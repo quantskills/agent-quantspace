@@ -17,6 +17,7 @@ tests/regression/      deterministic behavior regression tests
 tests/docs/            documentation example smoke tests
 tests/policy/          test layout and workspace policy tests
 tests/smoke/           opt-in qs smoke tests on real local data (see Smoke tests)
+tests/live/            opt-in live_trade checks during trading hours (see Live checks)
 tests/fixtures/        deterministic fixture builders
 ```
 
@@ -87,9 +88,28 @@ uv run python -m pytest -m "smoke and not research" -rs -q # qs commands only, a
   on Windows) and run children with UTF-8 output (`PYTHONUTF8=1`), see
   `tests/fixtures/console.py`.
 
+## Live checks
+
+`tests/live/` runs `live_trade` against the real sources during trading hours:
+Sina bars, PandaData, the 14:50 daily path, the minute feeds and workflows, and the
+PandaAI client CLI. Like the smoke tests it is skipped unless the `-m` expression
+mentions `live`:
+
+```bash
+uv run python -m pytest -m live -rs -q        # about 2 minutes
+```
+
+Each check skips outside its session (stocks and funds 09:36–11:30 and
+13:06–15:00, rebar also 21:06–23:00, today's ETF rotation run 14:51–15:00), without
+PandaData credentials, or without the client. Everything runs on a temporary data
+root and only previews: nothing is pushed to IM or written to `data/`. Orders go
+out only with `QS_LIVE_ORDERS_ACCOUNT=<SimNow account code>`: one hot-rolled coil
+contract is opened and closed twice (the order step, then the daily path), which leaves
+a rebar strategy on the same account alone.
+
 ## Scope
 
-Tests should use synthetic or in-memory data, except the opt-in smoke tests. Do not add tests that depend on
+Tests should use synthetic or in-memory data, except the opt-in smoke and live tests. Do not add tests that depend on
 private data, credentials, private strategy domains, or external services.
 
 Do not add root-level `tests/test_*.py` files. Add tests under the matching

@@ -12,7 +12,7 @@ target would have been different.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -20,20 +20,25 @@ from typing import Any
 
 import pandas as pd
 
+from .clock import in_session
 from .contracts import DeliveryResult, TargetSnapshot, diff_weights
-from .execution import ExecutionResult
 from .feeds import FeedNotReady, MinuteFeed, RefreshReport, _write_json, upcoming_trading_date
 from .ledger import SignalLedger
-from .runner import Delivery, RunLog, RunOutcome, deliver_signal, send_alert
-from .sizing import SizingLimitError, size_targets
+from .runner import (
+    STOP_FILE,
+    Delivery,
+    Execute,
+    RunLog,
+    RunOutcome,
+    deliver_signal,
+    futures_lots,
+    send_alert,
+    stop_file,
+    trade_target,
+)
 from .spec import LiveSpec
 
 Compute = Callable[[pd.DataFrame], pd.DataFrame]
-# ``execute(wanted contracts per actual contract, request id)``, e.g. a bound
-# :func:`~skills.live_trade.execution.execute_targets`.
-Execute = Callable[[Mapping[str, int], str], Any]
-# While ``<data_root>/live/<strategy_id>/STOP`` exists, bars still signal but place no orders.
-STOP_FILE = "STOP"
 
 _BAR_ALERTS = {
     "error": "这根 K 线运行出错，没有生成信号。",
@@ -43,20 +48,6 @@ _BAR_ALERTS = {
     "partial": "信号只送达了部分 IM 通道。",
     "not_ready": "开盘前的整段重拉还没完成，盘中无法取数。",
 }
-_EXECUTION_ALERTS = {
-    "blocked": "账号现在不能自动下单，本根 K 线没有调仓。",
-    "error": "自动下单出错，本根 K 线没有完成调仓。",
-    "rejected": "有委托被拒绝或撤销，持仓没有达到目标。",
-    "pending_cancel": "上一根 K 线的委托还没撤完，本根没有下新单。",
-    "unknown": "有委托回报不明，自动下单已停止，请在客户端核实。",
-    "stopped": "发现紧急停止文件，自动下单已暂停；信号照常推送，删除该文件后恢复下单。",
-    "over_limit": "目标手数超过单合约上限，本根 K 线没有下单。",
-}
-
-
-def stop_file(strategy_id: str, data_root: str | Path | None = None) -> Path:
-    """The emergency stop file ``<data_root>/live/<strategy_id>/STOP`` (it may not exist)."""
-    return RunLog(strategy_id, data_root).path.parent / STOP_FILE
 
 
 def _notes(spec: LiveSpec, contracts: dict[str, str], halted: dict[str, str]) -> list[str]:
@@ -107,7 +98,10 @@ def run_bar(
     ``trade`` message, and each kind of execution problem alerts once per trade date. The
     bar's status stays the delivery status, so a finished bar never trades twice. Two safety
     switches place no order: the :func:`stop_file` (execution ``stopped``) and ``max_lots``,
-    the most contracts any actual contract may target (``over_limit``).
+    the most contracts any actual contract may target (``over_limit``). Nothing is ordered
+    when ``now`` is outside the day's trading sessions, as for a session's last bar
+    (``closed``, not alerted: the client refuses plans without a live quote, and the next
+    session's first bar re-targets).
     """
     runs = RunLog(spec.strategy_id, data_root)
     alerts: list[DeliveryResult] = []
@@ -176,8 +170,6 @@ def run_bar(
         last = pd.Timestamp(weights.index[-1])
         if last < pd.Timestamp(bar):
             return finish("stale", f"最新权重时间 {last}，早于 K 线 {label}")
-        if last > pd.Timestamp(bar):
-            raise ValueError(f"weights reach {last} after the bar {label}")
         ledger = SignalLedger(spec.strategy_id, data_root)
         computed = TargetSnapshot.from_frames(
             weights, spec.strategy_id, as_of=bar, prices=feed.raw_closes()
@@ -197,29 +189,21 @@ def run_bar(
         return finish("error", f"{type(exc).__name__}: {exc}")
     execution = None
     if write and execute is not None:
-        stop = runs.path.parent / STOP_FILE
-        try:
-            if stop.exists():
-                execution = ExecutionResult("stopped", f"停止文件：{stop}")
-            else:
-                wanted = wanted_contracts(spec, snapshot, state, capital, lot_size, max_lots)
-                execution = execute(wanted, f"{spec.strategy_id}:{label}")
-        except SizingLimitError as exc:
-            execution = ExecutionResult("over_limit", "；".join(exc.breaches))
-        except Exception as exc:  # noqa: BLE001 - reported and alerted like any bar problem
-            execution = ExecutionResult("error", f"{type(exc).__name__}: {exc}")
-        if execution.legs:
-            alerts.extend(
-                send_alert(
-                    spec.strategy_id, trade_date, "trade", _trade_text(label, execution), urls=urls
-                )
-            )
-        kind = f"execution_{execution.status}"
-        if execution.status in _EXECUTION_ALERTS and runs.claim_alert(trade_date, kind):
-            text = f"K 线：{label}\n{_EXECUTION_ALERTS[execution.status]}"
-            text += f"\n账号：{execution.account}" if execution.account else ""
-            text += f"\n{execution.detail}" if execution.detail else ""
-            alerts.extend(send_alert(spec.strategy_id, trade_date, kind, text, urls=urls))
+        closed = ""
+        if not in_session(now, state.schedule, state.frequency):
+            closed = f"{now:%H:%M:%S} 不在交易时段，不下单；下一节第一根 K 线按当时的目标调仓"
+        execution, sent = trade_target(
+            spec.strategy_id,
+            trade_date,
+            f"K 线：{label}",
+            lambda: wanted_contracts(spec, snapshot, state, capital, lot_size, max_lots),
+            execute,
+            request_id=f"{spec.strategy_id}:{label}",
+            runs=runs,
+            urls=urls,
+            closed=closed,
+        )
+        alerts.extend(sent)
     return finish(delivery.status, delivery=delivery, target=computed.weights, execution=execution)
 
 
@@ -238,30 +222,15 @@ def wanted_contracts(
     """
     if not spec.futures:
         raise ValueError("automatic orders are only wired for futures strategies")
-    if capital is None:
-        raise ValueError("--capital is required to size orders")
     weights = {symbol: float(snapshot.weights.get(symbol, 0.0)) for symbol in spec.symbols}
-    sized = size_targets(
+    return futures_lots(
         weights,
-        capital,
         snapshot.prices,
-        multipliers=dict(state.multipliers),
-        lot_size=lot_size,
-        max_units=max_lots,
+        contracts=state.contracts,
+        multipliers=state.multipliers,
+        capital=capital,
+        max_lots=max_lots,
     )
-    return {state.contracts.get(item.symbol, item.symbol): item.units for item in sized}
-
-
-def _trade_text(label: str, execution: ExecutionResult) -> str:
-    lines = [f"K 线：{label}", f"账号：{execution.account}", f"结果：{execution.status}"]
-    lines += [
-        f"- {leg.contract} {leg.side} {leg.offset} {leg.quantity} 手 @ {leg.price}："
-        f"{leg.status}，成交 {leg.filled}"
-        for leg in execution.legs
-    ]
-    held = "，".join(f"{symbol} {units:+d}" for symbol, units in execution.after.items())
-    lines.append(f"调仓后持仓：{held or '空仓'}")
-    return "\n".join(lines)
 
 
 @dataclass(frozen=True)

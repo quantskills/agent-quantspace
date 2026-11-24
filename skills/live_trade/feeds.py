@@ -25,7 +25,6 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -37,6 +36,9 @@ from .clock import (
     bars_per_day,
     parse_trading_hours,
 )
+from .history import adjustment_factors, daily_closes, dominant_contracts, today_factors
+from .history import as_day as _day
+from .history import yyyymmdd as _yyyymmdd
 from .spec import Instrument, LiveSpec
 
 PANDADATA = "pandadata"
@@ -62,14 +64,6 @@ CALENDAR_AHEAD_DAYS = 20
 
 class FeedNotReady(RuntimeError):
     """The pre-open refresh for the trading day has not run."""
-
-
-def _yyyymmdd(day: date) -> str:
-    return day.strftime("%Y%m%d")
-
-
-def _day(value: Any) -> date:
-    return pd.Timestamp(str(value)).date()
 
 
 def load_calendar(client, around: date) -> TradingCalendar:
@@ -225,26 +219,7 @@ class MinuteFeed:
 
     # ------------------------------------------------------------------ refresh
     def _contracts(self, trading_date: date) -> dict[str, str]:
-        contracts = {item.symbol: item.symbol for item in self.spec.instruments}
-        continuous = [item for item in self.spec.instruments if item.continuous]
-        if not continuous:
-            return contracts
-        underlyings = sorted({item.symbol.partition("_")[0].upper() for item in continuous})
-        stamp = _yyyymmdd(trading_date)
-        table = self.client.get_future_dominant(stamp, stamp, underlying_symbol=underlyings)
-        found = {}
-        if table is not None and not table.empty:
-            for _, row in table.iterrows():
-                if str(row["date"]) == stamp:
-                    found[str(row["underlying_symbol"]).upper()] = str(row["symbol"])
-        for item in continuous:
-            underlying = item.symbol.partition("_")[0].upper()
-            if underlying not in found:
-                raise ValueError(
-                    f"PandaData has no dominant contract of {underlying} for {trading_date} yet"
-                )
-            contracts[item.symbol] = found[underlying]
-        return contracts
+        return dominant_contracts(self.client, self.spec.instruments, trading_date)
 
     def _futures_reference(
         self, contracts: dict[str, str]
@@ -303,50 +278,15 @@ class MinuteFeed:
         """Backward-adjustment factor per trading date up to ``end``, today's factor, halt."""
         if self.spec.adjust == "none":
             return {}, 1.0, None
-        first, last = _yyyymmdd(start), _yyyymmdd(end)
-        if item.asset == "stock":
-            raw = self.client.fetch_market_data(item.symbol, first, last, type="stock")
-            post = self.client.fetch_market_data(
-                item.symbol, first, last, type="stock", adjust="post"
-            )
-        else:
-            raw = self.client.get_fund_daily(first, last, symbol=item.symbol)
-            post = self.client.get_fund_daily_post(first, last, symbol=item.symbol)
-        ratio = (
-            post.assign(day=post["date"].map(lambda v: _day(v).isoformat())).set_index("day")[
-                "close"
-            ]
-            / raw.assign(day=raw["date"].map(lambda v: _day(v).isoformat())).set_index("day")[
-                "close"
-            ]
-        ).dropna()
-        if ratio.empty:
+        raw = daily_closes(self.client, [item.symbol], item.asset, start, end)
+        post = daily_closes(self.client, [item.symbol], item.asset, start, end, adjust="post")
+        factors = adjustment_factors(raw[item.symbol], post[item.symbol])
+        if not factors:
             raise ValueError(f"PandaData returned no daily bars to adjust {item.symbol}")
-        factors = {day: round(float(value), 6) for day, value in ratio.items()}
-        today = factors[max(factors)]
-        halt = None
-        if item.asset == "stock":
-            stamp = _yyyymmdd(trading_date)
-            plans = self.client.get_stock_dividend(
-                _yyyymmdd(trading_date - timedelta(365)), stamp, symbol=item.symbol
-            )
-            ex_today = (
-                plans is not None
-                and not plans.empty
-                and (plans["ex_date"].astype(str) == stamp).any()
-            )
-            if ex_today:
-                events = self.client.get_adj_factor(item.symbol, stamp, stamp)
-                rows = (
-                    events[events["ex_date"].astype(str) == stamp]
-                    if events is not None and not events.empty
-                    else pd.DataFrame()
-                )
-                if rows.empty:
-                    halt = f"{trading_date} 是除权除息日，PandaData 还没有发布当天的复权因子"
-                else:
-                    today = round(float(rows["ex_cum_factor"].iloc[-1]), 6)
-        return factors, today, halt
+        today, halted = today_factors(
+            self.client, [item], {item.symbol: factors[max(factors)]}, trading_date
+        )
+        return factors, today[item.symbol], halted.get(item.symbol)
 
     def _equity_history(
         self, item: Instrument, start: date, end: date, factors: dict[str, float]

@@ -250,7 +250,7 @@ def test_version_catalog_and_schema(capsys):
     assert code == 0
     assert result["data"]["factor_mining_schema_version"]
     assert set(result["data"]["extras"]) == {
-        "analyze", "ml", "report", "query", "ts", "panda_data", "akshare", "live"
+        "analyze", "ml", "report", "query", "ts", "panda_data", "akshare", "live", "tqsdk"
     }
     code, result = invoke(capsys, "catalog")
     assert code == 0

@@ -29,6 +29,7 @@ class FakeClient:
         self.orders = list(orders or [])
         self.outcome = outcome
         self.stuck_cancels = False
+        self.comes_back = True  # whether ``connect`` brings a dropped counter back
         self.calls: list[tuple] = []
         self.envs: list[dict] = []
         self.plans: dict[str, list[dict]] = {}
@@ -43,6 +44,10 @@ class FakeClient:
             return self.accounts
         if name == "connection":
             return {"connection": self.connection}
+        if name == "connect":
+            if self.comes_back:
+                self.connection = dict(CONNECTED)
+            return {"connection": {"accepted": True, "connecting": True}}
         if name == "positions":
             return {"items": self._position_items()}
         if name == "orders":
@@ -124,10 +129,15 @@ class FakeClient:
         return [call[0] for call in self.calls]
 
 
-def _trade(client, wanted, account="100001"):
+def _trade(client, wanted, account="100001", reconnect_seconds=0.05):
     trader = PandaTrader(["panda"], account, trace_id="rb-0905", runner=client)
     return execute_targets(
-        trader, wanted, request_id="rb:0905", wait_seconds=0.05, sleep=lambda _: None
+        trader,
+        wanted,
+        request_id="rb:0905",
+        wait_seconds=0.05,
+        reconnect_seconds=reconnect_seconds,
+        sleep=lambda _: None,
     )
 
 
@@ -137,32 +147,69 @@ def test_products_are_read_from_any_code():
 
 def test_only_simnow_accounts_are_traded():
     client = FakeClient()
+    client.connection = {"connected": False, "cli_ready": False, "connection_status": "FAILED"}
     result = _trade(client, {"RB2701.SHF": 1}, account="200002")
     assert result.status == "blocked" and "不是 SimNow 账号" in result.detail
-    assert "target-position" not in client.names() and "plan" not in client.names()
+    assert not {"connection", "connect", "target-position", "plan"} & set(client.names())
 
     missing = _trade(FakeClient(), {"RB2701.SHF": 1}, account="999999")
     assert missing.status == "blocked" and "no account 999999" in missing.detail
 
 
-def test_an_unready_counter_blocks_before_any_order():
+# As SimNow left it on 2026-11-23 19:48: disconnected and not reconnecting by itself.
+DROPPED = {
+    "connected": False,
+    "connecting": False,
+    "cli_ready": False,
+    "connection_status": "FAILED",
+    "last_error": "reason_code=4097, reason_message=网络连接异常断开",
+}
+DROPPED_TEXT = "柜台未就绪（FAILED）：reason_code=4097, reason_message=网络连接异常断开"
+
+
+def test_a_dropped_counter_is_reconnected_and_then_traded():
+    client = FakeClient()
+    client.connection = dict(DROPPED)
+    result = _trade(client, {"RB2701.SHF": 1})
+
+    assert (result.status, result.after, result.reconnected) == (
+        "filled",
+        {"RB2701.SHF": 1},
+        DROPPED_TEXT,
+    )
+    assert client.names()[:4] == ["accounts", "connection", "connection", "connect"]
+    assert client.names().count("connect") == 1
+
+
+def test_a_counter_that_does_not_come_back_blocks_before_any_order():
+    client = FakeClient()
+    client.connection, client.comes_back = dict(DROPPED), False
+    result = _trade(client, {"RB2701.SHF": 1})
+
+    assert (result.status, result.detail) == (
+        "blocked",
+        f"{DROPPED_TEXT}；已发起重连，0.05 秒内没有就绪",
+    )
+    assert client.names().count("connect") == 1
+    assert not {"orders", "target-position", "plan"} & set(client.names())
+
+
+def test_a_counter_still_syncing_is_waited_for_not_reconnected():
     client = FakeClient()
     client.connection = {"connected": True, "cli_ready": False, "connection_status": "SYNCING"}
     result = _trade(client, {"RB2701.SHF": 1})
-    assert (result.status, result.detail) == ("blocked", "柜台未就绪（SYNCING）")
-    assert client.names() == ["accounts", "connection"]
 
-    # As SimNow left it on 2026-11-23 19:48: disconnected and not reconnecting.
-    client.connection = {
-        "connected": False,
-        "cli_ready": False,
-        "connection_status": "FAILED",
-        "last_error": "reason_code=4097, reason_message=网络连接异常断开",
-    }
-    result = _trade(client, {"RB2701.SHF": 1})
-    assert (
-        result.detail == "柜台未就绪（FAILED）：reason_code=4097, reason_message=网络连接异常断开"
-    )
+    assert (result.status, result.detail) == ("blocked", "柜台未就绪（SYNCING）；0.05 秒内没有就绪")
+    assert "connect" not in client.names() and "target-position" not in client.names()
+
+
+def test_reconnecting_can_be_turned_off():
+    client = FakeClient()
+    client.connection = dict(DROPPED)
+    result = _trade(client, {"RB2701.SHF": 1}, reconnect_seconds=0)
+
+    assert (result.status, result.detail) == ("blocked", DROPPED_TEXT)
+    assert client.names() == ["accounts", "connection"]
 
 
 def test_opening_a_target_executes_one_frozen_plan_and_reports_fills():
@@ -316,7 +363,7 @@ def test_cli_failures_become_errors():
 # --------------------------------------------------------------------------- run_bar wiring
 
 
-def _bar_run(tmp_path, execute, **options):
+def _bar_run(tmp_path, execute, *, bar=None, now=None, **options):
     from skills.live_trade.feeds import MinuteFeed
     from skills.live_trade.minute import refresh_day, run_bar
 
@@ -325,15 +372,15 @@ def _bar_run(tmp_path, execute, **options):
     from .test_minute import BAR, READY, _above_3000
 
     sina = FakeSina()
-    sina.add("RB2701", (BAR, 3010.0))
+    sina.add("RB2701", (bar or BAR, 3010.0))
     feed = MinuteFeed(RB_SPEC, FakePandaData(), data_root=tmp_path, akshare=sina, pause=0)
     refresh_day(RB_SPEC, feed, _above_3000, now=datetime(2026, 11, 20, 18, 0), data_root=tmp_path)
     return run_bar(
         RB_SPEC,
         feed,
         _above_3000,
-        bar=BAR,
-        now=READY,
+        bar=bar or BAR,
+        now=now or READY,
         data_root=tmp_path,
         urls=[FEISHU],
         execute=execute,
@@ -374,6 +421,56 @@ def test_run_bar_alerts_execution_problems_once_a_day(tmp_path, http):
     texts = [json.loads(item["body"])["content"]["text"] for item in http.sent]
     (alert,) = [text for text in texts if "execution_blocked" in text]
     assert "柜台未就绪" in alert and "simnow_demo（100001）" in alert
+
+
+def test_a_sessions_last_bar_signals_but_places_no_order(tmp_path, http):
+    """Rebar's night session ends at 23:00; its last bar runs at 23:00:45, after the close."""
+    from skills.live_trade.runner import RunLog
+
+    calls = []
+
+    def execute(wanted, request_id):
+        calls.append(wanted)
+        return ExecutionResult("filled")
+
+    last = datetime(2026, 11, 20, 23, 0)
+    outcome = _bar_run(
+        tmp_path,
+        execute,
+        bar=last,
+        now=datetime(2026, 11, 20, 23, 0, 45),
+        write=True,
+        capital=100_000,
+    )
+
+    assert calls == [] and outcome.status == "sent"
+    assert outcome.execution.status == "closed"
+    assert outcome.execution.detail.startswith("23:00:45 不在交易时段，不下单")
+    assert RunLog("rb_demo", tmp_path).get(last)["execution"]["status"] == "closed"
+    texts = [json.loads(item["body"])["content"]["text"] for item in http.sent]
+    assert not [text for text in texts if "execution_" in text or "类型：trade" in text]
+
+
+def test_a_reconnect_before_trading_alerts_once_a_day(tmp_path, http):
+    def execute(wanted, request_id):
+        return ExecutionResult(
+            "in_position", account="simnow_demo（100001）", reconnected=DROPPED_TEXT
+        )
+
+    outcome = _bar_run(tmp_path, execute, write=True, capital=100_000)
+    again = _bar_run(
+        tmp_path,
+        execute,
+        bar=datetime(2026, 11, 20, 21, 10),
+        now=datetime(2026, 11, 20, 21, 10, 45),
+        write=True,
+        capital=100_000,
+    )
+
+    assert outcome.execution.status == again.execution.status == "in_position"
+    texts = [json.loads(item["body"])["content"]["text"] for item in http.sent]
+    (alert,) = [text for text in texts if "execution_reconnected" in text]
+    assert "已自动重连" in alert and "4097" in alert and "simnow_demo（100001）" in alert
 
 
 def test_run_bar_without_capital_or_write_places_no_order(tmp_path, http):

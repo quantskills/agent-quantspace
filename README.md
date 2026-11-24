@@ -123,6 +123,7 @@ uv sync --extra ml          # 可选 ML 辅助模块（scikit-learn、XGBoost）
 uv sync --extra query       # 可选 DuckDB 查询能力
 uv sync --extra report      # Jinja2 与报告图表
 uv sync --extra live        # Apprise、requests 和 APScheduler，用于 IM 推送和定时运行
+uv sync --extra tqsdk       # TqSdk 免费期货实时行情和 K 线（需快期账户）
 ```
 
 ## PandaData 设置

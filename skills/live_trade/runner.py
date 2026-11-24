@@ -19,10 +19,11 @@ from typing import Any
 
 import pandas as pd
 
-from .contracts import DeliveryResult, Signal, TargetSnapshot, build_signal
+from .contracts import DeliveryResult, Signal, TargetSnapshot, build_signal, is_futures_symbol
+from .execution import ExecutionResult
 from .ledger import SignalLedger, validate_strategy_id
 from .notify import channel_name, format_signal, load_notify_urls, send_notifications
-from .sizing import SizedTarget, size_targets
+from .sizing import SizedTarget, SizingLimitError, size_targets
 
 # Run statuses that finish a trade date or a bar; the others are retried by the next run.
 DONE_STATUSES = frozenset({"sent", "unchanged", "already_sent", "not_trading_day", "missed"})
@@ -250,13 +251,137 @@ def send_alert(
     return send_notifications(title, body, urls)
 
 
+# ``execute(wanted contracts per actual contract, request id)``, e.g. a bound
+# :func:`~skills.live_trade.execution.execute_targets`.
+Execute = Callable[[Mapping[str, int], str], Any]
+# While ``<data_root>/live/<strategy_id>/STOP`` exists, runs still signal but place no orders.
+STOP_FILE = "STOP"
+EXECUTION_ALERTS = {
+    "blocked": "账号现在不能自动下单，这次没有调仓。",
+    "error": "自动下单出错，这次没有完成调仓。",
+    "rejected": "有委托被拒绝或撤销，持仓没有达到目标。",
+    "pending_cancel": "上一次的委托还没撤完，这次没有下新单。",
+    "unknown": "有委托回报不明，自动下单已停止，请在客户端核实。",
+    "stopped": "发现紧急停止文件，自动下单已暂停；信号照常推送，删除该文件后恢复下单。",
+    "over_limit": "目标手数超过单合约上限，这次没有下单。",
+}
+RECONNECTED_ALERT = "柜台断线，已自动重连后继续下单。"
+
+
+def stop_file(strategy_id: str, data_root: str | Path | None = None) -> Path:
+    """The emergency stop file ``<data_root>/live/<strategy_id>/STOP`` (it may not exist)."""
+    return RunLog(strategy_id, data_root).path.parent / STOP_FILE
+
+
+def futures_lots(
+    weights: Mapping[str, float],
+    prices: Mapping[str, float],
+    *,
+    contracts: Mapping[str, str],
+    multipliers: Mapping[str, float],
+    capital: float | None,
+    max_lots: int | None = None,
+) -> dict[str, int]:
+    """Whole contracts per actual contract for the full target, rounded toward zero.
+
+    Raises :class:`~skills.live_trade.sizing.SizingLimitError` when a contract would exceed
+    ``max_lots``.
+    """
+    traded = {symbol: contracts.get(symbol, symbol) for symbol in weights}
+    if not traded or not all(is_futures_symbol(code) for code in traded.values()):
+        raise ValueError("automatic orders are only wired for futures strategies")
+    if capital is None:
+        raise ValueError("--capital is required to size orders")
+    sized = size_targets(
+        {symbol: float(value) for symbol, value in weights.items()},
+        capital,
+        prices,
+        multipliers=dict(multipliers),
+        max_units=max_lots,
+    )
+    return {traded[item.symbol]: item.units for item in sized}
+
+
+def _trade_text(label: str, execution: ExecutionResult) -> str:
+    lines = [label, f"账号：{execution.account}", f"结果：{execution.status}"]
+    lines += [
+        f"- {leg.contract} {leg.side} {leg.offset} {leg.quantity} 手 @ {leg.price}："
+        f"{leg.status}，成交 {leg.filled}"
+        for leg in execution.legs
+    ]
+    held = "，".join(f"{symbol} {units:+d}" for symbol, units in execution.after.items())
+    lines.append(f"调仓后持仓：{held or '空仓'}")
+    return "\n".join(lines)
+
+
+def trade_target(
+    strategy_id: str,
+    trade_date: date,
+    label: str,
+    wanted: Callable[[], Mapping[str, int]],
+    execute: Execute,
+    *,
+    request_id: str,
+    runs: RunLog,
+    urls: Sequence[str] | None = None,
+    closed: str = "",
+) -> tuple[ExecutionResult, list[DeliveryResult]]:
+    """Trade the ``wanted`` contracts with ``execute`` and push what happened.
+
+    No order goes out when ``closed`` says why the market takes none now (``closed``,
+    silent: the next run in the session re-targets), while the :func:`stop_file` exists
+    (``stopped``), or when sizing breaks ``max_lots`` (``over_limit``). A run that placed
+    orders is pushed as a ``trade`` message; each kind of problem, and a counter that had
+    to be reconnected first, alerts once per trade date. ``label`` is the first line of
+    both, such as ``K 线：2026-11-23T14:50``.
+    """
+    stop = runs.path.parent / STOP_FILE
+    try:
+        if closed:
+            execution = ExecutionResult("closed", closed)
+        elif stop.exists():
+            execution = ExecutionResult("stopped", f"停止文件：{stop}")
+        else:
+            execution = execute(wanted(), request_id)
+    except SizingLimitError as exc:
+        execution = ExecutionResult("over_limit", "；".join(exc.breaches))
+    except Exception as exc:  # noqa: BLE001 - reported and alerted like any run problem
+        execution = ExecutionResult("error", f"{type(exc).__name__}: {exc}")
+    alerts: list[DeliveryResult] = []
+    if execution.legs:
+        text = _trade_text(label, execution)
+        alerts.extend(send_alert(strategy_id, trade_date, "trade", text, urls=urls))
+    kind = f"execution_{execution.status}"
+    if execution.status in EXECUTION_ALERTS and runs.claim_alert(trade_date, kind):
+        text = f"{label}\n{EXECUTION_ALERTS[execution.status]}"
+        text += f"\n账号：{execution.account}" if execution.account else ""
+        text += f"\n{execution.detail}" if execution.detail else ""
+        alerts.extend(send_alert(strategy_id, trade_date, kind, text, urls=urls))
+    reconnected = "execution_reconnected"
+    if execution.reconnected and runs.claim_alert(trade_date, reconnected):
+        text = f"{label}\n{RECONNECTED_ALERT}\n账号：{execution.account}"
+        text += f"\n断线时：{execution.reconnected}"
+        alerts.extend(send_alert(strategy_id, trade_date, reconnected, text, urls=urls))
+    return execution, alerts
+
+
+class DataNotReady(RuntimeError):
+    """The data a run needs is not there yet; the run is ``stale`` and the next time retries."""
+
+
 @dataclass(frozen=True)
 class LiveInputs:
-    """What a strategy workflow hands to ``run_live`` for one trade date."""
+    """What a strategy workflow hands to ``run_live`` for one trade date.
+
+    ``contracts`` maps a continuous futures symbol to the contract traded today; ``notes``
+    are extra message lines.
+    """
 
     weights: pd.DataFrame
     prices: pd.DataFrame | None = None
     multipliers: Mapping[str, float] = field(default_factory=dict)
+    contracts: Mapping[str, str] = field(default_factory=dict)
+    notes: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -267,7 +392,7 @@ class RunOutcome:
     detail: str = ""
     delivery: Delivery | None = None
     alerts: list[DeliveryResult] = field(default_factory=list)
-    execution: Any = None  # an ExecutionResult when a minute bar placed orders
+    execution: Any = None  # an ExecutionResult when the run traded
 
     @property
     def exit_code(self) -> int:
@@ -295,6 +420,9 @@ def run_live(
     data_root: str | Path | None = None,
     urls: Sequence[str] | None = None,
     test: bool = False,
+    execute: Execute | None = None,
+    max_lots: int | None = None,
+    closed: str = "",
 ) -> RunOutcome:
     """Run one strategy for ``trade_date`` and report what happened.
 
@@ -308,21 +436,31 @@ def run_live(
     target as a marked test message. It never touches the ledger or the run log and never
     alerts; its statuses are ``preview``, ``test_sent``, ``test_partial``, ``test_failed``,
     or ``error``.
+
+    With ``write`` and ``execute`` (futures only), the full target is sized with ``capital``
+    into whole contracts of the traded contracts (``LiveInputs.contracts``) and traded by
+    :func:`trade_target` after the signal; the run log keeps what the execution did.
+    ``closed`` (why the market takes no orders now) skips the orders: ``closed``.
     """
     if test:
         return _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls)
     runs = RunLog(strategy_id, data_root)
     alerts: list[DeliveryResult] = []
 
-    def finish(status: str, detail: str = "", delivery: Delivery | None = None) -> RunOutcome:
+    def finish(
+        status: str, detail: str = "", delivery: Delivery | None = None, execution=None
+    ) -> RunOutcome:
         if write:
             signal_id = delivery.signal.signal_id if delivery else None
-            runs.record(trade_date, status, detail, signal_id)
+            record = execution.to_dict() if execution else None
+            runs.record(trade_date, status, detail, signal_id, execution=record)
             alert = status == "error" or (final and status in RETRY_STATUSES)
             if alert and runs.claim_alert(trade_date, status):
                 text = _ALERT_TEXT[status] + (f"\n{detail}" if detail else "")
                 alerts.extend(send_alert(strategy_id, trade_date, status, text, urls=urls))
-        return RunOutcome(strategy_id, trade_date.isoformat(), status, detail, delivery, alerts)
+        return RunOutcome(
+            strategy_id, trade_date.isoformat(), status, detail, delivery, alerts, execution
+        )
 
     if not is_trading_day:
         return finish("not_trading_day")
@@ -330,7 +468,10 @@ def run_live(
         previous = runs.get(trade_date) or {}
         return RunOutcome(strategy_id, trade_date.isoformat(), "done", previous.get("status", ""))
     try:
-        inputs = load()
+        try:
+            inputs = load()
+        except DataNotReady as exc:
+            return finish("stale", str(exc))
         weights = inputs.weights.sort_index()
         if weights.empty:
             raise ValueError("the strategy returned an empty weights table")
@@ -352,10 +493,38 @@ def run_live(
             capital=capital,
             multipliers=inputs.multipliers,
             lot_size=lot_size,
+            notes=inputs.notes,
         )
     except Exception as exc:  # noqa: BLE001 - any failure must be logged and alerted
         return finish("error", f"{type(exc).__name__}: {exc}")
-    return finish(delivery.status, delivery=delivery)
+    execution = None
+    if write and execute is not None:
+        # The full target: every symbol of the table, zero where the row holds nothing.
+        full = {symbol: snapshot.weights.get(symbol, 0.0) for symbol in weights.columns}
+
+        def wanted() -> dict[str, int]:
+            return futures_lots(
+                full,
+                snapshot.prices,
+                contracts=inputs.contracts,
+                multipliers=inputs.multipliers,
+                capital=capital,
+                max_lots=max_lots,
+            )
+
+        execution, sent = trade_target(
+            strategy_id,
+            trade_date,
+            f"信号日：{trade_date.isoformat()}",
+            wanted,
+            execute,
+            request_id=f"{strategy_id}:{trade_date.isoformat()}",
+            runs=runs,
+            urls=urls,
+            closed=closed,
+        )
+        alerts.extend(sent)
+    return finish(delivery.status, delivery=delivery, execution=execution)
 
 
 def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root, urls):
@@ -374,6 +543,7 @@ def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root
             multipliers=inputs.multipliers,
             lot_size=lot_size,
             test=True,
+            notes=inputs.notes,
         )
     except Exception as exc:  # noqa: BLE001 - reported, never alerted
         return RunOutcome(strategy_id, label, "error", f"{type(exc).__name__}: {exc}")
@@ -383,12 +553,19 @@ def _run_test(strategy_id, load, trade_date, write, capital, lot_size, data_root
 
 __all__ = [
     "DONE_STATUSES",
+    "EXECUTION_ALERTS",
+    "STOP_FILE",
+    "DataNotReady",
     "Delivery",
+    "Execute",
     "LiveInputs",
     "NoChannelsError",
     "RunLog",
     "RunOutcome",
     "deliver_signal",
+    "futures_lots",
     "run_live",
     "send_alert",
+    "stop_file",
+    "trade_target",
 ]

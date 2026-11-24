@@ -264,7 +264,10 @@ def _auto_trade(args: DoctorInput, command: list[str] | None, cli_problems: list
             account, problems = None, [f"PandaAI CLI 查询失败：{exc}"]
         if account is not None:
             name, simnow = f"{account.name}（{account.code}）", account.is_simnow
-        reasons += problems + cli_problems
+        # doctor only reads; a bar reconnects a dropped SimNow counter before its orders.
+        hint = "（下一次下单前会先自动重连）"
+        reasons += [f"{item}{hint}" if item.startswith("柜台未就绪") else item for item in problems]
+        reasons += cli_problems
     stop = None
     if args.strategy_id:
         stop = stop_file(args.strategy_id, args.data_root)

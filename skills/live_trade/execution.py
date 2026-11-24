@@ -4,7 +4,8 @@ A minute strategy hands :func:`execute_targets` the whole contracts it wants per
 contract (``{"RB2701.SHF": 2}``; negative is short). Each call:
 
 1. re-reads the account and refuses anything but a SimNow account (broker ``9999``) that
-   the CLI may use, connected and ready;
+   the CLI may use, connected and ready; a dropped counter is reconnected first
+   (:func:`reconnect`), because the client does not do it by itself;
 2. stops on an order whose state the client does not know (``UNKNOWN``) and cancels the
    working orders of the same products left from an earlier bar (the account is meant to
    be the strategy's own);
@@ -36,6 +37,8 @@ FILLED = "FILLED"
 # How long one call follows its orders and its cancels before handing over to the next bar.
 DEFAULT_WAIT_SECONDS = 15.0
 POLL_SECONDS = 1.0
+# How long a call waits for a dropped SimNow counter to come back after ``connect``.
+RECONNECT_SECONDS = 20.0
 
 _PRODUCT = re.compile(r"[A-Za-z]+")
 
@@ -75,7 +78,9 @@ class ExecutionResult:
     ``working`` (orders still open; the next bar cancels and re-targets), ``rejected``
     (an order failed), ``pending_cancel`` (an earlier order could not be cancelled yet),
     ``unknown`` (the client lost track of an order; trading stops until it is resolved),
-    ``blocked`` (the account cannot trade now), ``error``.
+    ``blocked`` (the account cannot trade now), ``error``. The order step around it adds
+    ``closed`` (outside the trading session), ``stopped`` and ``over_limit``.
+    ``reconnected`` is the counter problem a reconnect fixed before trading, if any.
     """
 
     status: str
@@ -87,6 +92,7 @@ class ExecutionResult:
     cancelled: list[str] = field(default_factory=list)
     plan_id: str = ""
     legs: list[LegResult] = field(default_factory=list)
+    reconnected: str = ""
 
     @property
     def ok(self) -> bool:
@@ -138,6 +144,10 @@ class PandaTrader:
 
     def connection(self) -> dict:
         return (self._scoped("connection", read_only=True) or {}).get("connection") or {}
+
+    def connect(self) -> dict:
+        """Ask the client to reconnect the account's counter and recover its order reports."""
+        return (self._scoped("connect") or {}).get("connection") or {}
 
     def positions(self) -> list[dict]:
         return (self._scoped("positions", read_only=True) or {}).get("items") or []
@@ -230,6 +240,16 @@ def check_account(trader: PandaTrader) -> PandaAccount:
     return account
 
 
+def counter_problem(connection: Mapping[str, Any]) -> str:
+    """Why the counter takes no orders now, with the client's last error; "" when ready."""
+    if connection.get("connected") and connection.get("cli_ready"):
+        return ""
+    reason = f"柜台未就绪（{connection.get('connection_status') or '未知'}）"
+    if connection.get("last_error"):
+        reason += f"：{connection['last_error']}"
+    return reason
+
+
 def trading_problems(trader: PandaTrader) -> tuple[PandaAccount | None, list[str]]:
     """The account and why it cannot be traded automatically right now (empty when it can).
 
@@ -243,13 +263,41 @@ def trading_problems(trader: PandaTrader) -> tuple[PandaAccount | None, list[str
         return None, [str(exc)]
     problems = account_problems(account)
     if not problems:
-        connection = trader.connection()
-        if not (connection.get("connected") and connection.get("cli_ready")):
-            reason = f"柜台未就绪（{connection.get('connection_status') or '未知'}）"
-            if connection.get("last_error"):
-                reason += f"：{connection['last_error']}"
-            problems.append(reason)
+        problem = counter_problem(trader.connection())
+        if problem:
+            problems.append(problem)
     return account, problems
+
+
+def reconnect(
+    trader: PandaTrader,
+    *,
+    wait_seconds: float = RECONNECT_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """Bring a counter that is not ready back and wait for it; "" once ready, else why not.
+
+    SimNow drops the counter now and then (2026-11-23 19:48, ``FAILED``) and the client
+    does not reconnect by itself. A disconnected counter gets one ``connect``; one already
+    connecting or syncing is only waited for. Call it for an account
+    :func:`account_problems` allows: a real account's counter is never touched.
+    """
+    latest = trader.connection()
+    if not counter_problem(latest):
+        return ""
+    asked = not latest.get("connected") and not latest.get("connecting")
+    if asked:
+        trader.connect()
+
+    def ready() -> bool:
+        nonlocal latest
+        latest = trader.connection()
+        return not counter_problem(latest)
+
+    if _wait(ready, wait_seconds, sleep):
+        return ""
+    done = "已发起重连，" if asked else ""
+    return f"{counter_problem(latest)}；{done}{wait_seconds:g} 秒内没有就绪"
 
 
 def _wait(poll: Callable[[], bool], wait_seconds: float, sleep: Callable[[float], None]) -> bool:
@@ -268,12 +316,15 @@ def execute_targets(
     *,
     request_id: str,
     wait_seconds: float = DEFAULT_WAIT_SECONDS,
+    reconnect_seconds: float = RECONNECT_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
 ) -> ExecutionResult:
     """Bring the account to ``wanted`` whole contracts per actual contract (see the module).
 
     ``request_id`` (strategy and bar) names the cancel requests so a repeated call cannot
-    cancel twice under different names. Contracts of other products are left alone.
+    cancel twice under different names. Contracts of other products are left alone. A
+    counter that is not ready is reconnected and waited for up to ``reconnect_seconds``
+    (0 turns that off); the result's ``reconnected`` then says what was wrong.
     """
     wanted = {symbol: int(units) for symbol, units in wanted.items()}
     products = {product_of(symbol) for symbol in wanted}
@@ -282,6 +333,12 @@ def execute_targets(
         account, problems = trading_problems(trader)
         if account is not None:
             result["account"] = f"{account.name}（{account.code}）"
+        if problems and reconnect_seconds > 0 and account and not account_problems(account):
+            # Only the counter is not ready, on an account that may be traded.
+            still = reconnect(trader, wait_seconds=reconnect_seconds, sleep=sleep)
+            if still:
+                return ExecutionResult("blocked", still, **result)
+            result["reconnected"], problems = problems[0], []
         if problems:
             return ExecutionResult("blocked", "；".join(problems), **result)
 
@@ -409,7 +466,9 @@ __all__ = [
     "PandaTrader",
     "account_problems",
     "check_account",
+    "counter_problem",
     "execute_targets",
     "product_of",
+    "reconnect",
     "trading_problems",
 ]

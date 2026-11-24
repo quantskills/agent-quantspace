@@ -53,6 +53,9 @@ class FakePandaData:
     ``factors[symbol]`` maps a first day to the backward-adjustment factor from that day
     on; ``ex_dates`` lists announced ex-dates and ``published`` the cumulative factors
     PandaData has already released for them.
+    Daily closes are ``base`` unless ``daily[(symbol, day)]`` says otherwise, previous
+    closes too unless ``pre_closes[(symbol, day)]`` does; daily bars stop at
+    ``daily_until`` when set, as before PandaData publishes the day.
     """
 
     def __init__(self):
@@ -64,6 +67,9 @@ class FakePandaData:
         }
         self.ex_dates: dict[str, list[str]] = {}
         self.published: dict[str, dict[str, float]] = {}
+        self.daily: dict[tuple[str, date], float] = {}
+        self.pre_closes: dict[tuple[str, date], float] = {}
+        self.daily_until: date | None = None
         self.calls: list[tuple] = []
 
     # ---------------------------------------------------------------- reference data
@@ -129,14 +135,28 @@ class FakePandaData:
                 rows.append(row)
         return pd.DataFrame(rows[::-1])  # PandaData answers newest first
 
-    def _daily(self, symbol, start, end, adjusted):
-        days = _days(start, end)
-        closes = [
-            self._base(symbol) * (self._factor(symbol, day) if adjusted else 1.0) for day in days
-        ]
-        return pd.DataFrame(
-            {"symbol": symbol, "date": [_stamp(day) for day in days], "close": closes}
-        )
+    def _daily(self, symbols, start, end, adjusted):
+        self.calls.append(("daily", start, end, adjusted))
+        days = [day for day in _days(start, end) if not self.daily_until or day <= self.daily_until]
+        rows = []
+        for symbol in [symbols] if isinstance(symbols, str) else symbols:
+            for day in days:
+                close = self.daily.get((symbol, day), self._base(symbol))
+                scale = self._factor(symbol, day) if adjusted else 1.0
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "date": _stamp(day),
+                        "open": close * scale,
+                        "high": (close + 1) * scale,
+                        "low": (close - 1) * scale,
+                        "close": close * scale,
+                        "volume": 1000.0,
+                        "pre_close": self.pre_closes.get((symbol, day), self._base(symbol)),
+                    }
+                )
+        columns = ["symbol", "date", "open", "high", "low", "close", "volume", "pre_close"]
+        return pd.DataFrame(rows, columns=columns)
 
     def fetch_market_data(self, symbol, start, end, *, type, adjust=None):
         return self._daily(symbol, start, end, adjust == "post")

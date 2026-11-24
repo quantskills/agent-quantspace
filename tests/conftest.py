@@ -39,15 +39,23 @@ SMOKE_SKIP_REASON = (
 )
 
 
+LIVE_SKIP_REASON = (
+    "live checks are opt-in: run `uv run python -m pytest -m live -rs` during trading hours "
+    "(needs the network, PandaData credentials and, for futures, the PandaAI client)"
+)
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip smoke tests unless the user's -m expression mentions them.
+    """Skip smoke and live tests unless the user's -m expression mentions them.
 
     A hook rather than ``addopts = -m "not smoke"``: any user-supplied ``-m`` (for example
     ``-m "not policy"``) replaces addopts and would silently turn the smoke tests on.
     """
-    if "smoke" in (config.getoption("markexpr") or ""):
-        return
-    skip = pytest.mark.skip(reason=SMOKE_SKIP_REASON)
-    for item in items:
-        if item.get_closest_marker("smoke") is not None:
-            item.add_marker(skip)
+    expression = config.getoption("markexpr") or ""
+    for marker, reason in (("smoke", SMOKE_SKIP_REASON), ("live", LIVE_SKIP_REASON)):
+        if marker in expression:
+            continue
+        skip = pytest.mark.skip(reason=reason)
+        for item in items:
+            if item.get_closest_marker(marker) is not None:
+                item.add_marker(skip)

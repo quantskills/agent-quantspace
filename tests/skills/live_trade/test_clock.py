@@ -16,7 +16,9 @@ from skills.live_trade.clock import (
     bars_per_day,
     due_bars,
     has_night_session,
+    in_session,
     parse_trading_hours,
+    trading_windows,
 )
 from skills.live_trade.spec import Instrument, LiveSpec
 
@@ -89,6 +91,42 @@ def test_after_midnight_bars_fall_on_the_next_calendar_day():
     assert night[0] == datetime(2026, 11, 20, 21, 15)
     assert night[-1] == datetime(2026, 11, 21, 2, 30)  # Saturday morning of Monday's day
     assert len(night) == 22
+
+
+def test_trading_windows_split_at_breaks_and_sessions():
+    ends = bar_ends(date(2026, 11, 23), "5m", parse_trading_hours(RB_HOURS), CALENDAR)
+    windows = trading_windows(ends, "5m")
+    assert [(f"{start:%d %H:%M}", f"{end:%d %H:%M}") for start, end in windows] == [
+        ("20 21:00", "20 23:00"),
+        ("23 09:00", "23 10:15"),
+        ("23 10:30", "23 11:30"),
+        ("23 13:30", "23 15:00"),
+    ]
+    # A session's last bar runs after its end: no orders then, nor during a break.
+    inside = [datetime(2026, 11, 20, 21, 5, 40), datetime(2026, 11, 23, 10, 30)]
+    outside = [
+        datetime(2026, 11, 20, 23, 0, 40),
+        datetime(2026, 11, 23, 10, 15, 40),
+        datetime(2026, 11, 23, 11, 30, 40),
+        datetime(2026, 11, 23, 15, 0),
+        datetime(2026, 11, 23, 20, 59),
+    ]
+    assert all(in_session(moment, ends, "5m") for moment in inside)
+    assert not any(in_session(moment, ends, "5m") for moment in outside)
+
+
+def test_trading_windows_cross_midnight_and_the_equity_lunch_break():
+    gold = bar_ends(date(2026, 11, 23), "15m", parse_trading_hours("21:01-02:30"), CALENDAR)
+    assert trading_windows(gold, "15m") == [
+        (datetime(2026, 11, 20, 21, 0), datetime(2026, 11, 21, 2, 30))
+    ]
+    assert in_session(datetime(2026, 11, 21, 0, 0, 40), gold, "15m")
+
+    equity = bar_ends(date(2026, 11, 23), "5m", EQUITY_SESSIONS, CALENDAR)
+    assert [f"{start:%H:%M}-{end:%H:%M}" for start, end in trading_windows(equity, "5m")] == [
+        "09:30-11:30",
+        "13:00-15:00",
+    ]
 
 
 def test_equity_bars_and_sessions_that_do_not_split_evenly():

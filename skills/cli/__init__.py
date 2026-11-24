@@ -33,6 +33,7 @@ EXTRAS = {
     "panda_data": "panda_data",
     "akshare": "akshare",
     "live": "apprise",
+    "tqsdk": "tqsdk",
 }
 
 

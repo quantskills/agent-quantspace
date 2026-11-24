@@ -69,7 +69,12 @@ count starts at the first loaded row, so loading a different history moves the
 rebalance dates.
 
 `strategies.cross_sectional.workflows.live_asset_class_rotation` runs the same
-`target_weights` function live: it downloads backward-adjusted closes from
-`HISTORY_START` up to the trade date, anchors rebalances at that date, sizes
-with unadjusted closes, and hands its loader to `skills.live_trade.workflow.daily_main`.
-A backtest that should match the live signals uses the same start date.
+`target_weights` function live at 14:50 of the trade date: backward-adjusted
+closes from `HISTORY_START` up to the previous trading day plus today's 14:50
+price (`skills.live_trade.daily.load_daily_bars`), rebalances anchored at that
+date, units sized with unadjusted prices, and its loader handed to
+`skills.live_trade.workflow.daily_main`. A backtest that should match the live
+signals uses the same start date and fills at the signal day's close
+(`trade_at="close", signal_lag=0`), the close standing in for the 14:50 price.
+`live_stock_ma_gap_1d` is the same for a daily stock rule: `ma_gap_reversal_weights`
+on six large caps, rebalanced every five trading days from `HISTORY_START`.

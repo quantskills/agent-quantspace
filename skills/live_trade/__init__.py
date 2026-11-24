@@ -1,10 +1,11 @@
 """Live trading: turn the latest target weights into rebalance signals and deliver them.
 
 Futures go to the PandaAI live-trading client through its bundled CLI; other symbols are
-pushed to IM webhooks through Apprise. Daily runs live in ``runner`` and ``scheduler``;
-minute-level runs in ``spec``, ``clock``, ``feeds`` and ``minute``, imported from their
-modules because they need PandaData and AKShare; ``execution`` trades a minute futures
-target on a SimNow account through the client CLI.
+pushed to IM webhooks through Apprise. Daily runs live in ``runner`` and ``scheduler``,
+their 14:50 closes in ``daily``; minute-level runs in ``spec``, ``clock``, ``feeds`` and
+``minute``; ``history`` holds the PandaData daily data both share. They are imported from
+their modules because they need PandaData and AKShare; ``execution`` trades a futures
+target, daily or minute, on a SimNow account through the client CLI.
 """
 
 from .contracts import (

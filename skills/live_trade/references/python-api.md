@@ -47,7 +47,9 @@ ledger.record(signal, results, [result.channel for result in results])
 | `skills.live_trade.sizing` | `size_targets` and `SizingLimitError`: weights to contracts or board lots, with unit and notional caps that raise instead of clipping |
 | `skills.live_trade.ledger` | `SignalLedger`: last fully delivered target and per-channel results under `data/live/<strategy_id>/ledger.json` |
 | `skills.live_trade.notify` | `NOTIFY_ENV` per-IM variables (`QS_NOTIFY_WECOM`, `QS_NOTIFY_FEISHU`, `QS_NOTIFY_DINGTALK`, `QS_NOTIFY_SLACK`, `QS_NOTIFY_DISCORD`) with platform checks, IM URL normalization, redacted channel labels, message formatting, delivery (WeCom, Feishu, DingTalk posted directly and checked by error code; Slack, Discord via Apprise) |
-| `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `deliver_signal`, `send_alert`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) |
+| `skills.live_trade.runner` | `run_live`, `LiveInputs`, `RunOutcome`, `RunLog`, `DataNotReady`, `deliver_signal`, `send_alert`, `trade_target`, `futures_lots`, `stop_file`: one scheduled run of a trade date (trading-day and freshness checks, delivery, run log, alerts) and the futures order step shared with minute bars |
+| `skills.live_trade.daily` | `load_daily_bars`, `DailyBars`, `DailyNotReady`, `CUTOFF`, `RUN_TIMES`: a daily strategy's bars at 14:50, PandaData to yesterday plus today's bar from Sina's 1-minute bars |
+| `skills.live_trade.history` | `daily_bars`, `daily_closes`, `close_table`, `adjustment_factors`, `today_factors`, `dominant_contracts`, `contract_multipliers`: PandaData daily data shared by the daily and minute feeds |
 | `skills.live_trade.scheduler` | `ScheduleConfig`, `JobConfig`, `run_job`, `tick`, `catch_up`, `build_scheduler`, `next_runs`, `serve`: APScheduler 3.x cron triggers that start workflow processes |
 | `skills.live_trade.workflow` | `daily_main`, `minute_main`, `workflow_arguments`, `is_trading_day`, `load_with_relogin`, `replay_mismatches`: the command-line entry of a strategy workflow module, and the check that a live run reproduces the backtest's rows |
 | `skills.live_trade.spec` | `LiveSpec`, `Instrument`: what a minute-level strategy trades, its bar interval, warm-up, price adjustment, and bar timing |
@@ -89,18 +91,23 @@ ledger.record(signal, results, [result.channel for result in results])
   `PANDA_LIVE_ACTOR_ID=quantspace-live-trade`; `env` adds more, such as
   `PANDA_LIVE_TRACE_ID`. The client's update check stays on.
 - `execution.PandaTrader(command, account, trace_id="", runner=run_cli)` wraps
-  the calls for one account (`accounts`, `connection`, `positions`, `orders`,
-  `operation`, `cancel`, `target-position --targets`, `plan execute --yes`);
-  queries are tried twice, cancels and plan executions once.
-  `execution.execute_targets(trader, wanted, request_id=, wait_seconds=15)`
-  brings a SimNow account to `wanted` whole contracts per actual contract
-  (negative is short) and returns an `ExecutionResult` (`status`, `detail`,
-  `account`, `wanted`, `before`, `after`, `cancelled`, `plan_id`, `legs` of
-  `LegResult`); see the Skill for the steps and statuses. `check_account`
-  raises `ExecutionRefused` for anything but an eligible SimNow account;
-  `account_problems(account)` lists why, and `trading_problems(trader)` returns
-  the account and every reason it cannot trade now, counter state included
-  (what `doctor --account` reports).
+  the calls for one account (`accounts`, `connection`, `connect`, `positions`,
+  `orders`, `operation`, `cancel`, `target-position --targets`, `plan execute
+  --yes`); queries are tried twice, `connect`, cancels and plan executions once.
+  `execution.execute_targets(trader, wanted, request_id=, wait_seconds=15,
+  reconnect_seconds=20)` brings a SimNow account to `wanted` whole contracts per
+  actual contract (negative is short) and returns an `ExecutionResult`
+  (`status`, `detail`, `account`, `wanted`, `before`, `after`, `cancelled`,
+  `plan_id`, `legs` of `LegResult`, `reconnected`); see the Skill for the steps
+  and statuses. A counter that is not ready on an eligible account goes through
+  `reconnect(trader, wait_seconds=)` first (one `connect` when disconnected,
+  then waiting; `""` once ready, else why not; `reconnect_seconds=0` turns it
+  off), and `reconnected` keeps what was wrong. `check_account` raises
+  `ExecutionRefused` for anything but an eligible SimNow account;
+  `account_problems(account)` lists why, `counter_problem(connection)` says why
+  a counter takes no orders, and `trading_problems(trader)` returns the account
+  and every reason it cannot trade now, counter state included (what `doctor
+  --account` reports; `doctor` itself never reconnects).
 - `list_accounts(command)` returns `PandaAccount` items; `is_simnow` means
   broker `9999` (`SIMNOW_BROKER_ID`), `cli_eligible` and `unavailable_reason`
   come from the client.
@@ -120,32 +127,77 @@ supplies the data and the target table; `skills.live_trade` never imports it. Th
 steps and checks of writing one are in [backtest-to-live.md](backtest-to-live.md).
 
 ```python
+from skills.live_trade.daily import load_daily_bars
 from skills.live_trade.runner import LiveInputs
 from skills.live_trade.workflow import daily_main
 
 def load_inputs(client, trade_date, market_dir=None) -> LiveInputs:
-    close = ...                      # download history up to trade_date
-    return LiveInputs(weights=target_weights(close), prices=raw_close)
+    bars = load_daily_bars(client, SYMBOLS, HISTORY_START, trade_date, asset="fund")
+    return bars.inputs(target_weights(bars.close))
 
 def main(argv=None) -> int:
     return daily_main("my_strategy", load_inputs, argv)
 ```
 
+- `load_daily_bars(client, instruments, start, trade_date, asset=None,
+  adjust="post", cutoff=CUTOFF, now=None)` returns `DailyBars`: `panel` (signal
+  bars) and `raw_panel` (unadjusted), `(symbol, eob)` panels of open, high, low,
+  close, volume whose last day is `trade_date` at the cut-off (14:50); `close`
+  and `raw_close`, their closes as eob by symbol tables; `contracts`,
+  `multipliers`, today's `factors`, `suspended`, `notes` and `inputs(weights)` (a
+  `LiveInputs` with raw closes as prices, multipliers, contracts and notes).
+  History is PandaData daily bars (`daily_bars`) from `start` to the previous
+  trading day; today's bar aggregates the Sina 1-minute bars of the trading day
+  up to `cutoff` (first open, highest high, lowest low, the cut-off close, summed
+  volume), prices times today's factor
+  (`today_factors(client, items, last, trading_date, last_closes=, pre_closes=)`:
+  the previous day's post/raw ratio, times yesterday's close over today's
+  previous close when they differ, as on an ex-date; a stock's published
+  `ex_cum_factor` first). Today's previous close comes from PandaData once the
+  day is published, else from `fetch_sina_quotes` (`skills.ingest.akshare_bars`).
+  Futures continuous symbols take the dominant contract's price and are never
+  adjusted. It raises `DailyNotReady` (a `DataNotReady`) while a cut-off bar or
+  today's previous close is missing, or a stock with an announced ex-date has
+  neither a published factor nor a moved previous close. A minute without trades
+  has no Sina bar, so the close is the last trade at or before the cut-off once a
+  later bar is out or `SETTLE` (two minutes, five for futures) has passed; a stock
+  or fund with no trade today keeps the previous close with no volume and is
+  listed in `suspended`. `instruments` are
+  `Instrument`s, or symbols of one `asset`.
 - `daily_main(strategy_id, load, argv=None)` parses `workflow_arguments(argv)`
   (`--date`, `--write`, `--final`, `--test`, `--data-root`, `--capital`,
-  `--lot-size`), asks PandaData's calendar `is_trading_day(client, date)` (not with
-  `--test`; a calendar failure becomes the run's `error`), and passes `run_live` a
-  loader that calls `load(client, trade_date, market_dir)` through
-  `load_with_relogin(load, make_client, trade_date, market_dir)`: once more on a fresh
-  client when PandaData drops the login. `market_dir` is
-  `<data_root>/live/<strategy_id>/market` with `--write` outside `--test`, else None.
-  It prints one JSON report (`strategy_id`, `trade_date`, `status`, `detail`,
-  `signal_id`, `target`, `message`, `deliveries`, `alerts`) and returns
-  `RunOutcome.exit_code`.
+  `--lot-size`, `--account`, `--max-lots`), asks PandaData's calendar
+  `is_trading_day(client, date)` (a calendar failure becomes the run's `error`),
+  and passes `run_live` a loader that calls `load(client, trade_date, market_dir)`
+  through `load_with_relogin(load, make_client, trade_date, market_dir)`: once
+  more on a fresh client when PandaData drops the login. `--test` loads
+  `latest_inputs(load, make_client, date)` instead: the newest trading day at or
+  before the date whose data is ready. `market_dir` is
+  `<data_root>/live/<strategy_id>/market` with `--write` outside `--test`, else
+  None. With `--account` a futures strategy's target is traded at the cut-off
+  (`run_live(..., execute=, max_lots=)`). It prints one JSON report
+  (`strategy_id`, `trade_date`, `status`, `detail`, `execution`, `signal_id`,
+  `target`, `message`, `deliveries`, `alerts`) and returns `RunOutcome.exit_code`.
 - `run_live` returns `not_trading_day` without calling `load`, and `done`
   without calling it when `RunLog` already finished the date (`write` only).
-  Weights whose last row is before the date are `stale`; after it, an `error`.
-  The signal is the row of the date itself.
+  A loader that raises `DataNotReady`, or weights whose last row is before the
+  date, are `stale`; weights after it, an `error`. The signal is the row of the
+  date itself, with `LiveInputs.notes` appended to the message. With `write` and
+  `execute`, the full target goes through `trade_target` (below) after the signal.
+- `trade_target(strategy_id, trade_date, label, wanted, execute, request_id=,
+  runs=, urls=None, closed="")` is the order step of daily runs and minute bars:
+  no order when `closed` says why the market takes none now (`closed`, not
+  alerted), while `stop_file(strategy_id, data_root)` (`live/<id>/STOP`) exists
+  (`stopped`), or when `wanted()` raises `SizingLimitError` (`over_limit`);
+  otherwise `execute(wanted(), request_id)`. A run that placed orders pushes a
+  `trade` message, other problems alert `execution_<status>` once per trade
+  date, and a result with `reconnected` alerts `execution_reconnected` once per
+  trade date. `run_live(..., closed="")` passes `closed` on; `daily_main` sets it
+  outside 14:50–15:00 (`daily.CUTOFF`, `daily.DAY_CLOSE`) of the trade date, and
+  `run_bar` outside the day's sessions (`clock.in_session(now, bar_ends,
+  frequency)`, from `clock.trading_windows`). `futures_lots(weights, prices, contracts=, multipliers=, capital=,
+  max_lots=None)` sizes a target into whole contracts per actual contract,
+  rounded toward zero; it raises for anything but futures.
 - `run_live(..., test=True)` is for checking the IM path outside trading
   hours: no trading-day or freshness check, the row at or before the date, the
   whole target in a message marked 测试 (`format_signal(..., test=True)`), and
@@ -236,7 +288,10 @@ def main(argv=None) -> int:
   each day (`fetch_market_data` with `adjust="post"`, `get_fund_daily_post`).
   Today's factor is the last known one, or for a stock whose ex-date is today
   (`get_stock_dividend`) the published `ex_cum_factor` of `get_adj_factor`; if
-  that is missing the stock is in `FeedState.halted`.
+  that is missing the stock is in `FeedState.halted`. A fund's ex-date is not
+  caught before the open: PandaData publishes no fund dividends, and the
+  exchange's previous close (what the 14:50 daily path checks) is only quoted
+  once the session starts.
 - `run_bar(spec, feed, compute, bar=, now=, write=False, capital=None,
   lot_size=100, data_root=None, urls=None, execute=None, max_lots=None)` returns a `RunOutcome`
   whose status is a delivery status or `not_ready`, `stale`, `source_error`,
@@ -245,12 +300,9 @@ def main(argv=None) -> int:
   With `write` it logs the bar and the target it computed in `RunLog`. With
   `write` and `execute(wanted, request_id)` (futures only) it also sizes the
   full target with `wanted_contracts(spec, snapshot, state, capital,
-  max_lots=)` and trades it; `RunOutcome.execution` and the run log's
-  `execution` hold the result, a bar that placed orders pushes a `trade`
-  message, and other problems alert `execution_<status>` once per trade date.
-  No order is placed while `stop_file(strategy_id, data_root)`
-  (`live/<id>/STOP`) exists (`stopped`) or when a contract would exceed
-  `max_lots` (`over_limit`, from `SizingLimitError`).
+  max_lots=)` and trades it through `trade_target`, `closed` when `now` is
+  outside the day's sessions; `RunOutcome.execution` and the run log's
+  `execution` hold the result.
 - `refresh_day(spec, feed, compute, now=, write=False, ...)` refreshes the
   trading day after `now` (`upcoming_trading_date`: today before 15:30, else
   the next trading day), recomputes the days it replaced, and returns

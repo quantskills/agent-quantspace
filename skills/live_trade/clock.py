@@ -175,6 +175,27 @@ def bars_per_day(frequency: str, sessions: Sequence[Session]) -> int:
     return sum(session.minutes // step for session in sessions)
 
 
+def trading_windows(ends: Sequence[datetime], frequency: str) -> list[tuple[datetime, datetime]]:
+    """The continuous-trading windows ``(start, end)`` that a day's bar ends cover.
+
+    Bars one interval apart share a window; a break or the gap between sessions starts
+    a new one (rebar's day: 21:00-23:00, 09:00-10:15, 10:30-11:30, 13:30-15:00).
+    """
+    step = timedelta(minutes=INTRADAY_MINUTES[frequency])
+    windows: list[tuple[datetime, datetime]] = []
+    for end in sorted(ends):
+        if windows and end - windows[-1][1] == step:
+            windows[-1] = (windows[-1][0], end)
+        else:
+            windows.append((end - step, end))
+    return windows
+
+
+def in_session(moment: datetime, ends: Sequence[datetime], frequency: str) -> bool:
+    """Whether ``moment`` is inside one of the day's continuous-trading windows."""
+    return any(start <= moment < end for start, end in trading_windows(ends, frequency))
+
+
 @dataclass(frozen=True)
 class DueBar:
     """The newest bar whose results should be available at ``now``."""
@@ -222,5 +243,7 @@ __all__ = [
     "bars_per_day",
     "due_bars",
     "has_night_session",
+    "in_session",
     "parse_trading_hours",
+    "trading_windows",
 ]

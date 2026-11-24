@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from skills.live_trade.execution import ExecutionResult
-from skills.live_trade.runner import LiveInputs, RunLog
+from skills.live_trade.runner import DataNotReady, LiveInputs, RunLog
 from skills.live_trade.workflow import (
     daily_main,
     is_trading_day,
@@ -28,6 +28,7 @@ DAILY_FIELDS = [
     "trade_date",
     "status",
     "detail",
+    "execution",
     "signal_id",
     "target",
     "message",
@@ -55,8 +56,13 @@ class Calendar:
         self.calls.append(start)
         if self.broken:
             raise ConnectionError("calendar unavailable")
-        day = pd.Timestamp(start)
-        return pd.DataFrame({"nature_date": [int(start)], "is_trade": [int(day.weekday() < 5)]})
+        days = pd.date_range(start, end)
+        return pd.DataFrame(
+            {
+                "nature_date": [int(day.strftime("%Y%m%d")) for day in days],
+                "is_trade": [int(day.weekday() < 5) for day in days],
+            }
+        )
 
 
 @pytest.fixture
@@ -166,7 +172,7 @@ def test_a_calendar_failure_is_the_run_error(tmp_path, monkeypatch, capsys):
     assert "calendar unavailable" in report["detail"]
 
 
-def test_daily_test_mode_skips_the_calendar(tmp_path, calendar, capsys):
+def test_daily_test_mode_on_a_weekend_runs_the_last_trading_day(tmp_path, calendar, capsys):
     calls = []
 
     code = daily_main(
@@ -174,7 +180,35 @@ def test_daily_test_mode_skips_the_calendar(tmp_path, calendar, capsys):
     )
 
     assert (code, _report(capsys)["status"]) == (0, "preview")
-    assert calendar.calls == [] and calls == [(date(2026, 11, 21), None)]
+    assert calls == [(date(2026, 11, 20), None)]
+
+
+def test_daily_test_mode_before_the_cutoff_runs_the_day_before(tmp_path, calendar, capsys):
+    calls = []
+    ready = _daily_load(calls)
+
+    def load(client, trade_date, market_dir):
+        if trade_date == date(2026, 11, 23):
+            calls.append((trade_date, "not ready"))
+            raise DataNotReady("新浪还没有 14:50 的 K 线")
+        return ready(client, trade_date, market_dir)
+
+    code = daily_main(
+        "demo", load, ["--date", "2026-11-23", "--test", "--data-root", str(tmp_path)]
+    )
+
+    assert (code, _report(capsys)["status"]) == (0, "preview")
+    assert calls == [(date(2026, 11, 23), "not ready"), (date(2026, 11, 20), None)]
+
+
+def test_daily_not_ready_is_stale_and_retried(tmp_path, calendar, capsys):
+    def load(client, trade_date, market_dir):
+        raise DataNotReady("新浪还没有 14:50 的 K 线")
+
+    code = daily_main("demo", load, ["--date", "2026-11-23", "--data-root", str(tmp_path)])
+
+    report = _report(capsys)
+    assert (code, report["status"]) == (3, "stale") and "14:50" in report["detail"]
 
 
 # --------------------------------------------------------------------------- minute

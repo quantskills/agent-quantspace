@@ -248,6 +248,30 @@ def test_doctor_reports_whether_an_account_can_trade_automatically(capsys, tmp_p
     assert code == 0 and result["data"]["auto_trade"] is None
 
 
+def test_doctor_says_a_dropped_counter_is_reconnected_before_orders(capsys, tmp_path, monkeypatch):
+    from tests.skills.live_trade.test_panda_cli import ACCOUNTS, CAPABILITIES, fake_cli
+
+    dropped = {"connected": False, "cli_ready": False, "connection_status": "FAILED"}
+    cli = fake_cli(
+        tmp_path,
+        {
+            "accounts": {"ok": True, "data": ACCOUNTS},
+            "capabilities": {"ok": True, "data": CAPABILITIES},
+            "connection": {"ok": True, "data": {"connection": dropped}},
+        },
+    )
+    monkeypatch.setenv("PANDA_LIVE_CLI", cli[0])
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+
+    code, result = invoke(
+        capsys, "live-trade", "doctor", "--data-root", str(tmp_path), "--account", "100001"
+    )
+
+    auto = result["data"]["auto_trade"]
+    assert code == 1 and auto["ready"] is False
+    assert auto["reasons"] == ["柜台未就绪（FAILED）（下一次下单前会先自动重连）"]
+
+
 def test_doctor_without_channels_is_not_ready(capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("PANDA_LIVE_CLI", str(tmp_path / "missing"))
     code, result = invoke(capsys, "live-trade", "doctor")

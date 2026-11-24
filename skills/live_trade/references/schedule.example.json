@@ -5,7 +5,21 @@
       "strategy_id": "asset_class_rotation",
       "module": "strategies.cross_sectional.workflows.live_asset_class_rotation",
       "days": "mon-fri",
-      "times": ["17:30", "19:30", "21:30"],
+      "times": ["14:51", "14:53", "14:55"],
+      "args": ["--capital", "100000"]
+    },
+    {
+      "strategy_id": "stock_ma_gap_1d",
+      "module": "strategies.cross_sectional.workflows.live_stock_ma_gap_1d",
+      "days": "mon-fri",
+      "times": ["14:51", "14:53", "14:55"],
+      "args": ["--capital", "1000000"]
+    },
+    {
+      "strategy_id": "rb_ma_atr_1d",
+      "module": "strategies.time_series.workflows.live_rb_ma_atr_1d",
+      "days": "mon-fri",
+      "times": ["14:51", "14:53", "14:55"],
       "args": ["--capital", "100000"]
     },
     {
