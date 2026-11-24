@@ -105,7 +105,14 @@ PandaData credentials, or without the client. Everything runs on a temporary dat
 root and only previews: nothing is pushed to IM or written to `data/`. Orders go
 out only with `QS_LIVE_ORDERS_ACCOUNT=<SimNow account code>`: one hot-rolled coil
 contract is opened and closed twice (the order step, then the daily path), which leaves
-a rebar strategy on the same account alone.
+a rebar strategy on the same account alone. The contract is PandaData's hot-rolled coil
+dominant; `QS_LIVE_ORDERS_CONTRACT=HC2701.SHF` names it instead, so the client check and
+the order step also run on a machine without PandaData credentials:
+
+```bash
+QS_LIVE_ORDERS_ACCOUNT=<SimNow account code> QS_LIVE_ORDERS_CONTRACT=HC2701.SHF \
+    uv run python -m pytest -m live -rs -q tests/live -k "client_cli or round_trip"
+```
 
 ## Scope
 

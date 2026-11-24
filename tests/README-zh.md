@@ -90,6 +90,13 @@ uv run python -m pytest -m live -rs -q        # 约 2 分钟
 当天 ETF 轮动 14:51–15:00），没有 PandaData 账号或客户端时也跳过。全部在临时数据目录里预览，
 不推送 IM，不写 `data/`。只有设置 `QS_LIVE_ORDERS_ACCOUNT=<SimNow 账号代码>` 才下单：
 热卷开平 1 手两次（下单步骤本身一次，日级别链路一次），不碰同一账号上螺纹钢策略的持仓。
+合约默认取 PandaData 的热卷主力；设置 `QS_LIVE_ORDERS_CONTRACT=HC2701.SHF` 可直接指定，
+没有 PandaData 账号的机器也能跑客户端检查和下单步骤：
+
+```bash
+QS_LIVE_ORDERS_ACCOUNT=<SimNow 账号代码> QS_LIVE_ORDERS_CONTRACT=HC2701.SHF \
+    uv run python -m pytest -m live -rs -q tests/live -k "client_cli or round_trip"
+```
 
 ## 范围
 
