@@ -57,9 +57,10 @@ Python 3.11 and the `tzdata` package that `Asia/Shanghai` needs there.
   as is; to capture it in PowerShell, first run
   `[Console]::OutputEncoding = [Text.Encoding]::UTF8`.
 - Stop `serve` with Ctrl+C (see "Stopping `serve`" below). Closing the window
-  or `taskkill /F` kills the running workflow too and skips the stop message.
-  To start it at logon, use a Task Scheduler task that runs only while you are
-  logged on, since the PandaAI client runs on your desktop.
+  kills the running workflow too, while `taskkill /F` on `serve` leaves it
+  running on its own; both skip the stop message. To start it at logon, use a
+  Task Scheduler task that runs only while you are logged on, since the PandaAI
+  client runs on your desktop.
 
 Paste each IM bot's webhook URL into its own `.env` variable; leave unused ones
 empty. One variable may hold several groups of the same IM, separated by commas:
