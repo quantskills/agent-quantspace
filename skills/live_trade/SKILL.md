@@ -138,8 +138,9 @@ process group (Windows) or session (macOS, Linux), so Ctrl+C reaches only
 lets the running one finish (at most its own timeout: one bar for a minute
 strategy, 30 minutes for a daily run), and only then pushes its stop message;
 with nothing running it stops within a second. Press Ctrl+C again while it
-waits to kill the running process: the run alerts `forced_stop` and the stop
-message names it, so check its orders and positions in the client.
+waits to kill the running process and the PandaAI CLI calls it started: the
+run alerts `forced_stop` and the stop message names it, so check its orders and
+positions in the client before starting `serve` again.
 
 ### Daily strategies trade at 14:50
 

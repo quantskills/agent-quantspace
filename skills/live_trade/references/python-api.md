@@ -289,7 +289,10 @@ def main(argv=None) -> int:
   logged (30 seconds at most after the last process). A second Ctrl+C calls
   `Workflows.kill()`: the killed run is the attempt `killed`, alerts
   `forced_stop` once a day, and `serve`'s stop message lists it. A Ctrl+C
-  during the catch-up lets that run finish, then stops.
+  during the catch-up lets that run finish, then stops. A kill, and a run past
+  its timeout, end the whole process tree (POSIX: the process group; Windows: a
+  job object holding the process from its start, else `taskkill /T`), so no
+  PandaAI CLI call the workflow started outlives it.
 - State files (`ledger.json`, `runs.json`, `feed.json`) are written by
   `ledger.write_json_atomic`: a temporary file, then
   `skills.store.files.replace_file`, which retries for about two seconds while

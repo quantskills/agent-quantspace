@@ -448,8 +448,28 @@ def test_workflow_processes_do_not_share_the_console_ctrl_c():
     assert "capture_output" not in kwargs and kwargs["stdout"] is subprocess.PIPE
 
 
-def _stub_job(seconds: float):
-    return _config(module=STUB, args=["--exit", "0", "--sleep", str(seconds)]).jobs[0]
+def _stub_job(seconds: float, *extra: str):
+    return _config(module=STUB, args=["--exit", "0", "--sleep", str(seconds), *extra]).jobs[0]
+
+
+def _wait_for_beat(beat):
+    """Wait until the stub's child (``--spawn``) writes its first heartbeat."""
+    import time
+
+    for _ in range(200):
+        if beat.exists() and beat.stat().st_size:
+            return
+        time.sleep(0.05)
+    raise AssertionError("the workflow's child did not start")
+
+
+def _beating(beat, seconds: float = 0.6) -> bool:
+    """Whether the stub's child is still alive, appending to ``beat``."""
+    import time
+
+    before = beat.stat().st_size
+    time.sleep(seconds)
+    return beat.stat().st_size > before
 
 
 def _in_background(workflows, job, tmp_path, results):
@@ -505,8 +525,9 @@ def test_a_second_ctrl_c_kills_the_workflow_and_alerts_a_forced_stop(tmp_path, h
     from .conftest import FEISHU
 
     monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
-    workflows, results = Workflows(), []
-    thread = _in_background(workflows, _stub_job(60), tmp_path, results)
+    workflows, results, beat = Workflows(), [], tmp_path / "beat"
+    thread = _in_background(workflows, _stub_job(60, "--spawn", str(beat)), tmp_path, results)
+    _wait_for_beat(beat)
     started, presses = time.monotonic(), []
 
     def sleep(seconds):
@@ -518,13 +539,46 @@ def test_a_second_ctrl_c_kills_the_workflow_and_alerts_a_forced_stop(tmp_path, h
     with pytest.raises(KeyboardInterrupt):
         run_until_stopped(FakeScheduler(), workflows=workflows, sleep=sleep)
     thread.join(10)
-    assert time.monotonic() - started < 20
+    assert time.monotonic() - started < 10
     (attempt,) = results
     assert attempt.status == "killed" and "强制停止" in attempt.detail
     assert len(workflows.killed) == 1 and "--date 2026-11-20" in workflows.killed[0]
+    # The processes it started (a CLI call that may be placing an order) are dead too.
+    assert not _beating(beat)
     (alert,) = http.sent
     text = json.loads(alert["body"])["content"]["text"]
     assert "forced_stop" in text and "强制停止" in text and "核对委托和持仓" in text
+
+
+def test_a_workflow_past_its_timeout_is_killed_with_its_children(tmp_path):
+    import time
+
+    from skills.live_trade.scheduler import Workflows
+
+    beat = tmp_path / "beat"
+    command = [sys.executable, "-m", STUB, "--exit", "0", "--sleep", "60", "--spawn", str(beat)]
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        Workflows()(command, timeout=5, cwd=REPOSITORY_ROOT)
+    # Killed at once: `taskkill /T` alone can take 15 seconds on Windows.
+    assert time.monotonic() - started < 12
+    assert beat.exists() and not _beating(beat)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows job objects")
+def test_windows_workflows_run_in_a_job_object_that_kills_them_at_once():
+    """Without the job, a kill falls back to `taskkill /T`, which can take 15 seconds."""
+    from skills.live_trade.scheduler import _WindowsJob
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        job = _WindowsJob.holding(process.pid)
+        assert job is not None and job.kill()
+        assert process.wait(timeout=5) == 1
+        job.close()
+        assert not job.kill()
+    finally:
+        process.kill()
 
 
 def test_ctrl_c_during_the_catch_up_finishes_that_run_then_stops(tmp_path):

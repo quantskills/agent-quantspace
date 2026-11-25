@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -31,6 +32,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from functools import cache
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -164,14 +166,134 @@ class WorkflowStopped(RuntimeError):
         self.killed, self.returncode = killed, returncode
 
 
+class _WindowsJob:
+    """A Windows job object holding a workflow process and every process it starts.
+
+    ``Popen.kill`` ends only the direct child, the venv's ``python.exe`` launcher, and
+    ``taskkill /T`` walks the process list, which can take 15 seconds; ending the job ends
+    the whole tree at once. A process may still leave the job on request
+    (``CREATE_BREAKAWAY_FROM_JOB``), so a program that asks keeps working, unkilled.
+    """
+
+    _ACCESS = 0x0101  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    _BREAKAWAY_OK = 0x0800  # JOB_OBJECT_LIMIT_BREAKAWAY_OK, an extended limit
+    _EXTENDED_LIMITS = 9  # JobObjectExtendedLimitInformation
+
+    def __init__(self, handle) -> None:
+        self._handle, self._lock = handle, threading.Lock()
+
+    @staticmethod
+    @cache
+    def _kernel32():
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle, dword, boolean = wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL
+        for name, argtypes, restype in (
+            ("CreateJobObjectW", (wintypes.LPVOID, wintypes.LPCWSTR), handle),
+            ("SetInformationJobObject", (handle, ctypes.c_int, wintypes.LPVOID, dword), boolean),
+            ("OpenProcess", (dword, boolean, dword), handle),
+            ("AssignProcessToJobObject", (handle, handle), boolean),
+            ("TerminateJobObject", (handle, wintypes.UINT), boolean),
+            ("CloseHandle", (handle,), boolean),
+        ):
+            function = getattr(kernel32, name)
+            function.argtypes, function.restype = argtypes, restype
+        return kernel32
+
+    @classmethod
+    def holding(cls, pid: int) -> _WindowsJob | None:
+        """A job holding process ``pid``, or None if one cannot be made."""
+        import ctypes
+        from ctypes import wintypes
+
+        class Basic(ctypes.Structure):  # JOBOBJECT_BASIC_LIMIT_INFORMATION
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class Limits(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            _fields_ = [
+                ("BasicLimitInformation", Basic),
+                ("IoInfo", ctypes.c_uint64 * 6),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        try:
+            kernel32 = cls._kernel32()
+            job = kernel32.CreateJobObjectW(None, None)
+        except (AttributeError, OSError):
+            return None
+        if not job:
+            return None
+        limits = Limits(BasicLimitInformation=Basic(LimitFlags=cls._BREAKAWAY_OK))
+        made = kernel32.SetInformationJobObject(
+            job, cls._EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)
+        )
+        process = kernel32.OpenProcess(cls._ACCESS, False, pid) if made else None
+        if process:
+            made = kernel32.AssignProcessToJobObject(job, process)
+            kernel32.CloseHandle(process)
+        if not (made and process):
+            kernel32.CloseHandle(job)
+            return None
+        return cls(job)
+
+    def kill(self) -> bool:
+        with self._lock:
+            return bool(self._handle) and bool(self._kernel32().TerminateJobObject(self._handle, 1))
+
+    def close(self) -> None:
+        """Forget the job; its processes keep running."""
+        with self._lock:
+            if self._handle:
+                self._kernel32().CloseHandle(self._handle)
+                self._handle = None
+
+
+def _kill_tree(process: subprocess.Popen, job: _WindowsJob | None = None) -> None:
+    """Kill a workflow process and every process it started, such as a PandaAI CLI call.
+
+    The child leads its own session on POSIX (see :class:`Workflows`), so its process group
+    is killed; on Windows its job, else ``taskkill /T``.
+    """
+    pid = getattr(process, "pid", None)
+    if isinstance(pid, int) and pid > 0 and process.returncode is None:
+        try:
+            if os.name != "nt":
+                os.killpg(pid, signal.SIGKILL)
+            elif job is None or not job.kill():
+                command = ["taskkill", "/F", "/T", "/PID", str(pid)]
+                subprocess.run(command, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
 class Workflows:
     """The workflow processes of one ``serve``, called like ``subprocess.run``.
 
     Each process gets its own process group (Windows ``CREATE_NEW_PROCESS_GROUP``) or
     session (POSIX ``start_new_session``), so the console's Ctrl+C reaches only ``serve``.
     After :meth:`stop` no process starts (:class:`WorkflowStopped`); :meth:`wait` lets the
-    running ones finish within their own timeouts, and :meth:`kill` ends them by force. A
-    process waits in steps of :data:`POLL_SECONDS`, so a Ctrl+C in the main thread (the
+    running ones finish within their own timeouts, and :meth:`kill` ends them by force, with
+    the processes they started (on Windows through a job object). A process waits in steps
+    of :data:`POLL_SECONDS`, so a Ctrl+C in the main thread (the
     catch-up) is noticed on Windows too: the first stops ``serve`` after this run, the
     second kills it.
     """
@@ -182,6 +304,7 @@ class Workflows:
         self._popen, self._clock = popen, clock
         self._lock = threading.Lock()
         self._running: dict[subprocess.Popen, str] = {}
+        self._trees: dict[subprocess.Popen, _WindowsJob | None] = {}
         self._jobs = 0
         self.stopping = threading.Event()
         self.killed: list[str] = []
@@ -196,8 +319,10 @@ class Workflows:
             options["start_new_session"] = True
         process = self._popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)
         label = " ".join(str(part) for part in command[2:5])
+        pid = getattr(process, "pid", None)
+        tree = _WindowsJob.holding(pid) if os.name == "nt" and isinstance(pid, int) else None
         with self._lock:
-            self._running[process] = label
+            self._running[process], self._trees[process] = label, tree
         deadline, interrupted = self._clock() + timeout, False
         try:
             while True:
@@ -207,7 +332,7 @@ class Workflows:
                     break
                 except subprocess.TimeoutExpired:
                     if self._clock() >= deadline:
-                        process.kill()
+                        _kill_tree(process, tree)
                         stdout, stderr = process.communicate()
                         raise subprocess.TimeoutExpired(command, timeout, stdout, stderr) from None
                 except KeyboardInterrupt:
@@ -224,6 +349,9 @@ class Workflows:
         finally:
             with self._lock:
                 self._running.pop(process, None)
+                self._trees.pop(process, None)
+            if tree is not None:
+                tree.close()
         if label in self.killed:
             raise WorkflowStopped(
                 f"serve 被强制停止，策略进程已终止（退出码 {process.returncode}）",
@@ -251,16 +379,17 @@ class Workflows:
             return list(self._running.values())
 
     def kill(self) -> None:
-        """Kill every running process; their runs raise :class:`WorkflowStopped`."""
+        """Kill every running process and its children; their runs raise
+        :class:`WorkflowStopped`."""
         with self._lock:
-            processes = list(self._running.items())
-        for process, label in processes:
+            processes = [
+                (process, label, self._trees.get(process))
+                for process, label in self._running.items()
+            ]
+        for process, label, tree in processes:
             if label not in self.killed:
                 self.killed.append(label)
-            try:
-                process.kill()
-            except OSError:
-                pass
+            _kill_tree(process, tree)
 
     def wait(
         self,
