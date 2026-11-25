@@ -560,51 +560,92 @@ def test_serve_says_when_it_killed_workflows(tmp_path, monkeypatch):
     assert "强制停止" in said[-1] and "--bar 2026-11-20T21:05:00" in said[-1]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals; Windows is checked on asa")
+# serve's stand-in: one job thread runs a 2 s workflow while the main thread waits in
+# run_until_stopped; {press} is where a console Ctrl+C arrives while the workflow runs.
+SERVE_LIKE = """
+import json, os, sys, threading, time
+sys.path.insert(0, {root!r})
+from skills.live_trade.scheduler import Workflows, run_until_stopped
+
+class Scheduler:
+    running = False
+    def start(self): self.running = True
+    def shutdown(self, wait=True): self.running = False
+
+workflows, out = Workflows(), {{}}
+command = [sys.executable, "-m", {stub!r}, "--exit", "0", "--sleep", "2"]
+
+def job():
+    with workflows.job():
+        utf8 = {{**os.environ, "PYTHONIOENCODING": "utf-8"}}  # as serve runs it; GBK otherwise
+        done = workflows(command, timeout=60, cwd={root!r}, env=utf8)
+        out["code"] = done.returncode
+
+threading.Thread(target=job).start()
+{press}
+try:
+    run_until_stopped(Scheduler(), workflows=workflows)
+except KeyboardInterrupt:
+    out["stopped"] = True
+print(json.dumps(out), flush=True)
+"""
+
+
+def _serve_like(tmp_path, press: str):
+    script = tmp_path / "serve_like.py"
+    source = SERVE_LIKE.format(root=str(REPOSITORY_ROOT), stub=STUB, press=press)
+    script.write_text(source, encoding="utf-8")
+    return script
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
 def test_a_terminal_ctrl_c_reaches_serve_but_not_its_running_workflow(tmp_path):
     """SIGINT to serve's process group, as a terminal sends it, leaves the bar running."""
     import os
     import signal
-    import textwrap
     import time
 
-    script = tmp_path / "serve_like.py"
-    script.write_text(
-        textwrap.dedent(
-            f"""
-            import json, sys, threading, time
-            sys.path.insert(0, {str(REPOSITORY_ROOT)!r})
-            from skills.live_trade.scheduler import Workflows, run_until_stopped
-
-            class Scheduler:
-                running = False
-                def start(self): self.running = True
-                def shutdown(self, wait=True): self.running = False
-
-            workflows, out = Workflows(), {{}}
-            command = [sys.executable, "-m", {STUB!r}, "--exit", "0", "--sleep", "2"]
-
-            def job():
-                with workflows.job():
-                    done = workflows(command, timeout=60, cwd={str(REPOSITORY_ROOT)!r})
-                    out["code"] = done.returncode
-
-            threading.Thread(target=job).start()
-            print("ready", flush=True)
-            try:
-                run_until_stopped(Scheduler(), workflows=workflows)
-            except KeyboardInterrupt:
-                out["stopped"] = True
-            print(json.dumps(out), flush=True)
-            """
-        ),
-        encoding="utf-8",
-    )
+    script = _serve_like(tmp_path, 'print("ready", flush=True)')
     serve = subprocess.Popen(
         [sys.executable, str(script)], stdout=subprocess.PIPE, text=True, start_new_session=True
     )
     assert serve.stdout.readline().strip() == "ready"
     time.sleep(0.5)
     os.killpg(serve.pid, signal.SIGINT)
+    out, _ = serve.communicate(timeout=30)
+    assert json.loads(out.strip().splitlines()[-1]) == {"code": 0, "stopped": True}
+
+
+# Windows: once the workflow runs, Ctrl+C goes to every process on serve's console, as when
+# someone presses it in the window. Ctrl+C is re-enabled first in case the test runner's
+# parent turned it off; the workflow keeps it off through its own process group.
+WINDOWS_CTRL_C = """
+import ctypes
+kernel32 = ctypes.windll.kernel32
+kernel32.SetConsoleCtrlHandler(None, False)
+
+def press():
+    while not workflows.running():
+        time.sleep(0.05)
+    time.sleep(0.5)
+    kernel32.GenerateConsoleCtrlEvent(0, 0)
+
+threading.Thread(target=press, daemon=True).start()
+"""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows console Ctrl+C")
+def test_a_console_ctrl_c_reaches_serve_but_not_its_running_workflow(tmp_path):
+    """Ctrl+C in serve's console window leaves the bar running (Windows)."""
+    script = _serve_like(tmp_path, WINDOWS_CTRL_C)
+    # Its own hidden console, so the Ctrl+C reaches only serve and its workflow, not pytest.
+    hidden = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=0)
+    serve = subprocess.Popen(
+        [sys.executable, str(script)],
+        stdout=subprocess.PIPE,
+        text=True,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        startupinfo=hidden,
+    )
     out, _ = serve.communicate(timeout=30)
     assert json.loads(out.strip().splitlines()[-1]) == {"code": 0, "stopped": True}
