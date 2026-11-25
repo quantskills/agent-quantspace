@@ -279,6 +279,17 @@ def main(argv=None) -> int:
   happens once. `serve` runs it through `run_until_stopped`, whose thread
   sleeps one second at a time: on Windows Ctrl+C interrupts a sleep but not a
   `BlockingScheduler`'s wait for the next trigger.
+- `serve` starts its workflow processes through `Workflows`, called like
+  `subprocess.run`: each process gets its own process group (Windows
+  `CREATE_NEW_PROCESS_GROUP`) or session (POSIX `start_new_session`), so the
+  console's Ctrl+C reaches only `serve`. On Ctrl+C `run_until_stopped` shuts
+  the scheduler down, `Workflows.stop()` makes every later run raise
+  `WorkflowStopped` (attempt `stopped`), and `Workflows.wait()` sleeps until
+  the running processes end within their own timeouts and their jobs have
+  logged (30 seconds at most after the last process). A second Ctrl+C calls
+  `Workflows.kill()`: the killed run is the attempt `killed`, alerts
+  `forced_stop` once a day, and `serve`'s stop message lists it. A Ctrl+C
+  during the catch-up lets that run finish, then stops.
 - State files (`ledger.json`, `runs.json`, `feed.json`) are written by
   `ledger.write_json_atomic`: a temporary file, then
   `skills.store.files.replace_file`, which retries for about two seconds while

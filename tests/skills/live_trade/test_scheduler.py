@@ -404,3 +404,207 @@ def test_serve_announces_the_stop_after_ctrl_c(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         module.serve(_config(), data_root=tmp_path, announce=lambda title, body: said.append(title))
     assert said == ["QuantSpace 实盘调度已启动", "QuantSpace 实盘调度已停止"]
+
+
+# --------------------------------------------------------------------------- stopping serve
+
+STUB = "tests.skills.live_trade.stub_workflow"
+
+
+class FakeProcess:
+    """A Popen stand-in: ``communicate`` raises each queued exception once, then answers."""
+
+    def __init__(self, raises=()):
+        self.raises, self.returncode, self.kills = list(raises), None, 0
+
+    def communicate(self, timeout=None):
+        if self.raises:
+            raise self.raises.pop(0)
+        self.returncode = -9 if self.kills else 0
+        return '{"status": "sent"}', ""
+
+    def kill(self):
+        self.kills += 1
+
+
+def test_workflow_processes_do_not_share_the_console_ctrl_c():
+    """Ctrl+C in serve's console must not reach a bar that may be placing orders."""
+    import os
+
+    from skills.live_trade.scheduler import Workflows
+
+    seen = []
+
+    def popen(command, **kwargs):
+        seen.append(kwargs)
+        return FakeProcess()
+
+    Workflows(popen=popen)(["python", "-m", STUB], timeout=60, capture_output=True, cwd=".")
+    (kwargs,) = seen
+    if os.name == "nt":
+        assert kwargs["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        assert kwargs["start_new_session"] is True
+    assert "capture_output" not in kwargs and kwargs["stdout"] is subprocess.PIPE
+
+
+def _stub_job(seconds: float):
+    return _config(module=STUB, args=["--exit", "0", "--sleep", str(seconds)]).jobs[0]
+
+
+def _in_background(workflows, job, tmp_path, results):
+    import threading
+
+    def run():
+        with workflows.job():
+            results.append(run_job(job, FRIDAY, final=False, data_root=tmp_path, runner=workflows))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    for _ in range(200):
+        if workflows.running():
+            return thread
+        import time
+
+        time.sleep(0.05)
+    raise AssertionError("the workflow process did not start")
+
+
+def test_ctrl_c_lets_a_running_workflow_finish_before_serve_stops(tmp_path):
+    import time
+
+    from skills.live_trade.scheduler import Workflows
+
+    workflows, results = Workflows(), []
+    thread = _in_background(workflows, _stub_job(1.5), tmp_path, results)
+    started, presses = time.monotonic(), []
+
+    def sleep(seconds):
+        if not presses:
+            presses.append("ctrl+c")
+            raise KeyboardInterrupt
+        time.sleep(min(seconds, 0.1))
+
+    with pytest.raises(KeyboardInterrupt):
+        run_until_stopped(FakeScheduler(), workflows=workflows, sleep=sleep)
+    thread.join(5)
+    # serve returned only after the process ended by itself: no crash, nothing killed.
+    assert time.monotonic() - started >= 1.0
+    assert [(item.status, item.exit_code) for item in results] == [("ran", 0)]
+    assert workflows.killed == [] and workflows.running() == []
+    # Nothing new starts once serve is stopping.
+    stopped = run_job(_stub_job(0), FRIDAY, final=False, data_root=tmp_path, runner=workflows)
+    assert stopped.status == "stopped"
+
+
+def test_a_second_ctrl_c_kills_the_workflow_and_alerts_a_forced_stop(tmp_path, http, monkeypatch):
+    import time
+
+    from skills.live_trade.scheduler import Workflows
+
+    from .conftest import FEISHU
+
+    monkeypatch.setenv("QS_NOTIFY_FEISHU", FEISHU)
+    workflows, results = Workflows(), []
+    thread = _in_background(workflows, _stub_job(60), tmp_path, results)
+    started, presses = time.monotonic(), []
+
+    def sleep(seconds):
+        if len(presses) < 2:
+            presses.append("ctrl+c")
+            raise KeyboardInterrupt
+        time.sleep(min(seconds, 0.1))
+
+    with pytest.raises(KeyboardInterrupt):
+        run_until_stopped(FakeScheduler(), workflows=workflows, sleep=sleep)
+    thread.join(10)
+    assert time.monotonic() - started < 20
+    (attempt,) = results
+    assert attempt.status == "killed" and "强制停止" in attempt.detail
+    assert len(workflows.killed) == 1 and "--date 2026-11-20" in workflows.killed[0]
+    (alert,) = http.sent
+    text = json.loads(alert["body"])["content"]["text"]
+    assert "forced_stop" in text and "强制停止" in text and "核对委托和持仓" in text
+
+
+def test_ctrl_c_during_the_catch_up_finishes_that_run_then_stops(tmp_path):
+    from skills.live_trade.scheduler import Workflows
+
+    once = FakeProcess(raises=[KeyboardInterrupt()])
+    workflows = Workflows(popen=lambda command, **kwargs: once)
+    result = workflows(["python", "-m", STUB, "--refresh"], timeout=60)
+    assert (result.returncode, once.kills, workflows.stopping.is_set()) == (0, 0, True)
+
+    twice = FakeProcess(raises=[KeyboardInterrupt(), KeyboardInterrupt()])
+    workflows = Workflows(popen=lambda command, **kwargs: twice)
+    workflows._running[twice] = "x"  # noqa: SLF001 - kill() needs it registered
+    from skills.live_trade.scheduler import WorkflowStopped
+
+    with pytest.raises(WorkflowStopped) as caught:
+        workflows(["python", "-m", STUB, "--refresh"], timeout=60)
+    assert caught.value.killed and twice.kills >= 1
+
+
+def test_serve_says_when_it_killed_workflows(tmp_path, monkeypatch):
+    import skills.live_trade.scheduler as module
+
+    def killed(scheduler, *, workflows):
+        workflows.killed.append("strategies.demo.live --bar 2026-11-20T21:05:00")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module, "catch_up", lambda *args, **kwargs: [])
+    monkeypatch.setattr(module, "run_until_stopped", killed)
+    said = []
+    with pytest.raises(KeyboardInterrupt):
+        module.serve(_config(), data_root=tmp_path, announce=lambda title, body: said.append(body))
+    assert "强制停止" in said[-1] and "--bar 2026-11-20T21:05:00" in said[-1]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals; Windows is checked on asa")
+def test_a_terminal_ctrl_c_reaches_serve_but_not_its_running_workflow(tmp_path):
+    """SIGINT to serve's process group, as a terminal sends it, leaves the bar running."""
+    import os
+    import signal
+    import textwrap
+    import time
+
+    script = tmp_path / "serve_like.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""
+            import json, sys, threading, time
+            sys.path.insert(0, {str(REPOSITORY_ROOT)!r})
+            from skills.live_trade.scheduler import Workflows, run_until_stopped
+
+            class Scheduler:
+                running = False
+                def start(self): self.running = True
+                def shutdown(self, wait=True): self.running = False
+
+            workflows, out = Workflows(), {{}}
+            command = [sys.executable, "-m", {STUB!r}, "--exit", "0", "--sleep", "2"]
+
+            def job():
+                with workflows.job():
+                    done = workflows(command, timeout=60, cwd={str(REPOSITORY_ROOT)!r})
+                    out["code"] = done.returncode
+
+            threading.Thread(target=job).start()
+            print("ready", flush=True)
+            try:
+                run_until_stopped(Scheduler(), workflows=workflows)
+            except KeyboardInterrupt:
+                out["stopped"] = True
+            print(json.dumps(out), flush=True)
+            """
+        ),
+        encoding="utf-8",
+    )
+    serve = subprocess.Popen(
+        [sys.executable, str(script)], stdout=subprocess.PIPE, text=True, start_new_session=True
+    )
+    assert serve.stdout.readline().strip() == "ready"
+    time.sleep(0.5)
+    os.killpg(serve.pid, signal.SIGINT)
+    out, _ = serve.communicate(timeout=30)
+    assert json.loads(out.strip().splitlines()[-1]) == {"code": 0, "stopped": True}
