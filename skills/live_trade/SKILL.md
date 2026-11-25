@@ -56,10 +56,11 @@ Python 3.11 and the `tzdata` package that `Asia/Shanghai` needs there.
 - `qs` and the workflows print UTF-8 JSON, also into a pipe. A console shows it
   as is; to capture it in PowerShell, first run
   `[Console]::OutputEncoding = [Text.Encoding]::UTF8`.
-- Stop `serve` with Ctrl+C; it stops within a second and pushes its stop
-  message. Closing the window or `taskkill /F` skips that message. To start it
-  at logon, use a Task Scheduler task that runs only while you are logged on,
-  since the PandaAI client runs on your desktop.
+- Stop `serve` with Ctrl+C (see "Stopping `serve`" below). Closing the window
+  kills the running workflow too, while `taskkill /F` on `serve` leaves it
+  running on its own; both skip the stop message. To start it at logon, use a
+  Task Scheduler task that runs only while you are logged on, since the PandaAI
+  client runs on your desktop.
 
 Paste each IM bot's webhook URL into its own `.env` variable; leave unused ones
 empty. One variable may hold several groups of the same IM, separated by commas:
@@ -131,6 +132,16 @@ weekdays (`mon-fri`), and extra workflow arguments. At each time it starts
 day); without `serve --write` the runs only preview and nothing is sent. On start it makes up a run that was missed today, and it pushes a message
 when it starts and when it stops. It does not start itself after a reboot; use
 your system's login items, systemd user service, or Task Scheduler for that.
+
+Stopping `serve`: press Ctrl+C once. Every workflow process runs in its own
+process group (Windows) or session (macOS, Linux), so Ctrl+C reaches only
+`serve`, never a bar that is placing orders. `serve` then starts no new run,
+lets the running one finish (at most its own timeout: one bar for a minute
+strategy, 30 minutes for a daily run), and only then pushes its stop message;
+with nothing running it stops within a second. Press Ctrl+C again while it
+waits to kill the running process and the PandaAI CLI calls it started: the
+run alerts `forced_stop` and the stop message names it, so check its orders and
+positions in the client before starting `serve` again.
 
 ### Daily strategies trade at 14:50
 

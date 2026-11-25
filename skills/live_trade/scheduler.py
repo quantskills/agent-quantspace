@@ -9,6 +9,12 @@ A minute-level job (``frequency`` such as ``5m``) runs ``--refresh`` at its ``ti
 pre-open reload) and, every few seconds, starts one ``--bar <end time>`` process for the
 oldest bar that is ready and not finished. The bars of the day come from the feed state the
 refresh wrote; a bar past its deadline is logged as ``missed`` and alerted once a day.
+
+``serve`` starts every workflow process in its own process group (Windows) or session
+(POSIX), so a Ctrl+C in the console reaches only ``serve``, not a bar that may be placing
+orders. ``serve`` then starts nothing new, waits for the running processes to finish within
+their own timeouts, and only then pushes its stop message; a second Ctrl+C kills them and
+alerts that they were stopped by force (:class:`Workflows`).
 """
 
 from __future__ import annotations
@@ -17,12 +23,16 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time as clock_time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from functools import cache
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -49,6 +59,10 @@ BAR_TIMEOUT_SECONDS = 300
 # How often serve's main thread wakes up. It sleeps rather than waits on the scheduler:
 # on Windows Ctrl+C interrupts time.sleep but not a wait on a lock or event.
 POLL_SECONDS = 1.0
+# Once its last process has ended, a job still logs and alerts; serve waits this long for it.
+JOB_GRACE_SECONDS = 30.0
+# Windows: a child in its own process group does not get the console's Ctrl+C.
+_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 _MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 _TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
@@ -144,6 +158,270 @@ def _report_summary(stdout: str | None) -> str:
     return (f"{status}: {detail}" if detail else status)[:300]
 
 
+class WorkflowStopped(RuntimeError):
+    """``serve`` is stopping: the process was not started, or a forced stop killed it."""
+
+    def __init__(self, message: str, *, killed: bool = False, returncode: int | None = None):
+        super().__init__(message)
+        self.killed, self.returncode = killed, returncode
+
+
+class _WindowsJob:
+    """A Windows job object holding a workflow process and every process it starts.
+
+    ``Popen.kill`` ends only the direct child, the venv's ``python.exe`` launcher, and
+    ``taskkill /T`` walks the process list, which can take 15 seconds; ending the job ends
+    the whole tree at once. A process may still leave the job on request
+    (``CREATE_BREAKAWAY_FROM_JOB``), so a program that asks keeps working, unkilled.
+    """
+
+    _ACCESS = 0x0101  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    _BREAKAWAY_OK = 0x0800  # JOB_OBJECT_LIMIT_BREAKAWAY_OK, an extended limit
+    _EXTENDED_LIMITS = 9  # JobObjectExtendedLimitInformation
+
+    def __init__(self, handle) -> None:
+        self._handle, self._lock = handle, threading.Lock()
+
+    @staticmethod
+    @cache
+    def _kernel32():
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle, dword, boolean = wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL
+        for name, argtypes, restype in (
+            ("CreateJobObjectW", (wintypes.LPVOID, wintypes.LPCWSTR), handle),
+            ("SetInformationJobObject", (handle, ctypes.c_int, wintypes.LPVOID, dword), boolean),
+            ("OpenProcess", (dword, boolean, dword), handle),
+            ("AssignProcessToJobObject", (handle, handle), boolean),
+            ("TerminateJobObject", (handle, wintypes.UINT), boolean),
+            ("CloseHandle", (handle,), boolean),
+        ):
+            function = getattr(kernel32, name)
+            function.argtypes, function.restype = argtypes, restype
+        return kernel32
+
+    @classmethod
+    def holding(cls, pid: int) -> _WindowsJob | None:
+        """A job holding process ``pid``, or None if one cannot be made."""
+        import ctypes
+        from ctypes import wintypes
+
+        class Basic(ctypes.Structure):  # JOBOBJECT_BASIC_LIMIT_INFORMATION
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class Limits(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            _fields_ = [
+                ("BasicLimitInformation", Basic),
+                ("IoInfo", ctypes.c_uint64 * 6),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        try:
+            kernel32 = cls._kernel32()
+            job = kernel32.CreateJobObjectW(None, None)
+        except (AttributeError, OSError):
+            return None
+        if not job:
+            return None
+        limits = Limits(BasicLimitInformation=Basic(LimitFlags=cls._BREAKAWAY_OK))
+        made = kernel32.SetInformationJobObject(
+            job, cls._EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)
+        )
+        process = kernel32.OpenProcess(cls._ACCESS, False, pid) if made else None
+        if process:
+            made = kernel32.AssignProcessToJobObject(job, process)
+            kernel32.CloseHandle(process)
+        if not (made and process):
+            kernel32.CloseHandle(job)
+            return None
+        return cls(job)
+
+    def kill(self) -> bool:
+        with self._lock:
+            return bool(self._handle) and bool(self._kernel32().TerminateJobObject(self._handle, 1))
+
+    def close(self) -> None:
+        """Forget the job; its processes keep running."""
+        with self._lock:
+            if self._handle:
+                self._kernel32().CloseHandle(self._handle)
+                self._handle = None
+
+
+def _kill_tree(process: subprocess.Popen, job: _WindowsJob | None = None) -> None:
+    """Kill a workflow process and every process it started, such as a PandaAI CLI call.
+
+    The child leads its own session on POSIX (see :class:`Workflows`), so its process group
+    is killed; on Windows its job, else ``taskkill /T``.
+    """
+    pid = getattr(process, "pid", None)
+    if isinstance(pid, int) and pid > 0 and process.returncode is None:
+        try:
+            if os.name != "nt":
+                os.killpg(pid, signal.SIGKILL)
+            elif job is None or not job.kill():
+                command = ["taskkill", "/F", "/T", "/PID", str(pid)]
+                subprocess.run(command, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
+class Workflows:
+    """The workflow processes of one ``serve``, called like ``subprocess.run``.
+
+    Each process gets its own process group (Windows ``CREATE_NEW_PROCESS_GROUP``) or
+    session (POSIX ``start_new_session``), so the console's Ctrl+C reaches only ``serve``.
+    After :meth:`stop` no process starts (:class:`WorkflowStopped`); :meth:`wait` lets the
+    running ones finish within their own timeouts, and :meth:`kill` ends them by force, with
+    the processes they started (on Windows through a job object). A process waits in steps
+    of :data:`POLL_SECONDS`, so a Ctrl+C in the main thread (the
+    catch-up) is noticed on Windows too: the first stops ``serve`` after this run, the
+    second kills it.
+    """
+
+    def __init__(
+        self, *, popen=subprocess.Popen, clock: Callable[[], float] = clock_time.monotonic
+    ):
+        self._popen, self._clock = popen, clock
+        self._lock = threading.Lock()
+        self._running: dict[subprocess.Popen, str] = {}
+        self._trees: dict[subprocess.Popen, _WindowsJob | None] = {}
+        self._jobs = 0
+        self.stopping = threading.Event()
+        self.killed: list[str] = []
+
+    def __call__(self, command, *, timeout: float, **options) -> subprocess.CompletedProcess:
+        if self.stopping.is_set():
+            raise WorkflowStopped("serve 正在停止，没有启动新的策略进程")
+        options.pop("capture_output", None)
+        if os.name == "nt":
+            options["creationflags"] = options.get("creationflags", 0) | _NEW_PROCESS_GROUP
+        else:
+            options["start_new_session"] = True
+        process = self._popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)
+        label = " ".join(str(part) for part in command[2:5])
+        pid = getattr(process, "pid", None)
+        tree = _WindowsJob.holding(pid) if os.name == "nt" and isinstance(pid, int) else None
+        with self._lock:
+            self._running[process], self._trees[process] = label, tree
+        deadline, interrupted = self._clock() + timeout, False
+        try:
+            while True:
+                try:
+                    step = max(0.0, min(POLL_SECONDS, deadline - self._clock()))
+                    stdout, stderr = process.communicate(timeout=step)
+                    break
+                except subprocess.TimeoutExpired:
+                    if self._clock() >= deadline:
+                        _kill_tree(process, tree)
+                        stdout, stderr = process.communicate()
+                        raise subprocess.TimeoutExpired(command, timeout, stdout, stderr) from None
+                except KeyboardInterrupt:
+                    # Only the main thread gets here, during the catch-up.
+                    if interrupted:
+                        self.kill()
+                    else:
+                        interrupted = True
+                        self.stop()
+                        LOGGER.warning(
+                            "stopping: waiting for %s to finish; press Ctrl+C again to kill it",
+                            label,
+                        )
+        finally:
+            with self._lock:
+                self._running.pop(process, None)
+                self._trees.pop(process, None)
+            if tree is not None:
+                tree.close()
+        if label in self.killed:
+            raise WorkflowStopped(
+                f"serve 被强制停止，策略进程已终止（退出码 {process.returncode}）",
+                killed=True,
+                returncode=process.returncode,
+            )
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @contextmanager
+    def job(self) -> Iterator[None]:
+        """Mark a scheduled job as running, so :meth:`wait` lets it log and alert."""
+        with self._lock:
+            self._jobs += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._jobs -= 1
+
+    def stop(self) -> None:
+        self.stopping.set()
+
+    def running(self) -> list[str]:
+        with self._lock:
+            return list(self._running.values())
+
+    def kill(self) -> None:
+        """Kill every running process and its children; their runs raise
+        :class:`WorkflowStopped`."""
+        with self._lock:
+            processes = [
+                (process, label, self._trees.get(process))
+                for process, label in self._running.items()
+            ]
+        for process, label, tree in processes:
+            if label not in self.killed:
+                self.killed.append(label)
+            _kill_tree(process, tree)
+
+    def wait(
+        self,
+        *,
+        poll_seconds: float = POLL_SECONDS,
+        sleep: Callable[[float], object] = clock_time.sleep,
+    ) -> None:
+        """Sleep until no job runs: processes end within their own timeouts, then a job has
+        :data:`JOB_GRACE_SECONDS` to log and alert. Ctrl+C here kills the processes, and once
+        more stops waiting."""
+        idle_since = None
+        while True:
+            with self._lock:
+                jobs, processes = self._jobs, len(self._running)
+            if not jobs and not processes:
+                return
+            if processes:
+                idle_since = None
+            else:
+                idle_since = self._clock() if idle_since is None else idle_since
+                if self._clock() - idle_since >= JOB_GRACE_SECONDS:
+                    LOGGER.warning("stopped without waiting longer for %s job(s)", jobs)
+                    return
+            try:
+                sleep(poll_seconds)
+            except KeyboardInterrupt:
+                if self.killed:
+                    return
+                LOGGER.warning("second Ctrl+C: killing %s", ", ".join(self.running()) or "nothing")
+                self.kill()
+
+
 def _run_workflow(runner: Callable[..., subprocess.CompletedProcess], command, timeout: int):
     """Run one workflow process; its output is UTF-8 on every OS (GBK pipes on Windows)."""
     return runner(
@@ -196,6 +474,8 @@ def run_job(
         completed = _run_workflow(runner, command, RUN_TIMEOUT_SECONDS)
         code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
         summary = _report_summary(completed.stdout)
+    except WorkflowStopped as exc:
+        return _stopped(job, trade_date, trade_date.isoformat(), final, exc, write, runs)
     except (OSError, subprocess.TimeoutExpired) as exc:
         code, tail = None, f"{type(exc).__name__}: {exc}"
     if code in KNOWN_EXIT_CODES:
@@ -210,6 +490,21 @@ def run_job(
             f"策略进程异常退出（退出码 {code}），今天的信号没有生成。\n{tail[-300:]}",
         )
     return Attempt(job.strategy_id, trade_date.isoformat(), final, "crashed", code, tail)
+
+
+def _stopped(job, trade_date: date, label: str, final: bool, exc, write: bool, runs) -> Attempt:
+    """The attempt of a run ``serve`` did not start while stopping, or killed by force."""
+    if not exc.killed:
+        return Attempt(job.strategy_id, label, final, "stopped", detail=str(exc))
+    LOGGER.error("%s %s killed by a forced stop (exit %s)", job.strategy_id, label, exc.returncode)
+    if write and runs.claim_alert(trade_date, "forced_stop"):
+        send_alert(
+            job.strategy_id,
+            trade_date,
+            "forced_stop",
+            f"运行：{label}\n{exc}。如果它正在下单，请在客户端核对委托和持仓。",
+        )
+    return Attempt(job.strategy_id, label, final, "killed", exc.returncode, str(exc))
 
 
 def bar_timeout(frequency: str) -> int:
@@ -275,6 +570,9 @@ def tick(
             completed = _run_workflow(runner, command, bar_timeout(state.frequency))
             code, tail = completed.returncode, (completed.stderr or "").strip()[-500:]
             summary = _report_summary(completed.stdout)
+        except WorkflowStopped as exc:
+            attempts.append(_stopped(job, bar.trading_date, label, False, exc, write, runs))
+            break
         except (OSError, subprocess.TimeoutExpired) as exc:
             code, tail = None, f"{type(exc).__name__}: {exc}"
         if code in KNOWN_EXIT_CODES:
@@ -323,38 +621,55 @@ def catch_up(
     return attempts
 
 
+@contextmanager
+def _no_job() -> Iterator[None]:
+    yield
+
+
 def build_scheduler(
     config: ScheduleConfig,
     *,
     write: bool = True,
     data_root: str | Path | None = None,
     scheduler_class=None,
+    workflows: Workflows | None = None,
 ):
     """An APScheduler scheduler with one cron trigger per job and run time; it runs its
-    triggers in a background thread once started."""
+    triggers in a background thread once started, their processes through ``workflows``."""
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
 
     zone = ZoneInfo(config.timezone)
     scheduler = (scheduler_class or BackgroundScheduler)(timezone=zone)
 
+    runner = workflows or subprocess.run
+    active = workflows.job if workflows else _no_job
+
     def fire(job: JobConfig, final: bool) -> None:
-        attempt = run_job(
-            job, datetime.now(zone).date(), final=final, write=write, data_root=data_root
-        )
-        LOGGER.info("%s", attempt)
+        with active():
+            attempt = run_job(
+                job,
+                datetime.now(zone).date(),
+                final=final,
+                write=write,
+                data_root=data_root,
+                runner=runner,
+            )
+            LOGGER.info("%s", attempt)
 
     seen: dict[str, set[str]] = {}
 
     def fire_tick(job: JobConfig) -> None:
-        for attempt in tick(
-            job,
-            datetime.now(zone).replace(tzinfo=None),
-            write=write,
-            data_root=data_root,
-            seen=seen.setdefault(job.strategy_id, set()),
-        ):
-            LOGGER.info("%s", attempt)
+        with active():
+            for attempt in tick(
+                job,
+                datetime.now(zone).replace(tzinfo=None),
+                write=write,
+                data_root=data_root,
+                runner=runner,
+                seen=seen.setdefault(job.strategy_id, set()),
+            ):
+                LOGGER.info("%s", attempt)
 
     for job in config.jobs:
         if job.intraday:
@@ -409,18 +724,34 @@ def next_runs(config: ScheduleConfig, now: datetime, count: int = 3) -> dict[str
 def run_until_stopped(
     scheduler,
     *,
+    workflows: Workflows | None = None,
     poll_seconds: float = POLL_SECONDS,
     sleep: Callable[[float], object] = clock_time.sleep,
 ) -> None:
     """Start a background ``scheduler`` and sleep in this thread until it stops or Ctrl+C.
 
     A ``BlockingScheduler`` would wait on an event until the next trigger, and on Windows
-    Ctrl+C is only handled when that wait ends, which can be hours away.
+    Ctrl+C is only handled when that wait ends, which can be hours away. On Ctrl+C the
+    scheduler stops triggering, ``workflows`` starts nothing new and is waited for
+    (:meth:`Workflows.wait`), then the ``KeyboardInterrupt`` goes on.
     """
     scheduler.start()
     try:
         while scheduler.running:
             sleep(poll_seconds)
+    except KeyboardInterrupt:
+        if workflows is not None:
+            workflows.stop()
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
+            running = workflows.running()
+            if running:
+                LOGGER.warning(
+                    "stopping: waiting for %s to finish; press Ctrl+C again to kill",
+                    ", ".join(running),
+                )
+            workflows.wait(poll_seconds=poll_seconds, sleep=sleep)
+        raise
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
@@ -442,13 +773,25 @@ def serve(
     names = ", ".join(f"{job.strategy_id} {'/'.join(job.times)}" for job in config.jobs)
     if announce:
         announce("QuantSpace 实盘调度已启动", f"任务：{names}（{config.timezone}）")
+    workflows = Workflows()
     try:
-        for attempt in catch_up(config, datetime.now(zone), write=write, data_root=data_root):
+        now = datetime.now(zone)
+        for attempt in catch_up(config, now, write=write, data_root=data_root, runner=workflows):
             LOGGER.info("catch-up %s", attempt)
-        run_until_stopped(build_scheduler(config, write=write, data_root=data_root))
+        if workflows.stopping.is_set():
+            # Ctrl+C during the catch-up, whose run was let finish.
+            raise KeyboardInterrupt
+        scheduler = build_scheduler(config, write=write, data_root=data_root, workflows=workflows)
+        run_until_stopped(scheduler, workflows=workflows)
     finally:
         if announce:
-            announce("QuantSpace 实盘调度已停止", f"任务：{names}。停止期间不会生成信号。")
+            body = f"任务：{names}。停止期间不会生成信号。"
+            if workflows.killed:
+                body += (
+                    f"\n强制停止：终止了正在运行的策略进程（{'；'.join(workflows.killed)}），"
+                    "如果它们正在下单，请在客户端核对委托和持仓。"
+                )
+            announce("QuantSpace 实盘调度已停止", body)
 
 
 def load_schedule(path: str | Path) -> ScheduleConfig:
@@ -459,6 +802,8 @@ __all__ = [
     "Attempt",
     "JobConfig",
     "ScheduleConfig",
+    "WorkflowStopped",
+    "Workflows",
     "build_scheduler",
     "catch_up",
     "load_schedule",
