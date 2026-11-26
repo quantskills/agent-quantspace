@@ -273,7 +273,12 @@ def main(argv=None) -> int:
   from the repository root, skips finished dates, and alerts once when the
   process exits with a code other than 0, 1, 3, or 4. The process prints UTF-8
   (`PYTHONIOENCODING=utf-8`) and its output is read as UTF-8 on every OS.
-  `catch_up(config, now)` runs each job whose first time today has passed.
+  `catch_up(config, now)` runs each job whose first time today has passed, and
+  the refresh of every minute-level job, except after the 15:30 day close before
+  its first time after the close: the night session belongs to the next
+  trading day, whose dominant contracts PandaData publishes in the evening.
+  A minute-level job's tick that finds the previous one still running returns
+  at once.
   `build_scheduler` returns a `BackgroundScheduler` with one coalesced cron job
   per run time and a six-hour misfire grace, so a run missed during sleep still
   happens once. `serve` runs it through `run_until_stopped`, whose thread

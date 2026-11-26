@@ -348,8 +348,58 @@ def test_minute_jobs_get_a_tick_and_always_refresh_on_start(tmp_path):
 
     assert sorted(jobs) == ["rb_demo@1800", "rb_demo@bars"]
     assert str(jobs["rb_demo@bars"].trigger.fields[-1]) == "*/10"
-    assert jobs["rb_demo@bars"].max_instances == 1
+    assert jobs["rb_demo@bars"].max_instances == 2
     assert [item.status for item in attempts] == ["ran"] and "--refresh" in runner.calls[0][0]
+
+
+@pytest.mark.parametrize(
+    ("now", "refreshes"),
+    [
+        (datetime(2026, 11, 25, 15, 10), True),  # before the close: today's bars are next
+        (datetime(2026, 11, 25, 16, 44), False),  # the 18:00 refresh comes later today
+        (datetime(2026, 11, 25, 18, 30), True),  # after the first refresh time
+        (datetime(2026, 11, 25, 20, 30), True),  # every time has passed
+        (datetime(2026, 11, 28, 16, 44), True),  # Saturday: no refresh comes later today
+    ],
+)
+def test_the_catch_up_refresh_after_the_close_waits_for_one_due_today(tmp_path, now, refreshes):
+    config = _config(strategy_id="rb_demo", frequency="5m", times=["18:00", "20:00"])
+    runner = FakeRunner()
+
+    attempts = catch_up(config, now.replace(tzinfo=ZONE), data_root=tmp_path, runner=runner)
+
+    assert len(attempts) == len(runner.calls) == int(refreshes)
+
+
+def test_a_tick_that_finds_the_previous_one_running_returns_at_once(tmp_path, monkeypatch):
+    import threading
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    import skills.live_trade.scheduler as module
+
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def slow_tick(job, now, **kwargs):
+        calls.append(now)
+        started.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(module, "tick", slow_tick)
+    config = _config(strategy_id="rb_demo", frequency="5m", times=["18:00"])
+    scheduler = build_scheduler(config, data_root=tmp_path, scheduler_class=BackgroundScheduler)
+    job = scheduler.get_job("rb_demo@bars")
+    first = threading.Thread(target=job.func, args=job.args)
+    first.start()
+    assert started.wait(5)
+
+    job.func(*job.args)  # returns at once while the first tick runs
+    release.set()
+    first.join(5)
+    job.func(*job.args)
+
+    assert len(calls) == 2
 
 
 class FakeScheduler:

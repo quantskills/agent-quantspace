@@ -40,7 +40,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .clock import INTRADAY_MINUTES, due_bars
-from .feeds import read_feed_state
+from .feeds import DAY_CLOSE, read_feed_state
 from .ledger import validate_strategy_id
 from .runner import DONE_STATUSES, RunLog, send_alert
 
@@ -607,6 +607,8 @@ def catch_up(
     for job in config.jobs:
         today = now.date()
         if job.intraday:
+            if _refresh_later_today(job, now, zone):
+                continue
             # The refresh is cheap and idempotent; run it so the next bars can be handled.
             attempts.append(
                 run_job(job, today, final=False, write=write, data_root=data_root, runner=runner)
@@ -619,6 +621,24 @@ def catch_up(
             run_job(job, today, final=final, write=write, data_root=data_root, runner=runner)
         )
     return attempts
+
+
+def _refresh_later_today(job: JobConfig, now: datetime, zone: ZoneInfo) -> bool:
+    """Whether a minute-level job's catch-up refresh should wait for its first refresh after
+    today's close, which is still due.
+
+    After the day close the next bars are the night session's, which belong to the next
+    trading day; PandaData publishes that day's dominant contracts in the evening, so a
+    refresh started before the scheduled one fails and would use up the day's
+    ``refresh_error`` alert.
+    """
+    after_close = [moment for moment in job.run_times if moment >= DAY_CLOSE]
+    return (
+        now.time() >= DAY_CLOSE
+        and _day_matches(job.days, now.date(), zone)
+        and bool(after_close)
+        and now.time() < after_close[0]
+    )
 
 
 @contextmanager
@@ -658,18 +678,26 @@ def build_scheduler(
             LOGGER.info("%s", attempt)
 
     seen: dict[str, set[str]] = {}
+    busy = {job.strategy_id: threading.Lock() for job in config.jobs}
 
     def fire_tick(job: JobConfig) -> None:
-        with active():
-            for attempt in tick(
-                job,
-                datetime.now(zone).replace(tzinfo=None),
-                write=write,
-                data_root=data_root,
-                runner=runner,
-                seen=seen.setdefault(job.strategy_id, set()),
-            ):
-                LOGGER.info("%s", attempt)
+        # A bar can take longer than a tick; the next tick returns at once instead of being
+        # skipped by APScheduler, which would log a warning every few seconds.
+        if not busy[job.strategy_id].acquire(blocking=False):
+            return
+        try:
+            with active():
+                for attempt in tick(
+                    job,
+                    datetime.now(zone).replace(tzinfo=None),
+                    write=write,
+                    data_root=data_root,
+                    runner=runner,
+                    seen=seen.setdefault(job.strategy_id, set()),
+                ):
+                    LOGGER.info("%s", attempt)
+        finally:
+            busy[job.strategy_id].release()
 
     for job in config.jobs:
         if job.intraday:
@@ -680,7 +708,8 @@ def build_scheduler(
                 id=f"{job.strategy_id}@bars",
                 misfire_grace_time=TICK_SECONDS,
                 coalesce=True,
-                max_instances=1,
+                # The tick that finds the previous one still running returns at once.
+                max_instances=2,
             )
         last = job.run_times[-1]
         for moment in job.run_times:
